@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Expand SD Root
+Comment=Grow the booted SD root partition to fill the card
+Exec=thorch-expand-root-launcher
+Icon=drive-removable-media
+Terminal=true
+Categories=System;

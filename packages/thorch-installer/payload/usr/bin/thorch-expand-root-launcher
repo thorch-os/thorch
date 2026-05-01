@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID}" -ne 0 ]]; then
+  if command -v pkexec >/dev/null 2>&1; then
+    exec pkexec /usr/bin/thorch-expand-root-launcher "$@"
+  fi
+  echo "Root partition expansion must run as root. Open a terminal and run:" >&2
+  echo "  sudo thorch-expand-root-launcher" >&2
+  exit 1
+fi
+
+cat <<'EOF'
+Expand SD Root Partition
+
+This will expand the currently booted ext4 root partition to fill the remaining
+free space on its SD card, then grow the mounted filesystem online.
+
+It only operates on the device that is mounted as / and refuses non-removable
+media unless you pass --force.
+EOF
+
+exec /usr/bin/thorch-expand-root "$@"

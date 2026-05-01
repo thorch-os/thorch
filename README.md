@@ -160,6 +160,9 @@ The default image package set is:
 thorch-installer thorch-fex-bin thorch-gaming-installers`. Override
 `THORCH_IMAGE_PACKAGES` when you need a custom image package set.
 
+After first boot from a larger SD card, use the `Expand SD Root` desktop icon to
+grow the booted root partition and ext4 filesystem to fill the card.
+
 `thorch-kde-defaults` pulls in Firefox and the core KDE desktop applications:
 Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.
 

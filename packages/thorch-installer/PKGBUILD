@@ -2,7 +2,7 @@
 
 pkgname=thorch-installer
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc='Thorch internal installer and recovery tooling for AYN Thor'
 arch=(aarch64)
 license=(GPL-2.0-or-later)
@@ -13,7 +13,10 @@ sha256sums=()
 package() {
   cd "${startdir}/payload"
   cp -a . "${pkgdir}/"
+  chmod 755 "${pkgdir}/usr/bin/thorch-expand-root"
+  chmod 755 "${pkgdir}/usr/bin/thorch-expand-root-launcher"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-internal"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-internal-launcher"
+  chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-expand-root.desktop"
   chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-install-internal.desktop"
 }

@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: thorch-expand-root [--force] [--yes]
+
+Expand the currently booted ext4 root partition to the end of its parent block
+device, then grow the mounted filesystem online.
+
+  --force   allow running when the root device is not marked removable
+  --yes     do not ask for interactive confirmation
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+require_cmd() {
+  local missing=0 cmd
+  for cmd in "$@"; do
+    if ! command -v "${cmd}" >/dev/null 2>&1; then
+      printf 'missing required command: %s\n' "${cmd}" >&2
+      missing=1
+    fi
+  done
+  [[ "${missing}" -eq 0 ]] || exit 1
+}
+
+force=0
+yes=0
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --force)
+      force=1
+      shift
+      ;;
+    --yes|-y)
+      yes=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ "${EUID}" -eq 0 ]] || die "this command must run as root"
+require_cmd blockdev findfs findmnt lsblk partprobe parted resize2fs sfdisk udevadm
+
+root_source="$(findmnt -no SOURCE /)"
+root_fstype="$(findmnt -no FSTYPE /)"
+[[ "${root_fstype}" == "ext4" ]] || die "root filesystem is ${root_fstype}, not ext4"
+
+root_source="${root_source%%[*}"
+if [[ "${root_source}" == UUID=* || "${root_source}" == LABEL=* || "${root_source}" == PARTUUID=* || "${root_source}" == PARTLABEL=* ]]; then
+  root_source="$(findfs "${root_source}")"
+fi
+[[ -b "${root_source}" ]] || die "root source is not a block device: ${root_source}"
+root_dev="$(readlink -f "${root_source}")"
+[[ -b "${root_dev}" ]] || die "unable to resolve root block device from ${root_source}"
+
+parent_name="$(lsblk -no PKNAME "${root_dev}" | head -n1 | tr -d '[:space:]')"
+partno="$(lsblk -no PARTN "${root_dev}" | head -n1 | tr -d '[:space:]')"
+[[ -n "${parent_name}" && -n "${partno}" ]] || die "root device ${root_dev} is not a normal disk partition"
+
+disk="/dev/${parent_name}"
+[[ -b "${disk}" ]] || die "parent disk does not exist: ${disk}"
+
+removable="$(lsblk -dnro RM "${disk}" | head -n1 | tr -d '[:space:]')"
+if [[ "${removable}" != "1" && "${force}" -ne 1 ]]; then
+  die "${disk} is not marked removable; pass --force if this is the intended SD root device"
+fi
+
+root_mount_opts="$(findmnt -no OPTIONS /)"
+[[ ",${root_mount_opts}," == *,rw,* ]] || die "root filesystem is not mounted read-write"
+
+part_size_before="$(blockdev --getsize64 "${root_dev}")"
+disk_bytes="$(blockdev --getsize64 "${disk}")"
+
+cat <<EOF
+
+Root device: ${root_dev}
+Parent disk: ${disk}
+Partition:   ${partno}
+Disk size:   ${disk_bytes} bytes
+Root size:   ${part_size_before} bytes
+
+EOF
+
+if [[ "${yes}" -ne 1 ]]; then
+  read -r -p "Type EXPAND to grow ${root_dev} to fill ${disk}: " answer
+  [[ "${answer}" == "EXPAND" ]] || die "confirmation did not match"
+fi
+
+echo "Repairing GPT backup header if the card is larger than the image..."
+sfdisk --relocate gpt-bak-std "${disk}" >/dev/null 2>&1 || true
+parted -s -f "${disk}" print >/dev/null
+
+echo "Growing partition ${partno} to the end of ${disk}..."
+parted -s -a optimal "${disk}" unit s resizepart "${partno}" 100%
+
+partprobe "${disk}" >/dev/null 2>&1 || true
+udevadm settle
+blockdev --rereadpt "${disk}" >/dev/null 2>&1 || true
+udevadm settle
+
+part_size_after="$(blockdev --getsize64 "${root_dev}")"
+if [[ "${part_size_after}" -le "${part_size_before}" ]]; then
+  echo "No larger partition size is visible yet; running filesystem growth anyway."
+  echo "If resize2fs reports no change and free space remains, reboot and run this launcher again."
+fi
+
+echo "Growing ext4 filesystem on ${root_dev}..."
+resize2fs "${root_dev}"
+
+fs_blocks="$(findmnt -no SIZE /)"
+echo
+if [[ "${part_size_after}" -gt "${part_size_before}" ]]; then
+  echo "Root partition expanded from ${part_size_before} to ${part_size_after} bytes."
+else
+  echo "Root partition size is ${part_size_after} bytes."
+fi
+echo "Mounted root filesystem size is now ${fs_blocks}."

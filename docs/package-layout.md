@@ -23,7 +23,8 @@ touch calibration service, the F24 desktop escape helper, Firefox, and the core
 KDE desktop applications. Plasma Mobile remains optional so the desktop session
 stays the default shell.
 
-`thorch-installer` provides `thorch-install-internal`.
+`thorch-installer` provides `thorch-install-internal` and the `Expand SD Root`
+desktop launcher for growing the booted SD root partition after first boot.
 
 `thorch-fex-bin` repackages the matching ROCKNIX `/SYSTEM` FEX runtime. It
 installs FEX, Vulkan/OpenGL/
