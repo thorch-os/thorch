@@ -155,10 +155,13 @@ make check IMAGE=/dev/sdX
 The Makefile is a thin wrapper around `scripts/`. Use the scripts directly when
 you need non-default options.
 
-The default image package set is intentionally lean:
+The default image package set is:
 `linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults
 thorch-installer thorch-fex-bin thorch-gaming-installers`. Override
 `THORCH_IMAGE_PACKAGES` when you need a custom image package set.
+
+`thorch-kde-defaults` pulls in Firefox and the core KDE desktop applications:
+Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.
 
 On desktop sessions where `sudo` prompts are not visible, run privileged scripts
 through PolicyKit directly, for example:
@@ -187,7 +190,7 @@ If the device reports `no match found for DTB!`, it is still in the bootloader;
 SSH will not be available. That usually means the top-level `/KERNEL` on the FAT
 boot partition is not the rebuilt Thorch Android boot image. Re-run
 `make check IMAGE=/dev/sdX` against the SD card and rebuild or rewrite the image
-if the `/KERNEL` DTB checks fail.
+if the `/KERNEL` DTB check fails.
 
 If an internal Thorch/ROCKNIX install is present, the internal FAT boot
 partition may also be labelled `ROCKNIX`. Some ABL paths find the internal

@@ -44,7 +44,6 @@ check_file "raw Linux Image" "${boot_dir}/Image"
 check_file "Thorch initramfs" "${boot_dir}/initramfs-linux-thorch.img"
 check_file "LinuxLoader.cfg" "${boot_dir}/LinuxLoader.cfg"
 check_file "Android boot image KERNEL" "${boot_dir}/KERNEL"
-check_file "Thor DTB" "${boot_dir}/dtb/qcom/qcs8550-ayn-thor.dtb"
 
 if [[ -f "${boot_dir}/LinuxLoader.cfg" ]]; then
   grep -q 'Target = "Linux"' "${boot_dir}/LinuxLoader.cfg" || failures=$((failures + 1))

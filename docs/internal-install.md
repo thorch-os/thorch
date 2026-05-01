@@ -64,4 +64,4 @@ make check IMAGE=/dev/sdX
 ```
 
 The check must pass the Android boot image, root UUID, framebuffer rotation, and
-embedded Thor DTB tests for `/KERNEL`.
+embedded Thor DTB test for `/KERNEL`.

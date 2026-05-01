@@ -2,23 +2,15 @@
 
 pkgname=thorch-kde-defaults
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc='KDE Plasma Mobile/Desktop defaults for Thorch on AYN Thor'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-or-later)
-depends=(alsa-utils kscreen kwin libpulse perl pipewire plasma-desktop plasma-keyboard plasma-maliit-framework plasma-maliit-plugins plasma-nm plasma-pa plasma-workspace python qt6-tools qt6-virtualkeyboard rtkit sddm systemd util-linux wireplumber xorg-xrandr)
-optdepends=('ark: archive manager'
-            'dolphin: graphical file manager'
-            'firefox: web browser'
-            'gwenview: image viewer'
-            'kate: text editor'
-            'kcalc: calculator'
-            'konsole: terminal emulator'
-            'okular: document viewer'
-            'plasma-mobile: mobile shell session'
+depends=(alsa-utils ark dolphin firefox gwenview kate kcalc konsole kscreen kwin libpulse okular perl pipewire plasma-desktop plasma-keyboard plasma-maliit-framework plasma-maliit-plugins plasma-nm plasma-pa plasma-workspace python qt6-tools qt6-virtualkeyboard rtkit sddm spectacle systemd util-linux wireplumber xorg-xrandr)
+optdepends=('plasma-mobile: mobile shell session'
             'plasma-settings: mobile shell settings'
-            'spectacle: screenshot tool')
+            'vlc: media player')
 source=()
 sha256sums=()
 

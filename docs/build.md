@@ -114,6 +114,9 @@ The default image package set is:
 linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-fex-bin thorch-gaming-installers
 ```
 
+`thorch-kde-defaults` installs Firefox and the core KDE desktop applications:
+Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.
+
 Override `THORCH_IMAGE_PACKAGES` with the complete local package set when you
 want a custom image, for example:
 
@@ -144,8 +147,7 @@ make check IMAGE=/dev/sdX
 
 If Thor shows `no match found for DTB!`, the bootloader has selected the FAT
 boot partition but rejected `/KERNEL`. Check the SD with `make check
-IMAGE=/dev/sdX`; the `/KERNEL` checks must report that it is an Android boot
-image, uses the image root UUID, and embeds the Thor DTB.
+IMAGE=/dev/sdX`; the `/KERNEL` check must report that it embeds the Thor DTB.
 
 ## Important Environment
 

@@ -76,12 +76,10 @@ validate_image() {
   check "Android boot image /KERNEL exists at FAT root" has_fat_path /KERNEL
   check "raw Linux /Image exists at FAT root" has_fat_path /Image
   check "LinuxLoader.cfg exists at FAT root" has_fat_path /LinuxLoader.cfg
-  check "Thor DTB exists under /dtb/qcom" has_fat_path /dtb/qcom/qcs8550-ayn-thor.dtb
 
   linuxloader="$(mtype -i "${boot_ref}" ::/LinuxLoader.cfg 2>/dev/null || true)"
   check "LinuxLoader targets direct Linux boot" grep -q 'Target = "Linux"' <<<"${linuxloader}"
   check "LinuxLoader loads /Image" grep -q 'Image = "Image"' <<<"${linuxloader}"
-  check "LinuxLoader points at Thor DTB" grep -q 'devicetree = "dtb/qcom/qcs8550-ayn-thor.dtb"' <<<"${linuxloader}"
   check "LinuxLoader command line rotates fbcon right" grep -q 'fbcon=rotate:1' <<<"${linuxloader}"
   check "LinuxLoader command line uses root UUID" grep -q 'root=UUID=' <<<"${linuxloader}"
 

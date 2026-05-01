@@ -19,9 +19,9 @@ helper, and host Vulkan ICD. The image build removes Arch's stock
 
 `thorch-kde-defaults` installs the Plasma Desktop dependencies, SDDM defaults,
 KWin display and touch seeds, virtual keyboard settings, audio user units,
-touch calibration service, and the F24 desktop escape helper. Plasma Mobile and
-desktop convenience apps are optional dependencies rather than default image
-payload.
+touch calibration service, the F24 desktop escape helper, Firefox, and the core
+KDE desktop applications. Plasma Mobile remains optional so the desktop session
+stays the default shell.
 
 `thorch-installer` provides `thorch-install-internal`.
 
