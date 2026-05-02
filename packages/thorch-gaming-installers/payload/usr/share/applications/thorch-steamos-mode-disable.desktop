@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Disable SteamOS Boot
+Comment=Stop starting SteamOS mode automatically after login
+Exec=/usr/bin/thorch-steamos-mode disable
+Icon=process-stop
+Terminal=false
+Categories=Game;System;

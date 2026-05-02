@@ -1,0 +1,412 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: thorch-steamos-mode start|stop|restart|status|enable|disable
+
+SteamOS mode keeps Plasma/KWin as the real two-screen session, then runs the
+Steam Deck UI inside nested gamescope on the configured Steam output.
+EOF
+  exit 2
+}
+
+cmd="${1:-start}"
+case "${cmd}" in
+  start|stop|restart|status|enable|disable|run) ;;
+  *) usage ;;
+esac
+
+uid="$(id -u)"
+steam_output="${THORCH_STEAMOS_STEAM_OUTPUT:-DSI-2}"
+width="${THORCH_STEAMOS_WIDTH:-1920}"
+height="${THORCH_STEAMOS_HEIGHT:-1080}"
+refresh="${THORCH_STEAMOS_REFRESH:-120}"
+backend="${THORCH_STEAMOS_GAMESCOPE_BACKEND:-nested}"
+steam_branch="${THORCH_STEAMOS_STEAM_BRANCH:-steamdeck_publicbeta}"
+state_home="${XDG_STATE_HOME:-${HOME}/.local/state}"
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+log_dir="${state_home}/thorch"
+log_file="${log_dir}/steamos-mode.log"
+pid_file="${runtime_dir}/thorch-steamos-mode.pid"
+autostart_dir="${HOME}/.config/autostart"
+autostart_file="${autostart_dir}/thorch-steamos-mode.desktop"
+kwin_script="${runtime_dir}/thorch-steamos-mode-kwin.js"
+launcher="${THORCH_STEAMOS_LAUNCHER:-${HOME}/.local/bin/thorch-start-steam-arm64-gamescope}"
+
+detect_display() {
+  local sock last
+
+  if [[ -n "${DISPLAY:-}" ]]; then
+    return 0
+  fi
+
+  last=""
+  for sock in /tmp/.X11-unix/X*; do
+    [[ -S "${sock}" ]] || continue
+    last=":${sock##*/X}"
+  done
+  export DISPLAY="${last:-:0}"
+}
+
+detect_xauthority() {
+  local auth
+
+  if [[ -n "${XAUTHORITY:-}" && -f "${XAUTHORITY}" ]]; then
+    return 0
+  fi
+
+  auth="$(find "${runtime_dir}" -maxdepth 1 -type f -name 'xauth_*' -print -quit 2>/dev/null || true)"
+  if [[ -n "${auth}" ]]; then
+    export XAUTHORITY="${auth}"
+  fi
+}
+
+ensure_session_env() {
+  export XDG_RUNTIME_DIR="${runtime_dir}"
+  export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
+  if [[ -z "${WAYLAND_DISPLAY:-}" && -S "${runtime_dir}/wayland-0" ]]; then
+    export WAYLAND_DISPLAY=wayland-0
+  fi
+  detect_display
+  detect_xauthority
+  export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"
+  export LANG="${LANG:-C.UTF-8}"
+  export LC_ALL="${LC_ALL:-C.UTF-8}"
+}
+
+json_string() {
+  python -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
+}
+
+load_kwin_mode_script() {
+  local output_json
+
+  command -v qdbus6 >/dev/null 2>&1 || return 0
+  [[ -S "${runtime_dir}/bus" ]] || return 0
+
+  output_json="$(json_string "${steam_output}")"
+  install -d -m 0700 "${runtime_dir}"
+  cat > "${kwin_script}" <<EOF
+"use strict";
+
+const steamOutputName = ${output_json};
+
+function textValue(value) {
+    if (value === undefined || value === null) {
+        return "";
+    }
+    try {
+        return value.toString();
+    } catch (e) {
+        return "";
+    }
+}
+
+function outputName(output) {
+    return textValue(output && output.name);
+}
+
+function steamOutput() {
+    const outputLists = [
+        workspace.screens || [],
+        workspace.screenOrder || []
+    ];
+    for (const screens of outputLists) {
+        for (const output of screens) {
+            if (outputName(output) === steamOutputName) {
+                return output;
+            }
+        }
+    }
+    return workspace.activeScreen;
+}
+
+function isSteamModeWindow(window) {
+    if (!window || !(window.normalWindow || window.dialog)) {
+        return false;
+    }
+    const haystack = [
+        window.resourceClass,
+        window.resourceName,
+        window.windowClass,
+        window.desktopFileName,
+        window.caption,
+        window.captionNormal,
+        window.windowRole
+    ].map(textValue).join(" ").toLowerCase();
+
+    return haystack.indexOf("gamescope") !== -1 ||
+           haystack.indexOf("steam") !== -1;
+}
+
+function applySteamMode(window) {
+    if (!isSteamModeWindow(window)) {
+        return;
+    }
+
+    const output = steamOutput();
+    if (!output) {
+        return;
+    }
+
+    try {
+        window.fullScreen = false;
+    } catch (e) {
+    }
+    try {
+        workspace.sendClientToScreen(window, output);
+    } catch (e) {
+        console.info("thorch-steamos-mode: could not send window to output: " + e);
+    }
+    try {
+        window.noBorder = true;
+    } catch (e) {
+        console.info("thorch-steamos-mode: could not set noBorder: " + e);
+    }
+    try {
+        window.fullScreen = true;
+    } catch (e) {
+        console.info("thorch-steamos-mode: could not set fullscreen: " + e);
+    }
+    try {
+        window.skipTaskbar = true;
+        window.skipSwitcher = true;
+    } catch (e) {
+    }
+}
+
+function wireWindow(window) {
+    applySteamMode(window);
+    try {
+        window.captionChanged.connect(() => applySteamMode(window));
+        window.outputChanged.connect(() => applySteamMode(window));
+    } catch (e) {
+    }
+}
+
+function applyAll() {
+    workspace.windowList().forEach(wireWindow);
+}
+
+workspace.windowAdded.connect(wireWindow);
+workspace.screensChanged.connect(applyAll);
+workspace.screenOrderChanged.connect(applyAll);
+applyAll();
+EOF
+
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript thorch-steamos-mode >/dev/null 2>&1 || true
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${kwin_script}" thorch-steamos-mode >/dev/null 2>&1 || true
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null 2>&1 || true
+}
+
+unload_kwin_mode_script() {
+  command -v qdbus6 >/dev/null 2>&1 || return 0
+  [[ -S "${runtime_dir}/bus" ]] || return 0
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript thorch-steamos-mode >/dev/null 2>&1 || true
+}
+
+ensure_launcher() {
+  if [[ -x "${launcher}" ]]; then
+    return 0
+  fi
+
+  if command -v thorch-install-steam-arm64 >/dev/null 2>&1; then
+    thorch-install-steam-arm64 --yes
+  fi
+
+  if [[ ! -x "${launcher}" ]]; then
+    echo "Steam ARM64 launcher is missing. Run thorch-install-gaming-stack first." >&2
+    exit 1
+  fi
+}
+
+running() {
+  supervisor_running ||
+  pgrep -u "${uid}" -x gamescope-wl >/dev/null 2>&1 ||
+    pgrep -u "${uid}" -x gamescope >/dev/null 2>&1 ||
+    pgrep -u "${uid}" -x steam >/dev/null 2>&1
+}
+
+supervisor_running() {
+  local args pid
+
+  [[ -r "${pid_file}" ]] || return 1
+  pid="$(cat "${pid_file}" 2>/dev/null || true)"
+  [[ -n "${pid}" ]] || return 1
+  kill -0 "${pid}" >/dev/null 2>&1 || return 1
+  args="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+  [[ "${args}" == *"thorch-steamos-mode run"* ]]
+}
+
+run_mode() {
+  local attempt elapsed rc started_at
+
+  ensure_session_env
+  install -d -m 0755 "${log_dir}"
+  echo "$$" > "${pid_file}"
+  trap 'rm -f "${pid_file}"' EXIT
+
+  for attempt in 1 2 3; do
+    echo "Starting SteamOS mode attempt ${attempt} on ${steam_output}..."
+    started_at="$(date +%s)"
+    if env \
+      XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
+      DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS}" \
+      WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+      DISPLAY="${DISPLAY}" \
+      XAUTHORITY="${XAUTHORITY:-}" \
+      XDG_SESSION_TYPE="${XDG_SESSION_TYPE}" \
+      LANG="${LANG}" \
+      LC_ALL="${LC_ALL}" \
+      THORCH_STEAM_MODE=deck \
+      THORCH_STEAM_USE_GAMESCOPE=1 \
+      THORCH_STEAM_GAMESCOPE_WIDTH="${width}" \
+      THORCH_STEAM_GAMESCOPE_HEIGHT="${height}" \
+      THORCH_STEAM_GAMESCOPE_REFRESH="${refresh}" \
+      THORCH_STEAM_GAMESCOPE_BACKEND="${backend}" \
+      THORCH_STEAM_BRANCH="${steam_branch}" \
+      THORCH_STEAM_SKIP_ICON=1 \
+      "${launcher}"; then
+      rc=0
+    else
+      rc=$?
+    fi
+    elapsed="$(( $(date +%s) - started_at ))"
+    echo "SteamOS mode attempt ${attempt} exited with ${rc}."
+    sleep 3
+
+    if [[ "${attempt}" -lt 3 && "${elapsed}" -lt 120 ]]; then
+      echo "Relaunching SteamOS mode after Steam updater/client handoff..."
+    else
+      break
+    fi
+  done
+
+  return "${rc:-0}"
+}
+
+start_mode() {
+  ensure_session_env
+  install -d -m 0755 "${log_dir}"
+
+  if running; then
+    echo "SteamOS mode already appears to be running."
+    return 0
+  fi
+
+  if command -v thorch-display-setup >/dev/null 2>&1; then
+    thorch-display-setup >/dev/null 2>&1 || true
+  fi
+
+  ensure_launcher
+  load_kwin_mode_script
+
+  setsid env \
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
+    DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS}" \
+    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    DISPLAY="${DISPLAY}" \
+    XAUTHORITY="${XAUTHORITY:-}" \
+    XDG_SESSION_TYPE="${XDG_SESSION_TYPE}" \
+    LANG="${LANG}" \
+    LC_ALL="${LC_ALL}" \
+    THORCH_STEAMOS_STEAM_OUTPUT="${steam_output}" \
+    THORCH_STEAMOS_WIDTH="${width}" \
+    THORCH_STEAMOS_HEIGHT="${height}" \
+    THORCH_STEAMOS_REFRESH="${refresh}" \
+    THORCH_STEAMOS_GAMESCOPE_BACKEND="${backend}" \
+    THORCH_STEAMOS_STEAM_BRANCH="${steam_branch}" \
+    /usr/bin/thorch-steamos-mode run >>"${log_file}" 2>&1 < /dev/null &
+  echo "$!" > "${pid_file}"
+
+  echo "Started SteamOS mode on ${steam_output}; log: ${log_file}"
+}
+
+stop_mode() {
+  ensure_session_env
+
+  if supervisor_running; then
+    kill "$(cat "${pid_file}")" >/dev/null 2>&1 || true
+  fi
+  pkill -TERM -u "${uid}" -x steam >/dev/null 2>&1 || true
+  pkill -TERM -u "${uid}" -x steamwebhelper >/dev/null 2>&1 || true
+  pkill -TERM -u "${uid}" -x gamescope-wl >/dev/null 2>&1 || true
+  pkill -TERM -u "${uid}" -x gamescope >/dev/null 2>&1 || true
+  pkill -TERM -u "${uid}" -x gamescopereaper >/dev/null 2>&1 || true
+  pkill -TERM -u "${uid}" -f '[t]horch-start-steam-arm64' >/dev/null 2>&1 || true
+  pkill -TERM -u "${uid}" -f '[s]team-runtime-launcher-service --alongside-steam' >/dev/null 2>&1 || true
+  pkill -TERM -u "${uid}" -f '/usr/bin/FEX .*/\.local/share/Steam/steamapps/common/' >/dev/null 2>&1 || true
+  sleep 2
+  pkill -KILL -u "${uid}" -x steam >/dev/null 2>&1 || true
+  pkill -KILL -u "${uid}" -x steamwebhelper >/dev/null 2>&1 || true
+  pkill -KILL -u "${uid}" -x gamescope-wl >/dev/null 2>&1 || true
+  pkill -KILL -u "${uid}" -x gamescope >/dev/null 2>&1 || true
+  pkill -KILL -u "${uid}" -x gamescopereaper >/dev/null 2>&1 || true
+  pkill -KILL -u "${uid}" -f '[t]horch-start-steam-arm64' >/dev/null 2>&1 || true
+  pkill -KILL -u "${uid}" -f '[s]team-runtime-launcher-service --alongside-steam' >/dev/null 2>&1 || true
+  pkill -KILL -u "${uid}" -f '/usr/bin/FEX .*/\.local/share/Steam/steamapps/common/' >/dev/null 2>&1 || true
+  rm -f "${pid_file}"
+  unload_kwin_mode_script
+  echo "Stopped SteamOS mode."
+}
+
+status_mode() {
+  if running; then
+    echo "SteamOS mode is running."
+    ps -u "${uid}" -o pid=,comm=,args= |
+      awk '$2 ~ /^(gamescope|gamescope-wl|gamescopereaper|steam|steamwebhelper|steam-runtime-l)$/ {print}' || true
+  else
+    echo "SteamOS mode is not running."
+  fi
+
+  if [[ -f "${autostart_file}" ]]; then
+    echo "Autostart is enabled."
+  else
+    echo "Autostart is disabled."
+  fi
+}
+
+enable_autostart() {
+  install -d -m 0755 "${autostart_dir}"
+  cat > "${autostart_file}" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Thorch SteamOS Mode
+Exec=/usr/bin/thorch-steamos-mode start
+OnlyShowIn=KDE;
+Terminal=false
+X-KDE-autostart-phase=2
+EOF
+  echo "Enabled SteamOS mode autostart."
+}
+
+disable_autostart() {
+  rm -f "${autostart_file}"
+  echo "Disabled SteamOS mode autostart."
+}
+
+case "${cmd}" in
+  start)
+    start_mode
+    ;;
+  stop)
+    stop_mode
+    ;;
+  restart)
+    stop_mode
+    start_mode
+    ;;
+  status)
+    status_mode
+    ;;
+  run)
+    run_mode
+    ;;
+  enable)
+    enable_autostart
+    ;;
+  disable)
+    disable_autostart
+    ;;
+esac

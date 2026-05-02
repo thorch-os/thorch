@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Exit SteamOS Mode
+Comment=Stop Steam Deck UI and gamescope
+Exec=/usr/bin/thorch-steamos-mode stop
+Icon=system-log-out
+Terminal=false
+Categories=Game;System;

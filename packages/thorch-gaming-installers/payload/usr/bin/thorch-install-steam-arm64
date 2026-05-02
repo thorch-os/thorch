@@ -61,6 +61,8 @@ steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
 proton_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
 proton_dir="${steam_root}/steamapps/common/${proton_name}"
 mode="${THORCH_STEAM_MODE:-bigpicture}"
+steam_branch="${THORCH_STEAM_BRANCH:-}"
+deck_branch="${THORCH_STEAM_DECK_BRANCH:-steamdeck_publicbeta}"
 use_gamescope="${THORCH_STEAM_USE_GAMESCOPE:-0}"
 gamescope_width="${THORCH_STEAM_GAMESCOPE_WIDTH:-1920}"
 gamescope_height="${THORCH_STEAM_GAMESCOPE_HEIGHT:-1080}"
@@ -70,21 +72,30 @@ runtime_lib_dir=""
 runtime_bin_dir=""
 support_bin_dir="${steam_root}/thorch-steamos-bin"
 mkdir -p "${steam_root}" "${steam_root}/package" "${HOME}/.steam"
-case "${mode}" in
-  deck|gamepadui)
-    echo steamdeck_stable > "${steam_root}/package/beta"
-    ;;
-  *)
-    echo publicbeta > "${steam_root}/package/beta"
-    ;;
-esac
+if [[ -z "${steam_branch}" ]]; then
+  case "${mode}" in
+    deck|gamepadui)
+      steam_branch="${deck_branch}"
+      ;;
+    *)
+      steam_branch="publicbeta"
+      ;;
+  esac
+fi
+echo "${steam_branch}" > "${steam_root}/package/beta"
 
 ensure_fex_server() {
   command -v FEXServer >/dev/null 2>&1 || return 0
   ensure_fex_config
 
-  if ! FEXServer --persistent=3600 >/dev/null 2>&1; then
-    echo "Warning: FEXServer did not start; x86/x86_64 Steam compatibility tools may fail." >&2
+  if pgrep -u "$(id -u)" -x FEXServer >/dev/null 2>&1; then
+    return 0
+  fi
+
+  setsid FEXServer --persistent=3600 >/dev/null 2>&1 &
+  sleep 1
+  if ! pgrep -u "$(id -u)" -x FEXServer >/dev/null 2>&1; then
+    echo "Warning: FEXServer did not stay running; x86/x86_64 Steam compatibility tools may fail." >&2
   fi
 }
 
@@ -155,10 +166,24 @@ install_rocknix_steam_compat_assets() {
   system_steam="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
   [[ -f "${system_steam}/compatibilitytool.vdf" && -f "${system_steam}/toolmanifest.vdf" ]] || return 0
 
+  if [[ ! -x "${system_steam}/Proton11ARM/proton" && ! -x "${system_steam}/proton" ]]; then
+    rm -f "${steam_root}/compatibilitytools.d/compatibilitytool.vdf"
+    [[ ! -L "${steam_root}/compatibilitytools.d/Proton11ARM" ]] || rm -f "${steam_root}/compatibilitytools.d/Proton11ARM"
+    rm -f "${proton_dir}/toolmanifest.vdf" "${proton_dir}/proton"
+    rmdir "${proton_dir}" 2>/dev/null || true
+    return 0
+  fi
+
   mkdir -p "${steam_root}/compatibilitytools.d" "${proton_dir}" "${HOME}/.steam"
   ln -sfnT "${proton_dir}" "${steam_root}/compatibilitytools.d/Proton11ARM"
   cp -f "${system_steam}/compatibilitytool.vdf" "${steam_root}/compatibilitytools.d/"
   cp -f "${system_steam}/toolmanifest.vdf" "${proton_dir}/"
+  if [[ -x "${system_steam}/Proton11ARM/proton" ]]; then
+    cp -a "${system_steam}/Proton11ARM/." "${proton_dir}/"
+  elif [[ -x "${system_steam}/proton" ]]; then
+    cp -f "${system_steam}/proton" "${proton_dir}/proton"
+    chmod 755 "${proton_dir}/proton"
+  fi
   if [[ -f "${system_steam}/registry.vdf" ]]; then
     python - "${system_steam}/registry.vdf" "${HOME}/.steam/registry.vdf" "${steam_root}" <<'PY'
 import pathlib
@@ -340,7 +365,7 @@ install_steamos_compat_stubs() {
 set -euo pipefail
 
 branch_file="${STEAM_BASE_FOLDER:-${HOME}/.local/share/Steam}/package/beta"
-branch="steamdeck_stable"
+branch="steamdeck_publicbeta"
 if [[ -r "${branch_file}" ]]; then
   branch="$(tr -d '\r\n' < "${branch_file}")"
 fi
@@ -370,8 +395,12 @@ install_steam_icon() {
 
   outdir="${HOME}/.local/share/icons/hicolor/256x256/apps"
   target="${outdir}/steam.png"
+
+  [[ "${THORCH_STEAM_SKIP_ICON:-0}" == 1 ]] && return 0
+  [[ -s "${target}" ]] && return 0
+
   tmp="$(mktemp -d)"
-  if curl -fsSL -o "${tmp}/steam.deb" "https://repo.steampowered.com/steam/archive/precise/steam_latest.deb" &&
+  if curl --connect-timeout 2 --max-time 8 -fsSL -o "${tmp}/steam.deb" "https://repo.steampowered.com/steam/archive/precise/steam_latest.deb" &&
       (cd "${tmp}" && ar x steam.deb data.tar.xz) &&
       tar -xOf "${tmp}/data.tar.xz" ./usr/share/icons/hicolor/256x256/apps/steam.png > "${tmp}/steam.png"; then
     install -d "${outdir}"
@@ -533,10 +562,20 @@ if command -v gamescope >/dev/null 2>&1 && [[ "${use_gamescope}" == 1 ]]; then
     -r "${gamescope_refresh}"
     --xwayland-count 2
     -b
+    -f
     -e
   )
+  case "${gamescope_backend}" in
+    auto|nested|"")
+      ;;
+    drm|sdl|wayland|headless|openvr)
+      gamescope_args+=(--backend "${gamescope_backend}")
+      ;;
+    *)
+      echo "Warning: ignoring unknown gamescope backend '${gamescope_backend}'." >&2
+      ;;
+  esac
   if [[ "${gamescope_backend}" == "drm" ]]; then
-    gamescope_args+=(--backend drm)
     if gamescope_supports_option "--use-rotation-shader"; then
       gamescope_args+=(--use-rotation-shader)
     fi
