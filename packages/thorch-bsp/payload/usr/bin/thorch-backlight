@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmd="${1:-status}"
+
+bottom=/sys/class/backlight/ae94000.dsi.0
+top=/sys/class/backlight/ae96000.dsi.0
+
+usage() {
+  echo "usage: thorch-backlight status|set bottom|top value" >&2
+  exit 2
+}
+
+read_int() {
+  local path="$1"
+  [[ -r "${path}" ]] || {
+    echo 0
+    return
+  }
+  tr -cd '0-9' < "${path}"
+  echo
+}
+
+emit_one() {
+  local name="$1" path="$2"
+  [[ -d "${path}" ]] || return 0
+  printf '%s %s %s\n' \
+    "${name}" \
+    "$(read_int "${path}/brightness")" \
+    "$(read_int "${path}/max_brightness")"
+}
+
+path_for_name() {
+  case "$1" in
+    bottom|control|dsi1|DSI-1)
+      printf '%s\n' "${bottom}"
+      ;;
+    top|steam|dsi2|DSI-2)
+      printf '%s\n' "${top}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+case "${cmd}" in
+  status)
+    emit_one bottom "${bottom}"
+    emit_one top "${top}"
+    ;;
+  set)
+    [[ $# -eq 3 ]] || usage
+    path="$(path_for_name "$2")" || usage
+    [[ -d "${path}" ]] || exit 1
+    max="$(read_int "${path}/max_brightness")"
+    value="$3"
+    [[ "${value}" =~ ^[0-9]+$ ]] || usage
+    (( value < 1 )) && value=1
+    (( value > max )) && value="${max}"
+    printf '%s\n' "${value}" > "${path}/brightness"
+    ;;
+  *)
+    usage
+    ;;
+esac

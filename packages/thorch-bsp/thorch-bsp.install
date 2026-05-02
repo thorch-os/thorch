@@ -1,0 +1,7 @@
+post_install() {
+  /usr/lib/thorch/plasma-mobile-action-drawer-mode sync || true
+}
+
+post_upgrade() {
+  /usr/lib/thorch/plasma-mobile-action-drawer-mode sync || true
+}

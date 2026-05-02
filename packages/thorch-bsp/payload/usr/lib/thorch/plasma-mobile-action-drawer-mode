@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:-sync}"
+
+source_dir=/usr/lib/thorch/plasma-mobile
+stock_dir="${source_dir}/stock"
+target_dir=/usr/lib/qt6/qml/org/kde/plasma/private/mobileshell
+state_dir=/var/lib/thorch/plasma-mobile-action-drawer
+state_file="${state_dir}/enabled"
+
+usage() {
+  echo "usage: plasma-mobile-action-drawer-mode enable|disable|sync|status" >&2
+  exit 2
+}
+
+install_qml() {
+  local source="$1" target="$2"
+  [[ -f "${source}" && -f "${target}" ]] || return 0
+  if ! cmp -s "${source}" "${target}"; then
+    install -m 0644 "${source}" "${target}"
+  fi
+}
+
+remove_resource_preference() {
+  local qmldir_file="${target_dir}/qmldir"
+  [[ -f "${qmldir_file}" ]] || return 0
+  sed -i '\|^prefer :/org/kde/plasma/private/mobileshell/$|d' "${qmldir_file}"
+}
+
+patch_action_drawer_enums() {
+  [[ -f "${target_dir}/ActionDrawer.qml" ]] || return 0
+  [[ -f "${target_dir}/actiondrawer/private/ContentContainer.qml" ]] || return 0
+  [[ -f "${target_dir}/actiondrawer/private/NotificationDrawer.qml" ]] || return 0
+
+  sed -i \
+    -e 's/MobileShell\.ActionDrawer\.Portrait/0/g' \
+    -e 's/MobileShell\.ActionDrawer\.Landscape/1/g' \
+    "${target_dir}/ActionDrawer.qml" \
+    "${target_dir}/actiondrawer/private/ContentContainer.qml" \
+    "${target_dir}/actiondrawer/private/NotificationDrawer.qml"
+}
+
+enable_override() {
+  install -d -m 0755 "${state_dir}"
+  : > "${state_file}"
+
+  install_qml "${source_dir}/ActionDrawerWindow.qml" "${target_dir}/ActionDrawerWindow.qml"
+  install_qml "${source_dir}/ActionDrawerOpenSurface.qml" "${target_dir}/ActionDrawerOpenSurface.qml"
+  install_qml "${source_dir}/actiondrawer/private/BrightnessItem.qml" "${target_dir}/actiondrawer/private/BrightnessItem.qml"
+  remove_resource_preference
+  patch_action_drawer_enums
+}
+
+disable_override() {
+  rm -f "${state_file}"
+
+  install_qml "${stock_dir}/ActionDrawerWindow.qml" "${target_dir}/ActionDrawerWindow.qml"
+  install_qml "${stock_dir}/ActionDrawerOpenSurface.qml" "${target_dir}/ActionDrawerOpenSurface.qml"
+  install_qml "${stock_dir}/ActionDrawer.qml" "${target_dir}/ActionDrawer.qml"
+  install_qml "${stock_dir}/actiondrawer/private/BrightnessItem.qml" "${target_dir}/actiondrawer/private/BrightnessItem.qml"
+  install_qml "${stock_dir}/actiondrawer/private/ContentContainer.qml" "${target_dir}/actiondrawer/private/ContentContainer.qml"
+  install_qml "${stock_dir}/actiondrawer/private/NotificationDrawer.qml" "${target_dir}/actiondrawer/private/NotificationDrawer.qml"
+  install_qml "${stock_dir}/qmldir" "${target_dir}/qmldir"
+}
+
+case "${mode}" in
+  enable)
+    enable_override
+    ;;
+  disable)
+    disable_override
+    ;;
+  sync)
+    if [[ -f "${state_file}" ]]; then
+      enable_override
+    else
+      disable_override
+    fi
+    ;;
+  status)
+    if [[ -f "${state_file}" ]]; then
+      echo "enabled"
+    else
+      echo "disabled"
+    fi
+    ;;
+  *)
+    usage
+    ;;
+esac

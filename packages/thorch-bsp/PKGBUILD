@@ -9,6 +9,7 @@ url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-or-later BSD-3-Clause custom)
 depends=(android-tools bash coreutils dnsmasq dosfstools e2fsprogs evtest file findutils grep gzip iproute2 iw kmod mkinitcpio mtools networkmanager openssh procps-ng python rfkill sudo systemd util-linux wireless-regdb)
 backup=(boot/LinuxLoader.cfg etc/thorch/rgb.conf etc/thorch/fake-suspend.conf)
+install=thorch-bsp.install
 source=()
 sha256sums=()
 
@@ -26,10 +27,12 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-check-boot"
   chmod 755 "${pkgdir}/usr/bin/thorch-debug-report"
   chmod 755 "${pkgdir}/usr/bin/thorch-fake-suspend"
+  chmod 755 "${pkgdir}/usr/bin/thorch-backlight"
   chmod 755 "${pkgdir}/usr/bin/thorch-powerkeyd"
   chmod 755 "${pkgdir}/usr/bin/thorch-rgb"
   chmod 755 "${pkgdir}/usr/bin/thorch-usb-gadget"
   chmod 755 "${pkgdir}/usr/bin/thorch-usb-network"
+  chmod 755 "${pkgdir}/usr/lib/thorch/plasma-mobile-action-drawer-mode"
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-firmware"
   chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-rgb"
 }

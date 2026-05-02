@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = plasma-mobile
+
+[Action]
+Description = Syncing Thorch Plasma Mobile action drawer mode...
+When = PostTransaction
+Exec = /usr/lib/thorch/plasma-mobile-action-drawer-mode sync

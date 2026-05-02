@@ -1,0 +1,96 @@
+module org.kde.plasma.private.mobileshell
+linktarget mobileshellplugin
+optional plugin mobileshellplugin
+classname org_kde_plasma_private_mobileshellPlugin
+typeinfo mobileshellplugin.qmltypes
+depends QtQuick
+prefer :/org/kde/plasma/private/mobileshell/
+ActionDrawer 254.0 ActionDrawer.qml
+ActionDrawerOpenSurface 254.0 ActionDrawerOpenSurface.qml
+ActionDrawerWindow 254.0 ActionDrawerWindow.qml
+singleton AppLaunch 254.0 AppLaunch.qml
+BaseItem 254.0 BaseItem.qml
+singleton Constants 254.0 Constants.qml
+Flickable 254.0 Flickable.qml
+FlickableOpacityGradient 254.0 FlickableOpacityGradient.qml
+GridView 254.0 GridView.qml
+HapticsEffect 254.0 HapticsEffect.qml
+ListView 254.0 ListView.qml
+MarqueeLabel 254.0 MarqueeLabel.qml
+PanelBackground 254.0 PanelBackground.qml
+ScreenEdgeDragEffect 254.0 ScreenEdgeDragEffect.qml
+StartupFeedbackPanelFill 254.0 StartupFeedbackPanelFill.qml
+StartupFeedbackWindows 254.0 StartupFeedbackWindows.qml
+TextDropShadow 254.0 TextDropShadow.qml
+VelocityCalculator 254.0 VelocityCalculator.qml
+singleton AudioInfo 254.0 AudioInfo.qml
+singleton BatteryInfo 254.0 BatteryInfo.qml
+singleton BluetoothInfo 254.0 BluetoothInfo.qml
+singleton NetworkInfo 254.0 NetworkInfo.qml
+singleton SignalStrengthInfo 254.0 SignalStrengthInfo.qml
+BlurEffect 254.0 BlurEffect.qml
+DeviceLock 254.0 DeviceLock.qml
+HomeScreen 254.0 HomeScreen.qml
+WallpaperSelector 254.0 WallpaperSelector.qml
+GesturePanel 254.0 GesturePanel.qml
+NavigationPanel 254.0 NavigationPanel.qml
+NavigationPanelAction 254.0 NavigationPanelAction.qml
+NavigationPanelButton 254.0 NavigationPanelButton.qml
+ActionButton 254.0 ActionButton.qml
+ActionButtonsProvider 254.0 ActionButtonsProvider.qml
+RotationButton 254.0 RotationButton.qml
+NotificationPopup 254.0 NotificationPopup.qml
+NotificationPopupManager 254.0 NotificationPopupManager.qml
+NotificationPopupProvider 254.0 NotificationPopupProvider.qml
+PulseAudio 254.0 PulseAudio.qml
+KScreenOSDProvider 254.0 KScreenOSDProvider.qml
+AudioApplet 254.0 AudioApplet.qml
+DeviceListItem 254.0 DeviceListItem.qml
+ListItemBase 254.0 ListItemBase.qml
+PopupCard 254.0 PopupCard.qml
+StreamListItem 254.0 StreamListItem.qml
+VolumeChangedPopup 254.0 VolumeChangedPopup.qml
+VolumeOSD 254.0 VolumeOSD.qml
+VolumeOSDProvider 254.0 VolumeOSDProvider.qml
+VolumeSlider 254.0 VolumeSlider.qml
+singleton PopupProviderLoader 254.0 PopupProviderLoader.qml
+BatteryIndicator 254.0 BatteryIndicator.qml
+BluetoothIndicator 254.0 BluetoothIndicator.qml
+InternetIndicator 254.0 InternetIndicator.qml
+SignalStrengthIndicator 254.0 SignalStrengthIndicator.qml
+VolumeIndicator 254.0 VolumeIndicator.qml
+ClockText 254.0 ClockText.qml
+StatusBar 254.0 StatusBar.qml
+KRunnerScreen 254.0 KRunnerScreen.qml
+BlurredBackground 254.0 BlurredBackground.qml
+MediaControlsSource 254.0 MediaControlsSource.qml
+MediaControlsWidget 254.0 MediaControlsWidget.qml
+BaseNotificationItem 254.0 BaseNotificationItem.qml
+NotificationBodyLabel 254.0 NotificationBodyLabel.qml
+NotificationCard 254.0 NotificationCard.qml
+NotificationEditContextMenu 254.0 NotificationEditContextMenu.qml
+NotificationFooterActions 254.0 NotificationFooterActions.qml
+NotificationGroupHeader 254.0 NotificationGroupHeader.qml
+NotificationItem 254.0 NotificationItem.qml
+NotificationJobDetails 254.0 NotificationJobDetails.qml
+NotificationJobItem 254.0 NotificationJobItem.qml
+NotificationPopupItem 254.0 NotificationPopupItem.qml
+NotificationReplyField 254.0 NotificationReplyField.qml
+NotificationsModelType 254.0 NotificationsModelType.qml
+NotificationsUtils 254.0 NotificationsUtils.js
+NotificationsWidget 254.0 NotificationsWidget.qml
+NotificationTimeText 254.0 NotificationTimeText.qml
+ThumbnailStrip 254.0 ThumbnailStrip.qml
+BrightnessItem 254.0 actiondrawer/private/BrightnessItem.qml
+Handle 254.0 actiondrawer/private/Handle.qml
+QuickSettings 254.0 actiondrawer/private/QuickSettings.qml
+QuickSettingsDelegate 254.0 actiondrawer/private/QuickSettingsDelegate.qml
+QuickSettingsDrawer 254.0 actiondrawer/private/QuickSettingsDrawer.qml
+QuickSettingsFullDelegate 254.0 actiondrawer/private/QuickSettingsFullDelegate.qml
+QuickSettingsMinimizedDelegate 254.0 actiondrawer/private/QuickSettingsMinimizedDelegate.qml
+QuickSettingsPanel 254.0 actiondrawer/private/QuickSettingsPanel.qml
+ContentContainer 254.0 actiondrawer/private/ContentContainer.qml
+LandscapeContentContainer 254.0 actiondrawer/private/LandscapeContentContainer.qml
+NotificationDrawer 254.0 actiondrawer/private/NotificationDrawer.qml
+PortraitContentContainer 254.0 actiondrawer/private/PortraitContentContainer.qml
+
