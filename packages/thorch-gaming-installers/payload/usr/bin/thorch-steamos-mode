@@ -126,18 +126,29 @@ function isSteamModeWindow(window) {
     if (!window || !(window.normalWindow || window.dialog)) {
         return false;
     }
-    const haystack = [
+
+    // Check resource/class identifiers for "steam" – but NOT the caption/title,
+    // otherwise any window whose title happens to contain "steam" gets captured.
+    const identity = [
         window.resourceClass,
         window.resourceName,
         window.windowClass,
         window.desktopFileName,
-        window.caption,
-        window.captionNormal,
         window.windowRole
     ].map(textValue).join(" ").toLowerCase();
 
-    return haystack.indexOf("gamescope") !== -1 ||
-           haystack.indexOf("steam") !== -1;
+    if (identity.indexOf("steam") !== -1) {
+        return true;
+    }
+
+    // Gamescope is the nested compositor, so matching it in the full haystack
+    // (including caption) is fine – only gamescope windows will have that name.
+    const full = (identity + " " + [
+        window.caption,
+        window.captionNormal
+    ].map(textValue).join(" ")).toLowerCase();
+
+    return full.indexOf("gamescope") !== -1;
 }
 
 function isThorchActionDrawer(window) {
