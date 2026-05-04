@@ -16,18 +16,18 @@ _kernel_dir="${THORCH_ROCKNIX_KERNEL_DIR:-${startdir}/../../vendor/rocknix-kerne
 
 package() {
   local image="${_kernel_dir}/boot/Image"
-  local dtb="${_kernel_dir}/boot/dtb/qcom/qcs8550-ayn-thor.dtb"
+  local kernel_boot="${_kernel_dir}/boot/KERNEL"
   local modules_root="${_kernel_dir}/usr/lib/modules"
   local kernver
 
-  if [[ ! -f "${image}" || ! -f "${dtb}" || ! -d "${modules_root}" ]]; then
+  if [[ ! -f "${image}" || ! -f "${kernel_boot}" || ! -d "${modules_root}" ]]; then
     cat >&2 <<EOF
 Missing ROCKNIX kernel artifacts at:
   ${_kernel_dir}
 
 Expected:
   boot/Image
-  boot/dtb/qcom/qcs8550-ayn-thor.dtb
+  boot/KERNEL
   usr/lib/modules/<kernel-release>/
 
 Import them from a mounted or extracted ROCKNIX image first:
@@ -42,24 +42,20 @@ EOF
     exit 1
   }
 
-  install -Dm644 "${image}" "${pkgdir}/boot/Image"
   install -Dm644 "${image}" "${pkgdir}/usr/lib/modules/${kernver}/Image"
-  install -Dm644 "${dtb}" "${pkgdir}/boot/dtb/qcom/qcs8550-ayn-thor.dtb"
 
   cp -a "${modules_root}/${kernver}/." "${pkgdir}/usr/lib/modules/${kernver}/"
   find "${pkgdir}/usr/lib/modules/${kernver}" -name build -type l -delete
   find "${pkgdir}/usr/lib/modules/${kernver}" -name source -type l -delete
 
-  if [[ -f "${_kernel_dir}/boot/KERNEL" ]]; then
-    install -Dm644 "${_kernel_dir}/boot/KERNEL" "${pkgdir}/usr/share/thorch/rocknix/KERNEL"
-  fi
+  install -Dm644 "${kernel_boot}" "${pkgdir}/usr/share/thorch/rocknix/KERNEL"
   if [[ -f "${_kernel_dir}/PROVENANCE" ]]; then
     install -Dm644 "${_kernel_dir}/PROVENANCE" "${pkgdir}/usr/share/licenses/${pkgname}/ROCKNIX-KERNEL-PROVENANCE"
   fi
 
-  install -Dm644 /dev/stdin "${pkgdir}/etc/mkinitcpio.d/linux-thorch.preset" <<'EOF'
+  install -Dm644 /dev/stdin "${pkgdir}/etc/mkinitcpio.d/linux-thorch.preset" <<EOF
 ALL_config="/etc/mkinitcpio.conf"
-ALL_kver="/boot/Image"
+ALL_kver="/usr/lib/modules/${kernver}/Image"
 PRESETS=('default' 'fallback')
 default_image="/boot/initramfs-linux-thorch.img"
 fallback_image="/boot/initramfs-linux-thorch-fallback.img"

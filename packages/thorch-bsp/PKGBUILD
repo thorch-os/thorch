@@ -2,13 +2,13 @@
 
 pkgname=thorch-bsp
 pkgver=1
-pkgrel=2
+pkgrel=3
 pkgdesc='Thorch AYN Thor boot and board support package'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-or-later BSD-3-Clause custom)
 depends=(android-tools bash coreutils dnsmasq dosfstools e2fsprogs evtest file findutils grep gzip iproute2 iw kmod mkinitcpio mtools networkmanager openssh procps-ng python rfkill sudo systemd util-linux wireless-regdb)
-backup=(boot/LinuxLoader.cfg etc/thorch/rgb.conf etc/thorch/fake-suspend.conf)
+backup=(etc/thorch/rgb.conf etc/thorch/fake-suspend.conf)
 install=thorch-bsp.install
 source=()
 sha256sums=()
@@ -22,6 +22,8 @@ package() {
     "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550/AYN-Odin2.conf"
   ln -sf ../../AYN/Odin2/AYN-Odin2.conf \
     "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550/ayn-AYNOdin2-.conf"
+  ln -sf ../../AYN/Odin2/AYN-Odin2.conf \
+    "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550/SM8550-AYN.conf"
 
   chmod 755 "${pkgdir}/usr/bin/thorch-rebuild-abl-kernel"
   chmod 755 "${pkgdir}/usr/bin/thorch-check-boot"

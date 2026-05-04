@@ -15,8 +15,7 @@ ROCKNIX boot/root filesystem, an extracted ROCKNIX image tree, or separate boot
 and root directories.
 
 Required artifacts:
-  Image
-  dtb/qcom/qcs8550-ayn-thor.dtb
+  KERNEL
   usr/lib/modules/<kernel-release>/ or ROCKNIX kernel-overlays/base/lib/modules
   usr/lib/firmware/qcom/a740_sqe.fw or ROCKNIX kernel-overlays/base/lib/firmware/qcom/a740_sqe.fw
   usr/lib/firmware/qcom/gmu_gen70200.bin or ROCKNIX kernel-overlays/base/lib/firmware/qcom/gmu_gen70200.bin
@@ -26,8 +25,8 @@ Required artifacts:
   usr/share/fex-emu/libvulkan_freedreno.so
   usr/share/vulkan/icd.d/freedreno_icd*.json
 
-Thorch uses these kernel artifacts unchanged, but generates its own Arch
-initramfs and rebuilds /boot/KERNEL during image creation.
+Thorch preserves the imported ROCKNIX boot-image kernel payload, generates its
+own Arch initramfs, and repacks /boot/KERNEL during image creation.
 EOF
 }
 
@@ -163,7 +162,6 @@ find_modules_root() {
 }
 
 image="$(find_first "${boot_dir}" -type f -name Image)"
-dtb="$(find_first "${boot_dir}" -type f \( -path '*/dtb/qcom/qcs8550-ayn-thor.dtb' -o -path '*/qcom/qcs8550-ayn-thor.dtb' \))"
 kernel_boot="$(find_first "${boot_dir}" -maxdepth 3 -type f -name KERNEL)"
 modules_root="$(find_modules_root "${root_dir_abs}" || true)"
 required_firmware=(
@@ -197,13 +195,70 @@ find_runtime_icd() {
   return 1
 }
 
+extract_android_boot_image() {
+  local kernel_boot="$1" image_out="$2"
+  python3 - "${kernel_boot}" "${image_out}" <<'PY'
+import pathlib
+import struct
+import sys
+import zlib
+
+boot_path = pathlib.Path(sys.argv[1])
+image_out = pathlib.Path(sys.argv[2])
+data = boot_path.read_bytes()
+if data[:8] != b"ANDROID!":
+    raise SystemExit(f"{boot_path} is not an Android boot image")
+
+kernel_size = struct.unpack_from("<I", data, 8)[0]
+page_size = struct.unpack_from("<I", data, 36)[0]
+kernel_offset = page_size
+kernel = data[kernel_offset:kernel_offset + kernel_size]
+if len(kernel) != kernel_size:
+    raise SystemExit("truncated Android boot kernel payload")
+
+dtb_magic = b"\xd0\r\xfe\xed"
+try:
+    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    image = decompressor.decompress(kernel) + decompressor.flush()
+    trailer = decompressor.unused_data
+except zlib.error:
+    dtb_at = kernel.find(dtb_magic)
+    if dtb_at < 0:
+        raise
+    image = kernel[:dtb_at]
+    trailer = kernel[dtb_at:]
+
+pos = 0
+has_thor_dtb = False
+while True:
+    dtb_at = trailer.find(dtb_magic, pos)
+    if dtb_at < 0:
+        break
+    if len(trailer) < dtb_at + 8:
+        raise SystemExit("appended DTB is truncated")
+    dtb_size = struct.unpack_from(">I", trailer, dtb_at + 4)[0]
+    if dtb_size < 8 or len(trailer) < dtb_at + dtb_size:
+        raise SystemExit("appended DTB is truncated")
+    dtb = trailer[dtb_at:dtb_at + dtb_size]
+    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb:
+        has_thor_dtb = True
+        break
+    pos = dtb_at + dtb_size
+
+if not has_thor_dtb:
+    raise SystemExit("Android boot kernel payload does not contain an AYN Thor DTB")
+
+image_out.parent.mkdir(parents=True, exist_ok=True)
+image_out.write_bytes(image)
+PY
+}
+
 freedreno_lib="$(find_runtime_path usr/lib/libvulkan_freedreno.so || true)"
 display_info_lib="$(find_runtime_path usr/lib/libdisplay-info.so.0.2.0 || true)"
 fex_freedreno_lib="$(find_runtime_path usr/share/fex-emu/libvulkan_freedreno.so || true)"
 freedreno_icd="$(find_runtime_icd || true)"
 
-[[ -n "${image}" && -f "${image}" ]] || die "could not find ROCKNIX Image under ${boot_dir}"
-[[ -n "${dtb}" && -f "${dtb}" ]] || die "could not find qcs8550-ayn-thor.dtb under ${boot_dir}"
+[[ -n "${kernel_boot}" && -f "${kernel_boot}" ]] || die "could not find ROCKNIX KERNEL under ${boot_dir}"
 [[ -n "${modules_root}" && -d "${modules_root}" ]] || die "could not find ROCKNIX modules under ${root_dir}"
 [[ -n "${firmware_root}" && -d "${firmware_root}" ]] || die "could not find ROCKNIX firmware under ${root_dir}"
 for firmware in "${required_firmware[@]}"; do
@@ -215,17 +270,18 @@ done
 [[ -n "${freedreno_icd}" && -f "${freedreno_icd}" ]] || die "could not find ROCKNIX Freedreno Vulkan ICD under ${root_dir}"
 
 rm -rf "${dest_abs}"
-install -d "${dest_abs}/boot/dtb/qcom" "${dest_abs}/usr/lib/modules"
-install -Dm644 "${image}" "${dest_abs}/boot/Image"
-install -Dm644 "${dtb}" "${dest_abs}/boot/dtb/qcom/qcs8550-ayn-thor.dtb"
+install -d "${dest_abs}/usr/lib/modules"
+if [[ -n "${image}" && -f "${image}" ]]; then
+  install -Dm644 "${image}" "${dest_abs}/boot/Image"
+else
+  extract_android_boot_image "${kernel_boot}" "${dest_abs}/boot/Image"
+fi
 rsync -a "${modules_root}/" "${dest_abs}/usr/lib/modules/"
 if [[ -n "${firmware_root}" && -d "${firmware_root}" ]]; then
   install -d "${dest_abs}/usr/lib/firmware"
   rsync -a "${firmware_root}/" "${dest_abs}/usr/lib/firmware/"
 fi
-if [[ -n "${kernel_boot}" && -f "${kernel_boot}" ]]; then
-  install -Dm644 "${kernel_boot}" "${dest_abs}/boot/KERNEL"
-fi
+install -Dm644 "${kernel_boot}" "${dest_abs}/boot/KERNEL"
 install -Dm755 "${freedreno_lib}" "${dest_abs}/usr/lib/libvulkan_freedreno.so"
 install -Dm755 "${display_info_lib}" "${dest_abs}/usr/lib/libdisplay-info.so.0.2.0"
 ln -sfn libdisplay-info.so.0.2.0 "${dest_abs}/usr/lib/libdisplay-info.so.2"
@@ -237,8 +293,12 @@ install -Dm644 "${freedreno_icd}" "${dest_abs}/usr/share/vulkan/icd.d/freedreno_
   printf 'ROCKNIX_REF=%s\n' "${ref_label}"
   printf 'SOURCE_BOOT_DIR=%s\n' "${boot_dir_abs}"
   printf 'SOURCE_ROOT_DIR=%s\n' "${root_dir_abs}"
-  printf 'SOURCE_IMAGE=%s\n' "${image}"
-  printf 'SOURCE_DTB=%s\n' "${dtb}"
+  if [[ -n "${image}" && -f "${image}" ]]; then
+    printf 'SOURCE_IMAGE=%s\n' "${image}"
+  else
+    printf 'SOURCE_IMAGE=derived-from-KERNEL\n'
+  fi
+  printf 'SOURCE_ROCKNIX_BOOT_PAYLOAD=%s\n' "${kernel_boot}"
   printf 'SOURCE_MODULES=%s\n' "${modules_root}"
   printf 'SOURCE_FIRMWARE_ROOT=%s\n' "${firmware_root}"
   printf 'SOURCE_REQUIRED_FIRMWARE=%s\n' "${required_firmware[*]}"

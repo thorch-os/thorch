@@ -300,8 +300,8 @@ find_mounted_root_dir() {
 }
 
 extract_android_boot_kernel() {
-  local kernel_image="$1" image_out="$2" dtb_out="$3"
-  python3 - "${kernel_image}" "${image_out}" "${dtb_out}" <<'PY'
+  local kernel_image="$1" image_out="$2"
+  python3 - "${kernel_image}" "${image_out}" <<'PY'
 import pathlib
 import struct
 import sys
@@ -309,7 +309,6 @@ import zlib
 
 boot_path = pathlib.Path(sys.argv[1])
 image_out = pathlib.Path(sys.argv[2])
-dtb_out = pathlib.Path(sys.argv[3])
 data = boot_path.read_bytes()
 if data[:8] != b"ANDROID!":
     raise SystemExit(f"{boot_path} is not an Android boot image")
@@ -362,12 +361,8 @@ if not matches:
     )
 if len(matches) > 1:
     raise SystemExit("Android boot kernel payload contains multiple AYN Thor DTBs")
-dtb = matches[0]
-
 image_out.parent.mkdir(parents=True, exist_ok=True)
-dtb_out.parent.mkdir(parents=True, exist_ok=True)
 image_out.write_bytes(image)
-dtb_out.write_bytes(dtb)
 PY
 }
 
@@ -378,8 +373,7 @@ normalize_immutable_rocknix_image() {
   work_tree="$(mktemp -d /tmp/thorch-rocknix-tree.XXXXXX)"
   extract_android_boot_kernel \
     "${boot_dir}/KERNEL" \
-    "${work_tree}/boot/Image" \
-    "${work_tree}/boot/dtb/qcom/qcs8550-ayn-thor.dtb"
+    "${work_tree}/boot/Image"
   install -Dm644 "${boot_dir}/KERNEL" "${work_tree}/boot/KERNEL"
 
   log "extracting ROCKNIX kernel modules and runtime files from SYSTEM"

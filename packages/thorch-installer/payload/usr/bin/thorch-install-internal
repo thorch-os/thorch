@@ -482,8 +482,6 @@ UUID=${root_uuid} / ext4 rw,relatime 0 1
 UUID=${boot_uuid} /boot vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2
 EOF
 
-sed -i "s/root=UUID=[^[:space:]\"]*/root=UUID=${root_uuid}/" "${target}/boot/LinuxLoader.cfg"
-
 arch-chroot "${target}" mkinitcpio -P
 thorch-rebuild-abl-kernel --boot-dir "${target}/boot" --root-uuid "${root_uuid}" --rootfstype ext4
 thorch-check-boot --boot-dir "${target}/boot"

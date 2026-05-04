@@ -92,6 +92,7 @@ thorch_user_q="$(printf '%q' "${THORCH_USER}")"
 rocknix_kernel_artifacts_ready() {
   local kernel_dir="${root}/${THORCH_ROCKNIX_KERNEL_DIR}"
   [[ -f "${kernel_dir}/boot/Image" ]] &&
+    [[ -f "${kernel_dir}/boot/KERNEL" ]] &&
     [[ -f "${kernel_dir}/usr/lib/firmware/qcom/a740_sqe.fw" ]] &&
     [[ -f "${kernel_dir}/usr/lib/firmware/qcom/gmu_gen70200.bin" ]] &&
     [[ -f "${kernel_dir}/usr/lib/firmware/qcom/sm8550/a740_zap.mbn" ]]
@@ -237,12 +238,18 @@ cat > "${rootfs_dir}/etc/fstab" <<EOF
 UUID=${root_uuid} / ext4 rw,relatime 0 1
 UUID=${boot_uuid} /boot vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2
 EOF
-sed -i "s/root=UUID=[^[:space:]\"]*/root=UUID=${root_uuid}/" "${rootfs_dir}/boot/LinuxLoader.cfg"
 sed -i 's/^#\?HOOKS=.*/HOOKS=(base udev modconf kms keyboard keymap consolefont block thorch-firmware filesystems fsck)/' \
   "${rootfs_dir}/etc/mkinitcpio.conf"
 
+rocknix_kernver="$(find "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | head -n1 || true)"
+[[ -n "${rocknix_kernver}" ]] || die "unable to determine imported ROCKNIX kernel release"
+install -Dm644 "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/Image" \
+  "${rootfs_dir}/usr/lib/modules/${rocknix_kernver}/Image"
 run_rootfs "mkinitcpio -P"
+install -Dm644 "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/KERNEL" \
+  "${rootfs_dir}/usr/share/thorch/rocknix/KERNEL"
 run_rootfs "thorch-rebuild-abl-kernel --root-uuid ${root_uuid} --rootfstype ext4"
+rm -f "${rootfs_dir}/boot/Image"
 run_rootfs "thorch-check-boot"
 systemctl --root "${rootfs_dir}" enable NetworkManager.service sshd.service sddm.service systemd-binfmt.service thorch-usb-gadget.service thorch-usb-network.service thorch-rgb.service thorch-rgb-battery.service thorch-rgb-poweroff.service thorch-touchscreen-setup.service thorch-f24-escape.service thorch-powerkeyd.service thorch-debug-report.service >/dev/null
 

@@ -14,7 +14,7 @@ require_cmd() {
   fi
 }
 
-for cmd in sfdisk mdir mtype mcopy file strings grep awk python3; do
+for cmd in sfdisk mdir mcopy file strings grep awk python3; do
   require_cmd "${cmd}"
 done
 
@@ -30,7 +30,7 @@ trap cleanup EXIT
 validate_image() {
   local image="$1"
   local boot_start sector_size boot_offset boot_ref tmpdir failures
-  local root_listing linuxloader kernel_file_type kernel_strings dtb_file
+  local root_listing kernel_file_type kernel_strings
 
   [[ -f "${image}" || -b "${image}" ]] || { echo "image/block device not found: ${image}" >&2; return 1; }
   printf 'validating: %s\n' "${image}"
@@ -74,32 +74,37 @@ validate_image() {
   root_listing="$(mdir -i "${boot_ref}" ::/)"
   check "boot partition is labelled ROCKNIX" grep -q 'is ROCKNIX' <<<"${root_listing}"
   check "Android boot image /KERNEL exists at FAT root" has_fat_path /KERNEL
-  check "raw Linux /Image exists at FAT root" has_fat_path /Image
-  check "LinuxLoader.cfg exists at FAT root" has_fat_path /LinuxLoader.cfg
-
-  linuxloader="$(mtype -i "${boot_ref}" ::/LinuxLoader.cfg 2>/dev/null || true)"
-  check "LinuxLoader targets direct Linux boot" grep -q 'Target = "Linux"' <<<"${linuxloader}"
-  check "LinuxLoader loads /Image" grep -q 'Image = "Image"' <<<"${linuxloader}"
-  check "LinuxLoader command line rotates fbcon right" grep -q 'fbcon=rotate:1' <<<"${linuxloader}"
-  check "LinuxLoader command line uses root UUID" grep -q 'root=UUID=' <<<"${linuxloader}"
 
   if has_fat_path /KERNEL; then
     mcopy -o -i "${boot_ref}" ::/KERNEL "${tmpdir}/KERNEL" >/dev/null
-    dtb_file="${tmpdir}/qcs8550-ayn-thor.dtb"
-    mcopy -o -i "${boot_ref}" ::/dtb/qcom/qcs8550-ayn-thor.dtb "${dtb_file}" >/dev/null 2>&1 || true
     kernel_file_type="$(file -b "${tmpdir}/KERNEL")"
     kernel_strings="${tmpdir}/KERNEL.strings"
     strings -n 8 "${tmpdir}/KERNEL" > "${kernel_strings}"
 
     kernel_embeds_dtb() {
-      [[ -f "${dtb_file}" ]] || return 1
-      python3 - "${tmpdir}/KERNEL" "${dtb_file}" <<'PY'
+      python3 - "${tmpdir}/KERNEL" <<'PY'
 import pathlib
+import struct
 import sys
 
 kernel = pathlib.Path(sys.argv[1]).read_bytes()
-dtb = pathlib.Path(sys.argv[2]).read_bytes()
-sys.exit(0 if dtb and kernel.find(dtb) >= 0 else 1)
+magic = b"\xd0\r\xfe\xed"
+pos = 0
+
+while True:
+    at = kernel.find(magic, pos)
+    if at < 0:
+        sys.exit(1)
+    if len(kernel) < at + 8:
+        sys.exit(1)
+    size = struct.unpack_from(">I", kernel, at + 4)[0]
+    if size < 8 or len(kernel) < at + size:
+        pos = at + 4
+        continue
+    dtb = kernel[at:at + size]
+    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb:
+        sys.exit(0)
+    pos = at + size
 PY
     }
 

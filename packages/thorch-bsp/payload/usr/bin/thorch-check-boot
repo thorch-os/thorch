@@ -40,18 +40,52 @@ check_file() {
   fi
 }
 
-check_file "raw Linux Image" "${boot_dir}/Image"
 check_file "Thorch initramfs" "${boot_dir}/initramfs-linux-thorch.img"
-check_file "LinuxLoader.cfg" "${boot_dir}/LinuxLoader.cfg"
 check_file "Android boot image KERNEL" "${boot_dir}/KERNEL"
-
-if [[ -f "${boot_dir}/LinuxLoader.cfg" ]]; then
-  grep -q 'Target = "Linux"' "${boot_dir}/LinuxLoader.cfg" || failures=$((failures + 1))
-  grep -q 'root=UUID=' "${boot_dir}/LinuxLoader.cfg" || failures=$((failures + 1))
-fi
 
 if [[ -f "${boot_dir}/KERNEL" ]] && command -v file >/dev/null 2>&1; then
   file -b "${boot_dir}/KERNEL" | grep -q '^Android bootimg' || failures=$((failures + 1))
+fi
+
+if [[ -f "${boot_dir}/KERNEL" ]]; then
+  python3 - "${boot_dir}/KERNEL" <<'PY' || failures=$((failures + 1))
+import pathlib
+import struct
+import sys
+
+kernel = pathlib.Path(sys.argv[1]).read_bytes()
+missing = [
+    marker.decode("ascii")
+    for marker in (b"root=UUID=", b"fbcon=rotate:1")
+    if marker not in kernel
+]
+
+magic = b"\xd0\r\xfe\xed"
+pos = 0
+has_thor_dtb = False
+while True:
+    at = kernel.find(magic, pos)
+    if at < 0:
+        break
+    if len(kernel) < at + 8:
+        break
+    size = struct.unpack_from(">I", kernel, at + 4)[0]
+    if size < 8 or len(kernel) < at + size:
+        pos = at + 4
+        continue
+    dtb = kernel[at:at + size]
+    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb:
+        has_thor_dtb = True
+        break
+    pos = at + size
+
+if not has_thor_dtb:
+    missing.append("embedded Thor DTB")
+
+if missing:
+    print("KERNEL missing: " + ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+PY
 fi
 
 if [[ "${failures}" -ne 0 ]]; then

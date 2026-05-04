@@ -105,7 +105,8 @@ rocknix_kernel_firmware_ready() {
 }
 
 needs_rocknix_sync=0
-if [[ " ${packages[*]} " == *" linux-thorch "* && ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/Image" ]]; then
+if [[ " ${packages[*]} " == *" linux-thorch "* ]] &&
+  { [[ ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/Image" ]] || [[ ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/KERNEL" ]]; }; then
   needs_rocknix_sync=1
 fi
 if [[ " ${packages[*]} " == *" thorch-firmware-rocknix "* ]] &&
