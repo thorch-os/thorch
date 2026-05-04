@@ -5,7 +5,7 @@ _pkgname=gamescope
 pkgver=3.16.23
 pkgrel=1
 _commit=f8b33d38c5acc35825c7966b208222770c4a623e
-pkgdesc='SteamOS session compositing window manager with Thorch nested touch patch'
+pkgdesc='SteamOS session compositing window manager with ROCKNIX handheld patches'
 arch=(aarch64)
 url='https://github.com/ValveSoftware/gamescope'
 license=(
@@ -73,7 +73,6 @@ source=(
   'git+https://github.com/Joshua-Ashton/vkroots.git'
   'git+https://github.com/Joshua-Ashton/wlroots.git'
   'wlroots-5261.patch'
-  '0001-WaylandBackend-wire-up-wl-touch-implementation.patch'
 )
 b2sums=(
   'SKIP'
@@ -85,7 +84,6 @@ b2sums=(
   'SKIP'
   'SKIP'
   'a46eed11d1f4174f011e8aa58b3d333c81750ceb4846d462ec7cee98e268a1c00fa9699b656abfeec872b025aeb95f87e19267ce1d4722a5521233270a8fa604'
-  '27a4674b52ea5629ca1ee65173e0aed66309e2d3c632d055aea175fa5103408088197ff5ca69976c8cf644777f6e75e6f3b2870658dcbae13ae8ec4f5375d174'
 )
 
 prepare() {
@@ -102,8 +100,16 @@ prepare() {
   # Fix https://github.com/ValveSoftware/gamescope/issues/2110
   patch -Np1 -d subprojects/wlroots -i "${srcdir}/wlroots-5261.patch"
 
-  # Forward nested Wayland touch events while upstream PR #2104 is pending.
-  patch -Np1 -i "${srcdir}/0001-WaylandBackend-wire-up-wl-touch-implementation.patch"
+  # ROCKNIX handheld gamescope patch set.
+  local rocknix_gamescope_patches="${THORCH_ROCKNIX_DIR:?THORCH_ROCKNIX_DIR is required}/packages/apps/gamescope/patches"
+  local rocknix_patch
+  for rocknix_patch in \
+    "${rocknix_gamescope_patches}/0001-WaylandBackend-wire-up-wl_touch-implementation.patch" \
+    "${rocknix_gamescope_patches}/0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch" \
+    "${rocknix_gamescope_patches}/0005-feature-add-rotation-shader-for-rotating-output.patch"; do
+    [[ -f "${rocknix_patch}" ]] || { printf 'missing ROCKNIX gamescope patch: %s\n' "${rocknix_patch}" >&2; exit 1; }
+    patch -Np1 -i "${rocknix_patch}"
+  done
 }
 
 build() {

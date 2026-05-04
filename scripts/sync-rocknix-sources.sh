@@ -10,9 +10,9 @@ usage() {
   cat >&2 <<'EOF'
 usage: scripts/sync-rocknix-sources.sh [--ref <commit-or-branch>] [--dest <dir>] [--with-firmware]
 
-Synchronizes selected public ROCKNIX SM8550 filesystem overlays and metadata
-into vendor/rocknix-sm8550. This keeps Thorch builds reproducible from public
-upstream inputs.
+Synchronizes selected public ROCKNIX SM8550 filesystem overlays, package
+patchsets, configs, and metadata into vendor/rocknix-sm8550. This keeps Thorch
+builds reproducible from public upstream inputs.
 
 Use --with-firmware to also sync the public SM8550/AYN Thor firmware blobs.
 Release builds should pass a full commit SHA.
@@ -73,6 +73,10 @@ sparse_paths=(
   projects/ROCKNIX/devices/SM8550/config
   projects/ROCKNIX/devices/SM8550/linux
   projects/ROCKNIX/devices/SM8550/patches
+  projects/ROCKNIX/packages/apps/gamescope/patches
+  projects/ROCKNIX/packages/apps/mangohud/config
+  projects/ROCKNIX/packages/apps/mangohud/patches/SM8550
+  projects/ROCKNIX/packages/hardware/quirks/platforms/SM8550
 )
 if [[ "${with_firmware}" -eq 1 ]]; then
   sparse_paths+=(projects/ROCKNIX/devices/SM8550/filesystem/usr/lib/kernel-overlays/base/lib/firmware)
@@ -85,7 +89,8 @@ if ! git checkout "${ref}" >/dev/null 2>&1; then
 fi
 
 resolved_ref="$(git rev-parse HEAD)"
-src="projects/ROCKNIX/devices/SM8550"
+rocknix_root="projects/ROCKNIX"
+src="${rocknix_root}/devices/SM8550"
 
 sync_required_dir() {
   local from="$1" to="$2"
@@ -111,6 +116,10 @@ sync_required_dir "${src}/config" "${dest_abs}/config"
 sync_optional_dir "${src}/filesystem/usr/share/inputplumber" "${dest_abs}/inputplumber"
 sync_optional_dir "${src}/linux" "${dest_abs}/linux"
 sync_optional_dir "${src}/patches" "${dest_abs}/patches"
+sync_required_dir "${rocknix_root}/packages/apps/gamescope/patches" "${dest_abs}/packages/apps/gamescope/patches"
+sync_required_dir "${rocknix_root}/packages/apps/mangohud/config" "${dest_abs}/packages/apps/mangohud/config"
+sync_required_dir "${rocknix_root}/packages/apps/mangohud/patches/SM8550" "${dest_abs}/packages/apps/mangohud/patches/SM8550"
+sync_required_dir "${rocknix_root}/packages/hardware/quirks/platforms/SM8550" "${dest_abs}/packages/hardware/quirks/platforms/SM8550"
 
 {
   printf 'ROCKNIX_REPO=%s\n' "${ROCKNIX_REPO}"

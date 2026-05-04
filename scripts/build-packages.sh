@@ -104,6 +104,17 @@ rocknix_kernel_firmware_ready() {
     [[ -f "${kernel_dir}/usr/lib/firmware/qcom/sm8550/a740_zap.mbn" ]]
 }
 
+rocknix_package_sources_ready() {
+  local source_dir="${root}/${THORCH_ROCKNIX_DIR}"
+  [[ -f "${source_dir}/packages/apps/gamescope/patches/0001-WaylandBackend-wire-up-wl_touch-implementation.patch" ]] &&
+    [[ -f "${source_dir}/packages/apps/gamescope/patches/0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch" ]] &&
+    [[ -f "${source_dir}/packages/apps/gamescope/patches/0005-feature-add-rotation-shader-for-rotating-output.patch" ]] &&
+    [[ -f "${source_dir}/packages/apps/mangohud/patches/SM8550/0001-SM8550-GPU.patch" ]] &&
+    [[ -f "${source_dir}/packages/apps/mangohud/config/MangoHud.conf" ]] &&
+    [[ -d "${source_dir}/inputplumber" ]] &&
+    [[ -d "${source_dir}/packages/hardware/quirks/platforms/SM8550" ]]
+}
+
 needs_rocknix_sync=0
 if [[ " ${packages[*]} " == *" linux-thorch "* ]] &&
   { [[ ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/Image" ]] || [[ ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/KERNEL" ]]; }; then
@@ -119,6 +130,13 @@ fi
 if [[ "${needs_rocknix_sync}" -eq 1 ]]; then
   log "syncing prebuilt ROCKNIX SM8550 kernel/runtime artifacts"
   "${script_dir}/sync-rocknix-kernel.sh"
+fi
+if { [[ " ${packages[*]} " == *" thorch-gamescope "* ]] ||
+  [[ " ${packages[*]} " == *" thorch-inputplumber "* ]] ||
+  [[ " ${packages[*]} " == *" thorch-rocknix-quirks "* ]] ||
+  [[ " ${packages[*]} " == *" thorch-mangohud "* ]]; } && ! rocknix_package_sources_ready; then
+  log "syncing public ROCKNIX SM8550 package sources"
+  "${script_dir}/sync-rocknix-sources.sh"
 fi
 if [[ " ${packages[*]} " == *" linux-thorch "* || " ${packages[*]} " == *" thorch-firmware-rocknix "* ]]; then
   validate_rocknix_kernel_provenance "${root}/${THORCH_ROCKNIX_KERNEL_DIR}"
@@ -197,6 +215,9 @@ package_inputs_newer_than() {
     thorch-fex-bin)
       input_dirs+=("${root}/${THORCH_ROCKNIX_RUNTIME_DIR}")
       ;;
+    thorch-gamescope|thorch-inputplumber|thorch-rocknix-quirks|thorch-mangohud)
+      input_dirs+=("${root}/${THORCH_ROCKNIX_DIR}")
+      ;;
   esac
 
   for dir in "${input_dirs[@]}"; do
@@ -265,6 +286,7 @@ log "syncing package build inputs"
 rm -rf "${input_dir}"
 install -d "${input_dir}"
 sync_input_dir "${THORCH_FIRMWARE_DIR}"
+sync_input_dir "${THORCH_ROCKNIX_DIR}"
 sync_input_dir "${THORCH_ROCKNIX_KERNEL_DIR}"
 sync_input_dir "${THORCH_ROCKNIX_RUNTIME_DIR}"
 
