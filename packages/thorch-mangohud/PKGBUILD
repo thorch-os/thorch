@@ -75,6 +75,7 @@ build() {
     -Dwith_xnvctrl=disabled \
     -Dwith_x11=enabled \
     -Dwith_wayland=enabled \
+    -Dtests=disabled \
     -Dmangoplot=disabled \
     -Dmangoapp=true
   meson compile -C build
