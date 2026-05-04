@@ -1,12 +1,40 @@
 # Thorch
 
 Thorch is an experimental Arch Linux ARM image for the AYN Thor, built on top of
-public ROCKNIX work. It relies on ROCKNIX's SM8550 kernel, DTBs, modules, firmware, runtime
-graphics pieces, device configuration, and ABL-compatible boot layout.
+public ROCKNIX work. It imports ROCKNIX's SM8550 `/KERNEL` Android boot image,
+kernel `Image`, modules, firmware, runtime graphics pieces, FEX assets, device
+configuration, handheld package patch sets, and ABL-compatible boot layout.
 
-What Thorch adds is an Arch root filesystem, initramfs, KDE session, debug tooling, and installer around that base.
+What Thorch adds is an Arch root filesystem, a Thorch initramfs repacked into
+the imported ROCKNIX boot image, local Arch packages, KDE defaults, handheld
+input/gaming integration, debug tooling, and an internal installer around that
+base.
 
-The first target is a bootable SD image for bring-up, diagnostics, and internal installation. Internal install is the intended performance path, but SD remains the recovery and staging path.
+The first target is a bootable SD image for bring-up, diagnostics, and internal
+installation. Internal install is the intended performance path, but SD remains
+the recovery and staging path.
+
+## Current Scope
+
+- Arch Linux ARM aarch64 root filesystem.
+- Local packages for the imported ROCKNIX boot/kernel artifacts,
+  firmware/runtime artifacts, board support, KDE defaults, internal install,
+  FEX runtime, ROCKNIX-patched Gamescope, InputPlumber maps, ROCKNIX SM8550
+  quirks, MangoHud, and Steam/gaming setup launchers.
+- Plasma Desktop Wayland as the default session while Thor touch is being
+  stabilized.
+- Plasma Mobile Wayland is optional, and SteamOS-mode helpers can temporarily
+  switch the shell/launcher flow for gaming tests.
+- InputPlumber-based gamepad mapping for the AYN/RSInput MCU path.
+- ROCKNIX-derived SM8550 handheld hints for audio, thermal, CPU/GPU frequency
+  paths, modifier buttons, touchscreen, and MangoHud support.
+- USB RNDIS debug gadget with SSH on `10.66.0.1` when connected to a host.
+- Thor joystick RGB helper with battery-status, static color, and off modes.
+- ROCKNIX ABL-compatible FAT boot partition.
+- Top-level `/KERNEL` Android boot image repacked from the imported ROCKNIX
+  payload with Thorch's initramfs and image root UUID.
+- Internal installer that formats selected Linux boot/root partitions and never
+  flashes ABL.
 
 ## ROCKNIX Inputs
 
@@ -24,9 +52,11 @@ and license notices clear.
 Thorch currently syncs or imports:
 
 - Official ROCKNIX SM8550 image artifacts: `/KERNEL`, kernel `Image`,
-  modules, and selected `/SYSTEM` runtime files.
-- Public ROCKNIX firmware, filesystem overlays, device configuration, kernel
-  metadata, and related platform files.
+  modules, selected `/SYSTEM` runtime files, and FEX runtime files.
+- Public ROCKNIX firmware, filesystem overlays, device configuration, package
+  patches/configs, quirk metadata, kernel metadata, and related platform files.
+- ROCKNIX handheld gamescope patches, MangoHud SM8550 GPU support/config, and
+  InputPlumber device/capability map inputs from the synced public source tree.
 - The ROCKNIX-compatible Thor ABL boot layout, including the FAT boot partition
   label `ROCKNIX`.
 
@@ -57,23 +87,6 @@ engineering chaos. AI-generated changes still need human review, hardware
 testing, and attribution checks before they are treated as trustworthy. Assume
 the machines are helping loudly, not driving unsupervised.
 
-## Current Scope
-
-- Arch Linux ARM aarch64 root filesystem.
-- Local packages for the ROCKNIX kernel, firmware/runtime artifacts, board
-  support, KDE defaults, internal install, FEX runtime, patched Gamescope, and
-  Steam/gaming setup launcher.
-- Plasma Desktop Wayland as the default session while Thor touch is being
-  stabilized.
-- Plasma Mobile Wayland is optional.
-- USB RNDIS debug gadget with SSH on `10.66.0.1` when connected to a host.
-- Thor joystick RGB helper with battery-status, static color, and off modes.
-- ROCKNIX ABL-compatible FAT boot partition.
-- Top-level `/KERNEL` Android boot image with the ROCKNIX-compatible FAT boot
-  partition layout.
-- Internal installer that formats selected Linux boot/root partitions and never
-  flashes ABL.
-
 ## Quick Start
 
 These commands are for workshop/test devices only. Read the scripts and the
@@ -91,6 +104,10 @@ Sync public ROCKNIX sources and firmware:
 make sync
 ```
 
+This populates `vendor/rocknix-sm8550` with public firmware, source overlays,
+InputPlumber data, ROCKNIX package patch/config inputs, and SM8550 quirk
+metadata. It also records source provenance for later audits.
+
 Import matching ROCKNIX kernel and runtime artifacts. By default this downloads
 the latest official ROCKNIX SM8550 nightly, verifies its `.sha256`, extracts the
 kernel and FEX runtime artifacts, and writes them to `vendor/rocknix-kernel` and
@@ -100,17 +117,20 @@ kernel and FEX runtime artifacts, and writes them to `vendor/rocknix-kernel` and
 make kernel
 ```
 
-You can also import manually from a mounted or extracted ROCKNIX image:
+You can also import manually from a mounted or extracted ROCKNIX image. The
+import needs a real ROCKNIX `/KERNEL` and matching modules; a raw `Image` is
+used when present or derived from `/KERNEL` when needed:
 
 ```bash
 make import-kernel BOOT_DIR=/mnt/rocknix-boot ROOT_DIR=/mnt/rocknix-root KERNEL_REF=<rocknix-build-label>
 ```
 
 A clean build needs real ROCKNIX image input. Do not satisfy this step from
-previous Thorch/Prime build artifacts, local `makepkg` package directories, or
+previous Thorch build artifacts, local `makepkg` package directories, or
 smoke-test kernel trees; those paths are intentionally rejected. `make build`
-will run the ROCKNIX kernel sync automatically if `vendor/rocknix-kernel` is
-missing.
+and `make packages` will run the ROCKNIX kernel/runtime sync when imported
+kernel or FEX artifacts are missing, and will run the public source sync when
+package patch/config inputs are missing.
 
 Build the image. The default password/PIN for the default user and root is
 `1234`; override `THORCH_PASSWORD` when you want a different one:
@@ -157,13 +177,19 @@ make check IMAGE=/dev/sdX
 ```
 
 The Makefile is a thin wrapper around `scripts/`. Use the scripts directly when
-you need non-default options.
+you need non-default options. See [docs/build.md](docs/build.md) and
+[docs/package-layout.md](docs/package-layout.md) for deeper build and package
+notes.
 
 The default image package set is:
 `linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults
 thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers
 thorch-inputplumber thorch-rocknix-quirks thorch-mangohud`. Override
 `THORCH_IMAGE_PACKAGES` when you need a custom image package set.
+
+`thorch-inputplumber` installs InputPlumber's upstream rootfs contents and
+overlays only the Thor input maps. The image builder enables its service only
+when that package/unit is present, so custom package sets can omit it.
 
 After first boot from a larger SD card, use the `Expand SD Root` desktop icon to
 grow the booted root partition and ext4 filesystem to fill the card. The
