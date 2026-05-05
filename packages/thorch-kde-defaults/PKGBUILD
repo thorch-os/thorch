@@ -2,7 +2,7 @@
 
 pkgname=thorch-kde-defaults
 pkgver=1
-pkgrel=5
+pkgrel=6
 pkgdesc='KDE Plasma Mobile/Desktop defaults for Thorch on AYN Thor'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
@@ -23,7 +23,6 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-sessionctl"
   chmod 755 "${pkgdir}/usr/bin/thorch-session-recovery"
   chmod 755 "${pkgdir}/usr/bin/thorch-switch-session"
-  chmod 755 "${pkgdir}/usr/bin/thorch-f24-escape"
   chmod 755 "${pkgdir}/etc/skel/.config/plasma-workspace/env/10-thorch-touch.sh"
   chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-display-setup.desktop"
   chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-switch-to-desktop.desktop"

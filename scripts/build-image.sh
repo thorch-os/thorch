@@ -267,7 +267,6 @@ rootfs_services=(
   thorch-rgb-battery.service
   thorch-rgb-poweroff.service
   thorch-touchscreen-setup.service
-  thorch-f24-escape.service
   thorch-session-recovery.service
   thorch-powerkeyd.service
   thorch-debug-report.service
