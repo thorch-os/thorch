@@ -1,3 +1,5 @@
+[![Join the Thorch Discord](docs/assets/thorch-discord-banner.png)](https://discord.gg/vbmkGaCxdC)
+
 # Thorch
 
 Thorch is an experimental Arch Linux ARM image for the AYN Thor, built on top of
