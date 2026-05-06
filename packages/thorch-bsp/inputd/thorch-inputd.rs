@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 const EV_KEY: u16 = 1;
 const EV_ABS: u16 = 3;
+const EV_SW: u16 = 5;
 const KEY_VOLUMEDOWN: u16 = 114;
 const KEY_VOLUMEUP: u16 = 115;
 const KEY_RECORD: u16 = 167;
@@ -30,6 +31,7 @@ const BTN_DPAD_LEFT: u16 = 546;
 const BTN_DPAD_RIGHT: u16 = 547;
 const ABS_HAT0X: u16 = 16;
 const ABS_HAT0Y: u16 = 17;
+const SW_LID: u16 = 0;
 const EVIOCGRAB: usize = 0x40044590;
 const POLLIN: i16 = 0x0001;
 
@@ -48,6 +50,7 @@ extern "C" {
 
 struct OpenedDevice {
     file: File,
+    grab_allowed: bool,
 }
 
 struct Config {
@@ -70,6 +73,7 @@ struct Config {
     screen_switch: String,
     game_guide: String,
     keyboard_signal: String,
+    powerd: String,
     kill_data: PathBuf,
     dpad_events: bool,
     touch_events: bool,
@@ -153,6 +157,8 @@ impl Config {
             device_names: parse_name_set(
                 &["THORCH_INPUTD_DEVICE_NAMES", "THORCH_HWCONTROLD_DEVICE_NAMES"],
                 &[
+                    "gpio-keys",
+                    "pmic_resin",
                     "AYN Odin2 Gamepad",
                     "RSInput Gamepad",
                     "InputPlumber Keyboard",
@@ -193,6 +199,7 @@ impl Config {
             screen_switch: env_or(&["THORCH_INPUTD_SCREEN_SWITCH"], "/usr/bin/screen_switch"),
             game_guide: env_or(&["THORCH_INPUTD_GAME_GUIDE"], "/usr/bin/game-guides-tool"),
             keyboard_signal: env_or(&["THORCH_INPUTD_KEYBOARD_SIGNAL"], "/usr/bin/pkill"),
+            powerd: env_or(&["THORCH_INPUTD_POWERD"], "/usr/bin/thorch-powerd"),
             kill_data: PathBuf::from(env_or(&["THORCH_INPUTD_KILL_DATA"], "/tmp/.process-kill-data")),
             dpad_events: env_bool(&["THORCH_INPUTD_DPAD_EVENTS"], true),
             touch_events: env_bool(&["THORCH_INPUTD_TOUCH_EVENTS"], false),
@@ -228,6 +235,20 @@ fn input_devices(config: &Config) -> Vec<PathBuf> {
     }
 
     devices
+}
+
+fn input_device_name(config: &Config, event_name: &str) -> String {
+    fs::read_to_string(config.input_root.join(event_name).join("device/name"))
+        .map(|name| name.trim().to_string())
+        .unwrap_or_default()
+}
+
+fn can_grab_device(name: &str) -> bool {
+    !matches!(name, "pmic_pwrkey" | "gpio-keys" | "pmic_resin")
+}
+
+fn should_grab_on_open(name: &str) -> bool {
+    matches!(name, "gpio-keys" | "pmic_resin")
 }
 
 fn run_command(program: &str, args: &[&str]) {
@@ -327,6 +348,10 @@ fn run_wifi(config: &Config, enabled: bool) {
     }
 }
 
+fn run_lid_switch(config: &Config, closed: bool) {
+    run_command(&config.powerd, &[if closed { "suspend" } else { "resume" }]);
+}
+
 fn run_volume(config: &Config, direction: &str) {
     let value = if direction == "up" { "+5%" } else { "-5%" };
     if direction == "up" {
@@ -391,6 +416,9 @@ fn sync_grabs(
 ) {
     let should_grab = pressed.iter().any(|code| hotkey_modifiers.contains(code));
     for (fd, opened) in devices {
+        if !opened.grab_allowed {
+            continue;
+        }
         let wants_grab = should_grab && !modifier_fds.contains_key(fd);
         let is_grabbed = grabbed_fds.contains(fd);
         if wants_grab == is_grabbed {
@@ -422,8 +450,19 @@ fn main() {
     loop {
         let mut devices: HashMap<i32, OpenedDevice> = HashMap::new();
         for path in input_devices(&config) {
+            let event_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+            let device_name = input_device_name(&config, event_name);
             if let Ok(file) = File::open(path) {
-                devices.insert(file.as_raw_fd(), OpenedDevice { file });
+                if should_grab_on_open(&device_name) {
+                    set_grab(&file, true);
+                }
+                devices.insert(
+                    file.as_raw_fd(),
+                    OpenedDevice {
+                        file,
+                        grab_allowed: can_grab_device(&device_name),
+                    },
+                );
             }
         }
 
@@ -459,6 +498,11 @@ fn main() {
                         break;
                     }
                 };
+
+                if event_type == EV_SW && code == SW_LID {
+                    run_lid_switch(&config, value == 1);
+                    continue;
+                }
 
                 if event_type == EV_ABS && config.dpad_events {
                     let direction = match (code, value) {
@@ -674,16 +718,23 @@ mod tests {
     }
 
     #[test]
-    fn default_device_names_leave_power_and_lid_devices_to_powerd() {
+    fn default_device_names_own_volume_keys_without_grabbing_power_key() {
         let _guard = env_lock().lock().unwrap();
         clear_env(&["THORCH_INPUTD_DEVICE_NAMES", "THORCH_HWCONTROLD_DEVICE_NAMES"]);
 
         let config = Config::load();
 
         assert!(config.device_names.contains("InputPlumber Keyboard"));
-        assert!(!config.device_names.contains("gpio-keys"));
+        assert!(config.device_names.contains("gpio-keys"));
+        assert!(config.device_names.contains("pmic_resin"));
         assert!(!config.device_names.contains("pmic_pwrkey"));
-        assert!(!config.device_names.contains("pmic_resin"));
+        assert!(!can_grab_device("pmic_pwrkey"));
+        assert!(!can_grab_device("gpio-keys"));
+        assert!(!can_grab_device("pmic_resin"));
+        assert!(can_grab_device("InputPlumber Keyboard"));
+        assert!(should_grab_on_open("gpio-keys"));
+        assert!(should_grab_on_open("pmic_resin"));
+        assert!(!should_grab_on_open("pmic_pwrkey"));
     }
 
     #[test]
@@ -718,6 +769,7 @@ mod tests {
             screen_switch: String::new(),
             game_guide: String::new(),
             keyboard_signal: String::new(),
+            powerd: String::new(),
             kill_data: root.join("kill-data"),
             dpad_events: true,
             touch_events: false,
