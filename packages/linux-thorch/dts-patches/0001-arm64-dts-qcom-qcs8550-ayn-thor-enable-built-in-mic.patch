@@ -1,35 +1,21 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 7bf638771e7d26226eab92ab05f9d776ffdd8dde Mon Sep 17 00:00:00 2001
 From: Thorch Developers <thorch@local>
 Date: Sat, 9 May 2026 00:45:00 +1200
 Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn-thor: enable built-in mic
 
 Thor's built-in microphone is routed through the WCD938x digital mic path on
-SoundWire, not the AMIC2 analog path used by headset-style capture. Use the
-first capture DAI exposed by swr2 and add the board route for the verified
-DMIC3/SWR input.
+SoundWire, not the AMIC2 analog path used by headset-style capture. Override
+Thor's capture link to use the first capture DAI exposed by swr2 and add the
+board route for the verified DMIC3/SWR input.
 ---
- arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi |  2 +-
- arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts    | 11 +++++++++++
- 2 files changed, 12 insertions(+), 1 deletion(-)
+ arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
 
-diff --git a/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi b/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi
-index 111111111111..222222222222 100644
---- a/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi
-+++ b/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi
-@@ -397,7 +397,7 @@ cpu {
- 			};
- 
- 			codec {
--				sound-dai = <&wcd938x 1>, <&swr2 0>, <&lpass_txmacro 0>;
-+				sound-dai = <&wcd938x 1>, <&swr2 1>, <&lpass_txmacro 0>;
- 			};
- 
- 			platform {
 diff --git a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
-index 111111111111..222222222222 100644
+index c2a3290..4433ea8 100644
 --- a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
 +++ b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
-@@ -157,6 +157,17 @@ multi-ledl4 {
+@@ -159,6 +159,23 @@
  	};
  };
  
@@ -42,10 +28,16 @@ index 111111111111..222222222222 100644
 +			"TX SWR_INPUT1", "ADC2_OUTPUT",
 +			"DMIC3", "MIC BIAS3",
 +			"TX SWR_INPUT7", "DMIC3_OUTPUT";
++
++	wcd-capture-dai-link {
++		codec {
++			sound-dai = <&wcd938x 1>, <&swr2 1>, <&lpass_txmacro 0>;
++		};
++	};
 +};
 +
  &display_panel {
  	compatible = "chipone,icna3520";
  
 -- 
-2.49.0
+2.54.0
