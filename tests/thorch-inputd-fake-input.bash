@@ -20,9 +20,7 @@ fi
 script="${tmp}/thorch-inputd"
 rustc "${source}" --edition=2021 -C opt-level=0 -o "${script}"
 
-mkdir -p "${tmp}/sys/class/input/event0/device" "${tmp}/dev/input"
-printf 'AYN Odin2 Gamepad\n' > "${tmp}/sys/class/input/event0/device/name"
-mkfifo "${tmp}/dev/input/event0"
+mkdir -p "${tmp}/sys/class/input" "${tmp}/dev/input"
 
 cat > "${tmp}/backlight" <<'EOF'
 #!/usr/bin/env bash
@@ -98,6 +96,11 @@ THORCH_FAKE_VOLUME_LOG="${tmp}/volume.log" \
 THORCH_FAKE_HOTKEY_LOG="${tmp}/hotkey.log" \
   "${script}" &
 daemon_pid="$!"
+
+mkdir -p "${tmp}/staged-event0/device"
+printf 'AYN Odin2 Gamepad\n' > "${tmp}/staged-event0/device/name"
+mkfifo "${tmp}/dev/input/event0"
+mv "${tmp}/staged-event0" "${tmp}/sys/class/input/event0"
 
 EVENT_FIFO="${tmp}/dev/input/event0" python3 - <<'PY'
 import os

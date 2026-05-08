@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::ffi::c_char;
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
@@ -34,6 +35,13 @@ const ABS_HAT0Y: u16 = 17;
 const SW_LID: u16 = 0;
 const EVIOCGRAB: usize = 0x40044590;
 const POLLIN: i16 = 0x0001;
+const IN_NONBLOCK: i32 = 0x00000800;
+const IN_CLOEXEC: i32 = 0x00080000;
+const IN_CREATE: u32 = 0x00000100;
+const IN_DELETE: u32 = 0x00000200;
+const IN_MOVED_FROM: u32 = 0x00000040;
+const IN_MOVED_TO: u32 = 0x00000080;
+const IN_ATTRIB: u32 = 0x00000004;
 
 #[repr(C)]
 struct PollFd {
@@ -46,11 +54,19 @@ struct PollFd {
 extern "C" {
     fn poll(fds: *mut PollFd, nfds: usize, timeout: i32) -> i32;
     fn ioctl(fd: i32, request: usize, ...) -> i32;
+    fn inotify_init1(flags: i32) -> i32;
+    fn inotify_add_watch(fd: i32, pathname: *const c_char, mask: u32) -> i32;
 }
 
 struct OpenedDevice {
     file: File,
+    path: PathBuf,
+    name: String,
     grab_allowed: bool,
+}
+
+struct InputWatcher {
+    file: File,
 }
 
 struct Config {
@@ -243,6 +259,10 @@ fn input_device_name(config: &Config, event_name: &str) -> String {
         .unwrap_or_default()
 }
 
+fn log(message: &str) {
+    eprintln!("thorch-inputd: {message}");
+}
+
 fn can_grab_device(name: &str) -> bool {
     !matches!(name, "pmic_pwrkey" | "gpio-keys" | "pmic_resin")
 }
@@ -407,6 +427,93 @@ fn read_event(file: &mut File) -> io::Result<(u16, u16, i32)> {
     Ok((event_type, code, value))
 }
 
+fn create_input_watcher(config: &Config) -> Option<InputWatcher> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let fd = unsafe { inotify_init1(IN_NONBLOCK | IN_CLOEXEC) };
+    if fd < 0 {
+        log("failed to create inotify watcher; falling back to periodic retry");
+        return None;
+    }
+    let file = unsafe { File::from_raw_fd(fd) };
+
+    let path = CString::new(config.input_root.as_os_str().as_bytes()).ok()?;
+    let mask = IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB;
+    let watch = unsafe { inotify_add_watch(file.as_raw_fd(), path.as_ptr(), mask) };
+    if watch < 0 {
+        log("failed to watch input root; falling back to periodic retry");
+        return None;
+    }
+
+    Some(InputWatcher { file })
+}
+
+fn drain_input_watcher(watcher: &mut InputWatcher) {
+    let mut buf = [0u8; 4096];
+    loop {
+        match watcher.file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => continue,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+            Err(_) => break,
+        }
+    }
+}
+
+fn open_new_devices(
+    config: &Config,
+    devices: &mut HashMap<i32, OpenedDevice>,
+    opened_paths: &mut HashSet<PathBuf>,
+) {
+    for path in input_devices(config) {
+        if opened_paths.contains(&path) {
+            continue;
+        }
+
+        let event_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let device_name = input_device_name(config, event_name);
+        let Ok(file) = File::open(&path) else {
+            continue;
+        };
+        if should_grab_on_open(&device_name) {
+            set_grab(&file, true);
+        }
+
+        let fd = file.as_raw_fd();
+        log(&format!("opened {} ({})", path.display(), device_name));
+        opened_paths.insert(path.clone());
+        devices.insert(
+            fd,
+            OpenedDevice {
+                file,
+                path,
+                name: device_name.clone(),
+                grab_allowed: can_grab_device(&device_name),
+            },
+        );
+    }
+}
+
+fn remove_device(
+    fd: i32,
+    devices: &mut HashMap<i32, OpenedDevice>,
+    opened_paths: &mut HashSet<PathBuf>,
+    pressed: &mut HashSet<u16>,
+    modifier_fds: &mut HashMap<i32, HashSet<u16>>,
+    grabbed_fds: &mut HashSet<i32>,
+) {
+    if let Some(opened) = devices.remove(&fd) {
+        if grabbed_fds.remove(&fd) {
+            set_grab(&opened.file, false);
+        }
+        opened_paths.remove(&opened.path);
+        modifier_fds.remove(&fd);
+        pressed.clear();
+        log(&format!("removed {} ({}) after read failure", opened.path.display(), opened.name));
+    }
+}
+
 fn sync_grabs(
     devices: &HashMap<i32, OpenedDevice>,
     pressed: &HashSet<u16>,
@@ -447,194 +554,210 @@ fn main() {
     let mut grabbed_fds = HashSet::new();
     let mut last_adjust: HashMap<u16, Instant> = HashMap::new();
 
+    let mut devices: HashMap<i32, OpenedDevice> = HashMap::new();
+    let mut opened_paths = HashSet::new();
+    let mut watcher = create_input_watcher(&config);
+    open_new_devices(&config, &mut devices, &mut opened_paths);
+
     loop {
-        let mut devices: HashMap<i32, OpenedDevice> = HashMap::new();
-        for path in input_devices(&config) {
-            let event_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
-            let device_name = input_device_name(&config, event_name);
-            if let Ok(file) = File::open(path) {
-                if should_grab_on_open(&device_name) {
-                    set_grab(&file, true);
-                }
-                devices.insert(
-                    file.as_raw_fd(),
-                    OpenedDevice {
-                        file,
-                        grab_allowed: can_grab_device(&device_name),
-                    },
-                );
-            }
+        let watcher_fd = watcher.as_ref().map(|watcher| watcher.file.as_raw_fd());
+        let mut poll_fds: Vec<PollFd> = devices
+            .keys()
+            .map(|fd| PollFd {
+                fd: *fd,
+                events: POLLIN,
+                revents: 0,
+            })
+            .collect();
+        if let Some(fd) = watcher_fd {
+            poll_fds.push(PollFd {
+                fd,
+                events: POLLIN,
+                revents: 0,
+            });
         }
 
-        if devices.is_empty() {
+        if poll_fds.is_empty() {
             thread::sleep(Duration::from_secs(1));
+            open_new_devices(&config, &mut devices, &mut opened_paths);
             continue;
         }
 
-        let mut disconnected = false;
-        while !disconnected {
-            let mut poll_fds: Vec<PollFd> = devices
-                .keys()
-                .map(|fd| PollFd {
-                    fd: *fd,
-                    events: POLLIN,
-                    revents: 0,
-                })
-                .collect();
+        let timeout = if watcher.is_some() { -1 } else { 1000 };
+        let poll_result = unsafe { poll(poll_fds.as_mut_ptr(), poll_fds.len(), timeout) };
+        if poll_result < 0 {
+            continue;
+        }
+        if poll_result == 0 {
+            open_new_devices(&config, &mut devices, &mut opened_paths);
+            continue;
+        }
 
-            let poll_result = unsafe { poll(poll_fds.as_mut_ptr(), poll_fds.len(), 1000) };
-            if poll_result < 0 {
-                break;
+        let mut rescan = false;
+        let mut failed_fds = Vec::new();
+
+        for poll_fd in poll_fds.iter().filter(|fd| fd.revents & POLLIN != 0) {
+            if Some(poll_fd.fd) == watcher_fd {
+                if let Some(input_watcher) = watcher.as_mut() {
+                    drain_input_watcher(input_watcher);
+                }
+                rescan = true;
+                continue;
             }
 
-            for poll_fd in poll_fds.iter().filter(|fd| fd.revents & POLLIN != 0) {
-                let Some(opened) = devices.get_mut(&poll_fd.fd) else {
+            let Some(opened) = devices.get_mut(&poll_fd.fd) else {
+                continue;
+            };
+            let (event_type, code, value) = match read_event(&mut opened.file) {
+                Ok(event) => event,
+                Err(_) => {
+                    failed_fds.push(poll_fd.fd);
                     continue;
+                }
+            };
+
+            if event_type == EV_SW && code == SW_LID {
+                run_lid_switch(&config, value == 1);
+                continue;
+            }
+
+            if event_type == EV_ABS && config.dpad_events {
+                let direction = match (code, value) {
+                    (ABS_HAT0Y, -1) => Some("up"),
+                    (ABS_HAT0Y, 1) => Some("down"),
+                    (ABS_HAT0X, 1) => Some("right"),
+                    (ABS_HAT0X, -1) => Some("left"),
+                    _ => None,
                 };
-                let (event_type, code, value) = match read_event(&mut opened.file) {
-                    Ok(event) => event,
-                    Err(_) => {
-                        disconnected = true;
-                        break;
-                    }
-                };
-
-                if event_type == EV_SW && code == SW_LID {
-                    run_lid_switch(&config, value == 1);
-                    continue;
-                }
-
-                if event_type == EV_ABS && config.dpad_events {
-                    let direction = match (code, value) {
-                        (ABS_HAT0Y, -1) => Some("up"),
-                        (ABS_HAT0Y, 1) => Some("down"),
-                        (ABS_HAT0X, 1) => Some("right"),
-                        (ABS_HAT0X, -1) => Some("left"),
-                        _ => None,
-                    };
-                    if direction.is_some()
-                        && pressed
-                            .iter()
-                            .any(|pressed_code| config.brightness_modifiers.contains(pressed_code))
-                    {
-                        match direction.unwrap() {
-                            "up" => run_volume(&config, "up"),
-                            "down" => run_volume(&config, "down"),
-                            "right" => run_backlight(&config, "up"),
-                            "left" => run_backlight(&config, "down"),
-                            _ => {}
-                        }
-                    }
-                    continue;
-                }
-                if event_type != EV_KEY {
-                    continue;
-                }
-
-                if value == 1 || value == 2 {
-                    pressed.insert(code);
-                } else if value == 0 {
-                    pressed.remove(&code);
-                }
-
-                if hotkey_modifiers.contains(&code) {
-                    let fd_modifiers = modifier_fds.entry(poll_fd.fd).or_default();
-                    if value == 1 || value == 2 {
-                        fd_modifiers.insert(code);
-                    } else if value == 0 {
-                        fd_modifiers.remove(&code);
-                        if fd_modifiers.is_empty() {
-                            modifier_fds.remove(&poll_fd.fd);
-                        }
-                    }
-                    sync_grabs(
-                        &devices,
-                        &pressed,
-                        &hotkey_modifiers,
-                        &modifier_fds,
-                        &mut grabbed_fds,
-                    );
-                }
-
-                if value == 1
-                    && config
-                        .rocknix_hotkey_modifiers
-                        .iter()
-                        .any(|modifier| pressed.contains(modifier))
-                {
-                    if matches!(code, BTN_EAST | BTN_WEST | BTN_BACK | KEY_RECORD | BTN_NORTH) {
-                        run_hotkey_command(&config, code);
-                    } else if config.touch_events && code == BTN_TOUCH {
-                        toggle_keyboard(&config);
-                    }
-                    let hotkey_count = config
-                        .rocknix_hotkey_modifiers
-                        .iter()
-                        .filter(|modifier| pressed.contains(modifier))
-                        .count();
-                    if hotkey_count > 0 && pressed.contains(&BTN_SELECT) && pressed.contains(&BTN_START) {
-                        execute_kill(&config);
-                    }
-                }
-
-                if value == 1
-                    && config.dpad_events
+                if direction.is_some()
                     && pressed
                         .iter()
                         .any(|pressed_code| config.brightness_modifiers.contains(pressed_code))
                 {
-                    match code {
-                        BTN_DPAD_UP => run_volume(&config, "up"),
-                        BTN_DPAD_DOWN => run_volume(&config, "down"),
-                        BTN_DPAD_RIGHT => run_backlight(&config, "up"),
-                        BTN_DPAD_LEFT => run_backlight(&config, "down"),
+                    match direction.unwrap() {
+                        "up" => run_volume(&config, "up"),
+                        "down" => run_volume(&config, "down"),
+                        "right" => run_backlight(&config, "up"),
+                        "left" => run_backlight(&config, "down"),
                         _ => {}
                     }
                 }
+                continue;
+            }
+            if event_type != EV_KEY {
+                continue;
+            }
 
-                let direction = match code {
-                    KEY_VOLUMEUP if value == 1 || value == 2 => "up",
-                    KEY_VOLUMEDOWN if value == 1 || value == 2 => "down",
-                    _ => continue,
-                };
+            if value == 1 || value == 2 {
+                pressed.insert(code);
+            } else if value == 0 {
+                pressed.remove(&code);
+            }
 
-                let has_brightness_modifier = pressed
-                    .iter()
-                    .any(|code| config.brightness_modifiers.contains(code));
-                let has_led_modifier = pressed.iter().any(|code| config.led_modifiers.contains(code));
-                let now = Instant::now();
-                if value == 2 {
-                    if let Some(last) = last_adjust.get(&code) {
-                        if now.duration_since(*last) < config.repeat_delay {
-                            continue;
-                        }
+            if hotkey_modifiers.contains(&code) {
+                let fd_modifiers = modifier_fds.entry(poll_fd.fd).or_default();
+                if value == 1 || value == 2 {
+                    fd_modifiers.insert(code);
+                } else if value == 0 {
+                    fd_modifiers.remove(&code);
+                    if fd_modifiers.is_empty() {
+                        modifier_fds.remove(&poll_fd.fd);
                     }
                 }
-                last_adjust.insert(code, now);
+                sync_grabs(
+                    &devices,
+                    &pressed,
+                    &hotkey_modifiers,
+                    &modifier_fds,
+                    &mut grabbed_fds,
+                );
+            }
 
-                if !has_brightness_modifier && !has_led_modifier {
-                    run_volume(&config, direction);
-                    continue;
+            if value == 1
+                && config
+                    .rocknix_hotkey_modifiers
+                    .iter()
+                    .any(|modifier| pressed.contains(modifier))
+            {
+                if matches!(code, BTN_EAST | BTN_WEST | BTN_BACK | KEY_RECORD | BTN_NORTH) {
+                    run_hotkey_command(&config, code);
+                } else if config.touch_events && code == BTN_TOUCH {
+                    toggle_keyboard(&config);
                 }
+                let hotkey_count = config
+                    .rocknix_hotkey_modifiers
+                    .iter()
+                    .filter(|modifier| pressed.contains(modifier))
+                    .count();
+                if hotkey_count > 0 && pressed.contains(&BTN_SELECT) && pressed.contains(&BTN_START) {
+                    execute_kill(&config);
+                }
+            }
 
-                if has_brightness_modifier && has_led_modifier {
-                    run_wifi(&config, direction == "up");
-                } else if has_led_modifier {
-                    run_rgb(&config, direction == "up");
-                } else {
-                    run_backlight(&config, direction);
+            if value == 1
+                && config.dpad_events
+                && pressed
+                    .iter()
+                    .any(|pressed_code| config.brightness_modifiers.contains(pressed_code))
+            {
+                match code {
+                    BTN_DPAD_UP => run_volume(&config, "up"),
+                    BTN_DPAD_DOWN => run_volume(&config, "down"),
+                    BTN_DPAD_RIGHT => run_backlight(&config, "up"),
+                    BTN_DPAD_LEFT => run_backlight(&config, "down"),
+                    _ => {}
                 }
+            }
+
+            let direction = match code {
+                KEY_VOLUMEUP if value == 1 || value == 2 => "up",
+                KEY_VOLUMEDOWN if value == 1 || value == 2 => "down",
+                _ => continue,
+            };
+
+            let has_brightness_modifier = pressed
+                .iter()
+                .any(|code| config.brightness_modifiers.contains(code));
+            let has_led_modifier = pressed.iter().any(|code| config.led_modifiers.contains(code));
+            let now = Instant::now();
+            if value == 2 {
+                if let Some(last) = last_adjust.get(&code) {
+                    if now.duration_since(*last) < config.repeat_delay {
+                        continue;
+                    }
+                }
+            }
+            last_adjust.insert(code, now);
+
+            if !has_brightness_modifier && !has_led_modifier {
+                run_volume(&config, direction);
+                continue;
+            }
+
+            if has_brightness_modifier && has_led_modifier {
+                run_wifi(&config, direction == "up");
+            } else if has_led_modifier {
+                run_rgb(&config, direction == "up");
+            } else {
+                run_backlight(&config, direction);
             }
         }
 
-        for fd in grabbed_fds.drain() {
-            if let Some(opened) = devices.get(&fd) {
-                set_grab(&opened.file, false);
-            }
+        for fd in failed_fds {
+            remove_device(
+                fd,
+                &mut devices,
+                &mut opened_paths,
+                &mut pressed,
+                &mut modifier_fds,
+                &mut grabbed_fds,
+            );
+            rescan = true;
         }
-        pressed.clear();
-        modifier_fds.clear();
-        thread::sleep(Duration::from_secs(1));
+
+        if rescan {
+            open_new_devices(&config, &mut devices, &mut opened_paths);
+        }
     }
 }
 
