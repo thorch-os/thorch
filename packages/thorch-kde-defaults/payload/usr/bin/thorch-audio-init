@@ -1,16 +1,34 @@
 #!/usr/bin/env sh
 set -eu
 
-alsaucm -c hw:0 set _verb HiFi set _enadev Speaker >/dev/null 2>&1 ||
-	alsaucm -c AYN-Odin2 set _verb HiFi set _enadev Speaker >/dev/null 2>&1 ||
-	true
-amixer -c 0 cset name="RX_RX0 Digital Volume" 84 >/dev/null 2>&1 || true
-amixer -c 0 cset name="RX_RX1 Digital Volume" 84 >/dev/null 2>&1 || true
-amixer -c 0 cset name="HPHL Volume" 20 >/dev/null 2>&1 || true
-amixer -c 0 cset name="HPHR Volume" 20 >/dev/null 2>&1 || true
-amixer -c 0 cset name="ADC2 Volume" 10 >/dev/null 2>&1 || true
+init_alsa() {
+	alsaucm -c hw:0 set _verb HiFi set _enadev Speaker >/dev/null 2>&1 ||
+		alsaucm -c AYN-Odin2 set _verb HiFi set _enadev Speaker >/dev/null 2>&1 ||
+		true
+	amixer -c 0 cset name="RX_RX0 Digital Volume" 84 >/dev/null 2>&1 || true
+	amixer -c 0 cset name="RX_RX1 Digital Volume" 84 >/dev/null 2>&1 || true
+	amixer -c 0 cset name="HPHL Volume" 20 >/dev/null 2>&1 || true
+	amixer -c 0 cset name="HPHR Volume" 20 >/dev/null 2>&1 || true
+	amixer -c 0 cset name="ADC2 Volume" 10 >/dev/null 2>&1 || true
+	amixer -c 0 cset name="SPK_L PCM Playback Volume" 0 >/dev/null 2>&1 || true
+	amixer -c 0 cset name="SPK_R PCM Playback Volume" 0 >/dev/null 2>&1 || true
+}
 
-if command -v pactl >/dev/null 2>&1 && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-	pactl set-card-profile alsa_card.platform-sound "HiFi (Headphones, Speaker)" >/dev/null 2>&1 || true
+init_pipewire() {
+	command -v pactl >/dev/null 2>&1 || return 0
+	[ -n "${XDG_RUNTIME_DIR:-}" ] || return 0
+	pactl set-card-profile alsa_card.platform-sound "HiFi (Headphones, Mic, Speaker)" >/dev/null 2>&1 ||
+		pactl set-card-profile alsa_card.platform-sound "HiFi (Headphones, Speaker)" >/dev/null 2>&1 ||
+		true
 	pactl set-default-sink alsa_output.platform-sound.HiFi__Speaker__sink >/dev/null 2>&1 || true
-fi
+	pactl set-default-source alsa_input.platform-sound.HiFi__Mic__source >/dev/null 2>&1 || true
+	pactl set-sink-mute alsa_output.platform-sound.HiFi__Speaker__sink 0 >/dev/null 2>&1 || true
+	pactl set-sink-volume alsa_output.platform-sound.HiFi__Speaker__sink 35% >/dev/null 2>&1 || true
+	pactl set-source-volume alsa_input.platform-sound.HiFi__Mic__source 100% >/dev/null 2>&1 || true
+}
+
+for delay in 0 1 2 3 5; do
+	[ "$delay" -eq 0 ] || sleep "$delay"
+	init_alsa
+	init_pipewire
+done

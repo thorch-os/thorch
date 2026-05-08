@@ -1,0 +1,144 @@
+--- a/sound/soc/codecs/lpass-tx-macro.c	2026-05-08 15:57:17.871812830 +1200
++++ b/sound/soc/codecs/lpass-tx-macro.c	2026-05-08 15:56:08.074492114 +1200
+@@ -283,6 +283,7 @@
+ 	int tx_mclk_users;
+ 	bool bcs_enable;
+ 	int dec_mode[NUM_DECIMATORS];
++	u8 dmic_clk_div;
+ 	struct lpass_macro *pds;
+ 	bool bcs_clk_en;
+ };
+@@ -769,7 +770,7 @@
+ 		dmic_clk_reg = CDC_TX_TOP_CSR_SWR_DMICn_CTL(dmic);
+ 		snd_soc_component_write_field(component, dmic_clk_reg,
+ 					      CDC_TX_SWR_DMIC_CLK_SEL_MASK,
+-					      CDC_TX_SWR_MIC_CLK_DEFAULT);
++					      tx->dmic_clk_div);
+ 	}
+ }
+ 
+@@ -790,7 +791,7 @@
+ 		dmic_clk_reg = CDC_TX_TOP_CSR_SWR_DMICn_CTL(dmic);
+ 		snd_soc_component_write_field(component, dmic_clk_reg,
+ 					      CDC_TX_SWR_DMIC_CLK_SEL_MASK,
+-					      CDC_TX_SWR_MIC_CLK_DEFAULT);
++					      tx->dmic_clk_div);
+ 	} else {
+ 		snd_soc_component_write_field(component, mic_sel_reg,
+ 					      CDC_TXn_ADC_DMIC_SEL_MASK, 0);
+@@ -938,7 +939,7 @@
+ 
+ 				snd_soc_component_write_field(component, dmic_clk_reg,
+ 							CDC_TX_SWR_DMIC_CLK_SEL_MASK,
+-							CDC_TX_SWR_MIC_CLK_DEFAULT);
++							tx->dmic_clk_div);
+ 			}
+ 		}
+ 		snd_soc_component_write_field(component, dec_cfg_reg,
+@@ -2136,9 +2137,9 @@
+ 				      0x0A);
+ 	/* Enable swr mic0 and mic1 clock */
+ 	snd_soc_component_write(comp, CDC_TX_TOP_CSR_SWR_AMIC0_CTL,
+-				CDC_TX_SWR_MIC_CLK_DEFAULT);
++				tx->dmic_clk_div);
+ 	snd_soc_component_write(comp, CDC_TX_TOP_CSR_SWR_AMIC1_CTL,
+-				CDC_TX_SWR_MIC_CLK_DEFAULT);
++				tx->dmic_clk_div);
+ 
+ 	return 0;
+ }
+@@ -2228,6 +2229,48 @@
+ 	return devm_of_clk_add_hw_provider(dev, of_clk_hw_simple_get, hw);
+ }
+ 
++static int tx_macro_validate_dmic_sample_rate(struct tx_macro *tx,
++					      u32 dmic_sample_rate)
++{
++	u32 div_factor;
++
++	if (!dmic_sample_rate || MCLK_FREQ % dmic_sample_rate)
++		goto undefined_rate;
++
++	div_factor = MCLK_FREQ / dmic_sample_rate;
++
++	switch (div_factor) {
++	case 2:
++		tx->dmic_clk_div = TX_MACRO_CLK_DIV_2;
++		break;
++	case 3:
++		tx->dmic_clk_div = TX_MACRO_CLK_DIV_3;
++		break;
++	case 4:
++		tx->dmic_clk_div = TX_MACRO_CLK_DIV_4;
++		break;
++	case 6:
++		tx->dmic_clk_div = TX_MACRO_CLK_DIV_6;
++		break;
++	case 8:
++		tx->dmic_clk_div = TX_MACRO_CLK_DIV_8;
++		break;
++	case 16:
++		tx->dmic_clk_div = TX_MACRO_CLK_DIV_16;
++		break;
++	default:
++		goto undefined_rate;
++	}
++
++	return 0;
++
++undefined_rate:
++	dev_err(tx->dev, "%s: Invalid rate %u, for mclk %d\n",
++		__func__, dmic_sample_rate, MCLK_FREQ);
++
++	return -EINVAL;
++}
++
+ static const struct snd_soc_component_driver tx_macro_component_drv = {
+ 	.name = "TX-MACRO",
+ 	.probe = tx_macro_component_probe,
+@@ -2245,6 +2288,7 @@
+ 	struct device_node *np = dev->of_node;
+ 	struct tx_macro *tx;
+ 	void __iomem *base;
++	u32 sample_rate;
+ 	int ret, reg;
+ 
+ 	tx = devm_kzalloc(dev, sizeof(*tx), GFP_KERNEL);
+@@ -2252,6 +2296,8 @@
+ 		return -ENOMEM;
+ 
+ 	tx->data = device_get_match_data(dev);
++	tx->dev = dev;
++	tx->dmic_clk_div = CDC_TX_SWR_MIC_CLK_DEFAULT;
+ 
+ 	tx->macro = devm_clk_get_optional(dev, "macro");
+ 	if (IS_ERR(tx->macro))
+@@ -2279,6 +2325,19 @@
+ 	if (IS_ERR(tx->pds))
+ 		return PTR_ERR(tx->pds);
+ 
++	ret = of_property_read_u32(dev->of_node, "qcom,dmic-sample-rate",
++				   &sample_rate);
++	if (!ret) {
++		ret = tx_macro_validate_dmic_sample_rate(tx, sample_rate);
++		if (ret)
++			return ret;
++		dev_info(dev, "DMIC sample rate %u Hz, clk div setting %u\n",
++			 sample_rate, tx->dmic_clk_div);
++	} else if (ret != -EINVAL) {
++		return dev_err_probe(dev, ret,
++				     "unable to read qcom,dmic-sample-rate\n");
++	}
++
+ 	base = devm_platform_ioremap_resource(pdev, 0);
+ 	if (IS_ERR(base)) {
+ 		ret = PTR_ERR(base);
+@@ -2307,8 +2366,6 @@
+ 
+ 	dev_set_drvdata(dev, tx);
+ 
+-	tx->dev = dev;
+-
+ 	/* Set active_decimator default value */
+ 	tx->active_decimator[TX_MACRO_AIF1_CAP] = -1;
+ 	tx->active_decimator[TX_MACRO_AIF2_CAP] = -1;

@@ -31,6 +31,7 @@ Options:
   --fragment <file>         Required Thorch config fragment.
   --patch-dir <dir>         ROCKNIX kernel patch directory. May be repeated.
   --dts-dir <dir>           ROCKNIX DTS overlay directory.
+  --dts-patch-dir <dir>     DTS patch directory applied after DTS overlay copy. May be repeated.
   --dest <dir>              Kernel artifact destination. Default: vendor/rocknix-kernel.
   --template <file>         Android boot image template. Default: <dest>/boot/KERNEL.
   --jobs <n>                Parallel make jobs. Default: nproc.
@@ -59,8 +60,9 @@ source_dir="${THORCH_KERNEL_SOURCE_DIR:-${THORCH_BUILD_DIR}/kernel-src}"
 build_dir="${THORCH_KERNEL_BUILD_DIR:-${THORCH_BUILD_DIR}/kernel-build}"
 base_config="${THORCH_KERNEL_CONFIG:-${THORCH_ROCKNIX_DIR}/linux/linux.aarch64.conf}"
 fragment="${THORCH_KERNEL_CONFIG_FRAGMENT:-packages/linux-thorch/waydroid-kernel.config}"
-read -r -a patch_dirs <<< "${THORCH_KERNEL_PATCH_DIRS:-${THORCH_ROCKNIX_DIR}/packages/linux/patches/mainline ${THORCH_ROCKNIX_DIR}/patches/linux ${THORCH_ROCKNIX_DIR}/packages/linux/patches/default ${THORCH_ROCKNIX_DIR}/packages/linux/patches/7.0}"
+read -r -a patch_dirs <<< "${THORCH_KERNEL_PATCH_DIRS:-${THORCH_ROCKNIX_DIR}/packages/linux/patches/mainline ${THORCH_ROCKNIX_DIR}/patches/linux ${THORCH_ROCKNIX_DIR}/packages/linux/patches/default ${THORCH_ROCKNIX_DIR}/packages/linux/patches/7.0 packages/linux-thorch/patches}"
 dts_dir="${THORCH_KERNEL_DTS_DIR:-${THORCH_ROCKNIX_DIR}/linux/dts}"
+read -r -a dts_patch_dirs <<< "${THORCH_KERNEL_DTS_PATCH_DIRS:-packages/linux-thorch/dts-patches}"
 dest="${THORCH_ROCKNIX_KERNEL_DIR}"
 template=""
 jobs="${THORCH_KERNEL_JOBS:-$(nproc)}"
@@ -116,6 +118,11 @@ while [[ "$#" -gt 0 ]]; do
     --dts-dir)
       dts_dir="${2:-}"
       [[ -n "${dts_dir}" ]] || die "--dts-dir requires a value"
+      shift 2
+      ;;
+    --dts-patch-dir)
+      [[ -n "${2:-}" ]] || die "--dts-patch-dir requires a value"
+      dts_patch_dirs+=("$2")
       shift 2
       ;;
     --dest)
@@ -277,6 +284,12 @@ fi
 
 log "copying ROCKNIX SM8550 DTS overlays"
 rsync -a "${dts_abs}/" "${source_abs}/arch/arm64/boot/dts/"
+
+log "applying Thorch DTS patches"
+for patch_dir in "${dts_patch_dirs[@]}"; do
+  [[ -n "${patch_dir}" ]] || continue
+  apply_patch_dir "${patch_dir}"
+done
 
 rm -rf "${build_abs}"
 install -d "${build_abs}"
@@ -481,6 +494,7 @@ mv -f "${provenance_tmp}" "${provenance}"
   printf 'THORCH_KERNEL_CONFIG_FRAGMENT=%s\n' "${fragment_abs}"
   printf 'THORCH_KERNEL_PATCH_DIRS=%s\n' "${patch_dirs[*]}"
   printf 'THORCH_KERNEL_DTS_DIR=%s\n' "${dts_abs}"
+  printf 'THORCH_KERNEL_DTS_PATCH_DIRS=%s\n' "${dts_patch_dirs[*]}"
   printf 'SOURCE_THORCH_KERNEL_BOOT_TEMPLATE=%s\n' "${template_abs}"
   printf 'WAYDROID_KERNEL_BINDERFS=enabled\n'
   date -u '+THORCH_KERNEL_BUILT_AT=%Y-%m-%dT%H:%M:%SZ'

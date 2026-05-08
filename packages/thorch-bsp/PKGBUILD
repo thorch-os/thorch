@@ -2,7 +2,7 @@
 
 pkgname=thorch-bsp
 pkgver=1
-pkgrel=10
+pkgrel=11
 pkgdesc='Thorch AYN Thor boot and board support package'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
@@ -49,6 +49,18 @@ package() {
     "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550/ayn-AYNOdin2-.conf"
   ln -sf ../../AYN/Odin2/AYN-Odin2.conf \
     "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550/SM8550-AYN.conf"
+  ln -sf ../../AYN/Thor/AYN-Thor.conf \
+    "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550/AYN-Thor.conf"
+  ln -sf ../../AYN/Thor/AYN-Thor.conf \
+    "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550/AYNThor.conf"
+  ln -sf ../../AYN/Thor/AYN-Thor.conf \
+    "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550/ayn-AYNThor-.conf"
+  install -d "${pkgdir}/usr/share/alsa/ucm2/AYNThor" \
+    "${pkgdir}/usr/share/alsa/ucm2/ayn-AYNThor-"
+  ln -sf ../AYN/Thor/AYN-Thor.conf \
+    "${pkgdir}/usr/share/alsa/ucm2/AYNThor/AYNThor.conf"
+  ln -sf ../AYN/Thor/AYN-Thor.conf \
+    "${pkgdir}/usr/share/alsa/ucm2/ayn-AYNThor-/ayn-AYNThor-.conf"
 
   chmod 755 "${pkgdir}/usr/bin/thorch-rebuild-abl-kernel"
   chmod 755 "${pkgdir}/usr/bin/thorch-check-boot"
