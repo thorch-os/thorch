@@ -64,11 +64,3 @@ if [ -z "${SDL_GAMEPADCONFIG_FILE:-}" ] &&
   [ -f /usr/share/thorch/SDL-GameControllerDB/gamecontrollerdb.txt ]; then
   export SDL_GAMEPADCONFIG_FILE="/usr/share/thorch/SDL-GameControllerDB/gamecontrollerdb.txt"
 fi
-
-if [ -z "${SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT:-}" ]; then
-  export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${THORCH_SDL_GAMEPAD_IGNORE_EXCEPT:-0x045e/0x0b12}"
-fi
-
-if [ -z "${SDL_GAMEPAD_IGNORE_DEVICES_EXCEPT:-}" ]; then
-  export SDL_GAMEPAD_IGNORE_DEVICES_EXCEPT="${THORCH_SDL_GAMEPAD_IGNORE_EXCEPT:-0x045e/0x0b12}"
-fi
