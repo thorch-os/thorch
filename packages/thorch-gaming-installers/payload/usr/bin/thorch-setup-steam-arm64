@@ -450,6 +450,11 @@ mkdir -p "${steam_root}/steamrtarm64/bin"
 if [[ -x "${steam_root}/linuxarm64/steam-launch-wrapper" ]]; then
   ln -sfnT ../linuxarm64/steam-launch-wrapper "${steam_root}/steamrtarm64/steam-launch-wrapper"
 fi
+if [[ -x "${HOME}/.local/bin/thorch-repair-steam-arm64" ]]; then
+  "${HOME}/.local/bin/thorch-repair-steam-arm64" || true
+elif command -v thorch-repair-steam-arm64 >/dev/null 2>&1; then
+  thorch-repair-steam-arm64 || true
+fi
 ln -sfnT ../vgui2_s.so "${steam_root}/steamrtarm64/bin/vgui2_s.dll"
 ln -sfnT ../filesystem_stdio.so "${steam_root}/steamrtarm64/bin/FileSystem_Steam.dll"
 install_fex_steam_tool

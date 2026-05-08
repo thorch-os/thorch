@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
+steam_dotdir="${HOME}/.steam"
+
+link_first_existing() {
+  local link target
+
+  link="$1"
+  shift
+
+  for target in "$@"; do
+    if [[ -e "${target}" || -L "${target}" ]]; then
+      ln -sfnT "${target}" "${link}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+repair_launch_wrapper() {
+  local wrapper_dir wrapper_link
+
+  wrapper_dir="${steam_root}/steamrtarm64"
+  wrapper_link="${wrapper_dir}/steam-launch-wrapper"
+  [[ -d "${wrapper_dir}" ]] || return 0
+  [[ ! -e "${wrapper_link}" || -L "${wrapper_link}" ]] || return 0
+
+  if [[ -x "${steam_root}/linuxarm64/steam-launch-wrapper" ]]; then
+    ln -sfnT ../linuxarm64/steam-launch-wrapper "${wrapper_link}"
+  fi
+}
+
+repair_sdk_steamclient_links() {
+  mkdir -p "${steam_dotdir}/sdk64" "${steam_dotdir}/sdk32"
+
+  link_first_existing \
+    "${steam_dotdir}/sdk64/steamclient.so" \
+    "${steam_root}/linux64/steamclient.so" \
+    "${steam_root}/steamrt64/steamclient.so" || true
+
+  link_first_existing \
+    "${steam_dotdir}/sdk32/steamclient.so" \
+    "${steam_root}/linux32/steamclient.so" \
+    "${steam_root}/steamrt32/steamclient.so" \
+    "${steam_root}/ubuntu12_32/steamclient.so" || true
+}
+
+repair_launch_wrapper
+repair_sdk_steamclient_links

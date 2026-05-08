@@ -12,6 +12,9 @@ mangohud="${THORCH_STEAM_MANGOHUD:-auto}"
 mangohud_config="${THORCH_STEAM_MANGOHUD_CONFIG:-}"
 support_bin_dir="${steam_root}/thorch-steamos-bin"
 mangoapp_args=()
+steam_system_dir="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
+proton_arm_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
+preflight="${THORCH_STEAM_PREFLIGHT:-1}"
 
 runtime_lib_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/files/lib/aarch64-linux-gnu' -type d -print -quit 2>/dev/null || true)"
 runtime_bin_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/pressure-vessel/bin' -type d -print -quit 2>/dev/null || true)"
@@ -77,6 +80,17 @@ gamescope_supports_option() {
   gamescope --help 2>&1 | grep -q -- "${option}"
 }
 
+stage_proton_arm_manifest() {
+  local proton_dir source_manifest
+
+  source_manifest="${steam_system_dir}/toolmanifest.vdf"
+  [[ -f "${source_manifest}" ]] || return 0
+
+  proton_dir="${steam_root}/steamapps/common/${proton_arm_name}"
+  mkdir -p "${proton_dir}"
+  cp -f "${source_manifest}" "${proton_dir}/toolmanifest.vdf"
+}
+
 if [[ ! -x "${steam_root}/steamrtarm64/steam" ]]; then
   echo "Steam ARM64 is not installed. Run thorch-install-steam-arm64 first." >&2
   exit 1
@@ -87,6 +101,11 @@ if [[ -x "${HOME}/.local/bin/thorch-setup-steam-arm64" ]]; then
 elif command -v thorch-setup-steam-arm64 >/dev/null 2>&1; then
   thorch-setup-steam-arm64 --repair-proton-beta-runtime-links || true
 fi
+if [[ -x "${HOME}/.local/bin/thorch-repair-steam-arm64" ]]; then
+  "${HOME}/.local/bin/thorch-repair-steam-arm64" || true
+elif command -v thorch-repair-steam-arm64 >/dev/null 2>&1; then
+  thorch-repair-steam-arm64 || true
+fi
 
 configure_mangohud
 export LD_LIBRARY_PATH="${steam_root}/steamrtarm64:${steam_root}/steamrtarm64/video:${steam_root}/lib/aarch64-linux-gnu${runtime_lib_dir:+:${runtime_lib_dir}}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
@@ -96,15 +115,25 @@ export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 cd "${steam_root}/steamrtarm64"
 
+stage_proton_arm_manifest
+case "${preflight,,}" in
+  1|true|yes|on|enabled)
+    ./steam -steamdeck -exitsteam || true
+    stage_proton_arm_manifest
+    ;;
+esac
+
+steam_bootstrap_args=(-noverifyfiles -nobootstrapupdate -skipinitialbootstrap -norepairfiles)
 steam_args=()
 case "${mode}" in
   desktop)
+    steam_args=("${steam_bootstrap_args[@]}")
     ;;
   deck|gamepadui)
-    steam_args=(-steamdeck -steamos3 -gamepadui)
+    steam_args=(-steamdeck -steamos3 -gamepadui "${steam_bootstrap_args[@]}")
     ;;
   bigpicture|*)
-    steam_args=(-bigpicture)
+    steam_args=(-bigpicture "${steam_bootstrap_args[@]}")
     ;;
 esac
 

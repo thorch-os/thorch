@@ -20,6 +20,7 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-install-fex"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-gaming-stack"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-steam-arm64"
+  chmod 755 "${pkgdir}/usr/bin/thorch-repair-steam-arm64"
   chmod 755 "${pkgdir}/usr/bin/thorch-setup-steam-arm64"
   chmod 755 "${pkgdir}/usr/bin/thorch-start-steam-arm64"
   chmod 755 "${pkgdir}/usr/bin/thorch-steamos-mode"
