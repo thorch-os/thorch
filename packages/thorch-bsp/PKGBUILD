@@ -2,12 +2,12 @@
 
 pkgname=thorch-bsp
 pkgver=1
-pkgrel=11
+pkgrel=13
 pkgdesc='Thorch AYN Thor boot and board support package'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-only GPL-2.0-or-later BSD-3-Clause custom)
-depends=(android-tools bash coreutils dnsmasq dosfstools e2fsprogs file findutils grep gzip iproute2 iw kmod mkinitcpio mtools networkmanager openssh procps-ng python rfkill sudo systemd util-linux wireless-regdb)
+depends=(android-tools bash coreutils dnsmasq dosfstools e2fsprogs file findutils grep gzip iproute2 iw kmod mkinitcpio mtools networkmanager openssh procps-ng python rfkill sudo systemd util-linux wireless-regdb zram-generator)
 makedepends=(rust)
 backup=(etc/thorch/rgb.conf etc/thorch/inputd.conf etc/thorch/powerd.conf etc/thorch/fancontrol.conf)
 install=thorch-bsp.install

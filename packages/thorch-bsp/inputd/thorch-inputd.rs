@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::c_char;
-use std::fs::{self, File};
-use std::io::{self, Read};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 use std::process::Command;
@@ -10,8 +10,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const EV_KEY: u16 = 1;
+const EV_SYN: u16 = 0;
 const EV_ABS: u16 = 3;
 const EV_SW: u16 = 5;
+const SYN_REPORT: u16 = 0;
 const KEY_VOLUMEDOWN: u16 = 114;
 const KEY_VOLUMEUP: u16 = 115;
 const KEY_RECORD: u16 = 167;
@@ -34,6 +36,10 @@ const ABS_HAT0X: u16 = 16;
 const ABS_HAT0Y: u16 = 17;
 const SW_LID: u16 = 0;
 const EVIOCGRAB: usize = 0x40044590;
+const UI_SET_EVBIT: usize = 0x40045564;
+const UI_SET_KEYBIT: usize = 0x40045565;
+const UI_DEV_CREATE: usize = 0x5501;
+const UI_DEV_DESTROY: usize = 0x5502;
 const POLLIN: i16 = 0x0001;
 const IN_NONBLOCK: i32 = 0x00000800;
 const IN_CLOEXEC: i32 = 0x00080000;
@@ -69,6 +75,10 @@ struct InputWatcher {
     file: File,
 }
 
+struct UInputKeyboard {
+    file: File,
+}
+
 struct Config {
     input_root: PathBuf,
     event_root: PathBuf,
@@ -93,6 +103,7 @@ struct Config {
     kill_data: PathBuf,
     dpad_events: bool,
     touch_events: bool,
+    f24_relay: bool,
 }
 
 fn key_code(name: &str) -> Option<u16> {
@@ -219,6 +230,7 @@ impl Config {
             kill_data: PathBuf::from(env_or(&["THORCH_INPUTD_KILL_DATA"], "/tmp/.process-kill-data")),
             dpad_events: env_bool(&["THORCH_INPUTD_DPAD_EVENTS"], true),
             touch_events: env_bool(&["THORCH_INPUTD_TOUCH_EVENTS"], false),
+            f24_relay: env_bool(&["THORCH_INPUTD_F24_RELAY"], true),
         }
     }
 }
@@ -417,6 +429,70 @@ fn set_grab(file: &File, enabled: bool) {
     }
 }
 
+impl UInputKeyboard {
+    fn create(name: &str) -> io::Result<Self> {
+        let mut file = OpenOptions::new().write(true).open("/dev/uinput")?;
+        set_uinput_bit(&file, UI_SET_EVBIT, EV_KEY)?;
+        set_uinput_bit(&file, UI_SET_KEYBIT, KEY_F24)?;
+        write_uinput_user_dev(&mut file, name)?;
+        ioctl_simple(&file, UI_DEV_CREATE)?;
+        Ok(Self { file })
+    }
+
+    fn emit_key(&mut self, code: u16, value: i32) -> io::Result<()> {
+        write_input_event(&mut self.file, EV_KEY, code, value)?;
+        write_input_event(&mut self.file, EV_SYN, SYN_REPORT, 0)
+    }
+}
+
+impl Drop for UInputKeyboard {
+    fn drop(&mut self) {
+        let _ = ioctl_simple(&self.file, UI_DEV_DESTROY);
+    }
+}
+
+fn ioctl_simple(file: &File, request: usize) -> io::Result<()> {
+    let result = unsafe { ioctl(file.as_raw_fd(), request, 0) };
+    if result < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn set_uinput_bit(file: &File, request: usize, bit: u16) -> io::Result<()> {
+    let result = unsafe { ioctl(file.as_raw_fd(), request, bit as i32) };
+    if result < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn write_uinput_user_dev(file: &mut File, name: &str) -> io::Result<()> {
+    let mut data = [0u8; 1116];
+    let name_bytes = name.as_bytes();
+    let len = name_bytes.len().min(79);
+    data[..len].copy_from_slice(&name_bytes[..len]);
+    file.write_all(&data)
+}
+
+fn write_input_event(file: &mut File, event_type: u16, code: u16, value: i32) -> io::Result<()> {
+    let mut data = [0u8; 24];
+    data[16..18].copy_from_slice(&event_type.to_ne_bytes());
+    data[18..20].copy_from_slice(&code.to_ne_bytes());
+    data[20..24].copy_from_slice(&value.to_ne_bytes());
+    file.write_all(&data)
+}
+
+fn should_relay_f24(enabled: bool, device_name: &str, event_type: u16, code: u16, value: i32) -> bool {
+    enabled
+        && device_name == "gpio-keys"
+        && event_type == EV_KEY
+        && code == KEY_F24
+        && matches!(value, 0 | 1 | 2)
+}
+
 fn read_event(file: &mut File) -> io::Result<(u16, u16, i32)> {
     let mut buf = [0u8; 24];
     file.read_exact(&mut buf)?;
@@ -438,11 +514,25 @@ fn create_input_watcher(config: &Config) -> Option<InputWatcher> {
     }
     let file = unsafe { File::from_raw_fd(fd) };
 
-    let path = CString::new(config.input_root.as_os_str().as_bytes()).ok()?;
     let mask = IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB;
-    let watch = unsafe { inotify_add_watch(file.as_raw_fd(), path.as_ptr(), mask) };
-    if watch < 0 {
-        log("failed to watch input root; falling back to periodic retry");
+    let mut watched = 0;
+    let mut watched_event_root = false;
+    for (path, is_event_root) in [(&config.input_root, false), (&config.event_root, true)] {
+        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+            continue;
+        };
+        let watch = unsafe { inotify_add_watch(file.as_raw_fd(), path.as_ptr(), mask) };
+        if watch >= 0 {
+            watched += 1;
+            watched_event_root |= is_event_root;
+        }
+    }
+    if watched == 0 {
+        log("failed to watch input roots; falling back to periodic retry");
+        return None;
+    }
+    if !watched_event_root {
+        log("failed to watch event root; falling back to periodic retry");
         return None;
     }
 
@@ -502,6 +592,7 @@ fn remove_device(
     pressed: &mut HashSet<u16>,
     modifier_fds: &mut HashMap<i32, HashSet<u16>>,
     grabbed_fds: &mut HashSet<i32>,
+    reason: &str,
 ) {
     if let Some(opened) = devices.remove(&fd) {
         if grabbed_fds.remove(&fd) {
@@ -510,7 +601,31 @@ fn remove_device(
         opened_paths.remove(&opened.path);
         modifier_fds.remove(&fd);
         pressed.clear();
-        log(&format!("removed {} ({}) after read failure", opened.path.display(), opened.name));
+        log(&format!("removed {} ({}) after {reason}", opened.path.display(), opened.name));
+    }
+}
+
+fn prune_missing_devices(
+    devices: &mut HashMap<i32, OpenedDevice>,
+    opened_paths: &mut HashSet<PathBuf>,
+    pressed: &mut HashSet<u16>,
+    modifier_fds: &mut HashMap<i32, HashSet<u16>>,
+    grabbed_fds: &mut HashSet<i32>,
+) {
+    let missing_fds: Vec<i32> = devices
+        .iter()
+        .filter_map(|(fd, opened)| (!opened.path.exists()).then_some(*fd))
+        .collect();
+    for fd in missing_fds {
+        remove_device(
+            fd,
+            devices,
+            opened_paths,
+            pressed,
+            modifier_fds,
+            grabbed_fds,
+            "path disappeared",
+        );
     }
 }
 
@@ -558,6 +673,17 @@ fn main() {
     let mut opened_paths = HashSet::new();
     let mut watcher = create_input_watcher(&config);
     open_new_devices(&config, &mut devices, &mut opened_paths);
+    let mut f24_keyboard = if config.f24_relay {
+        match UInputKeyboard::create("Thorch Hardware Keys") {
+            Ok(keyboard) => Some(keyboard),
+            Err(error) => {
+                log(&format!("failed to create F24 relay keyboard: {error}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     loop {
         let watcher_fd = watcher.as_ref().map(|watcher| watcher.file.as_raw_fd());
@@ -615,6 +741,15 @@ fn main() {
                     continue;
                 }
             };
+
+            if should_relay_f24(config.f24_relay, &opened.name, event_type, code, value) {
+                if let Some(keyboard) = f24_keyboard.as_mut() {
+                    if let Err(error) = keyboard.emit_key(code, value) {
+                        log(&format!("failed to relay F24 event: {error}"));
+                        f24_keyboard = None;
+                    }
+                }
+            }
 
             if event_type == EV_SW && code == SW_LID {
                 run_lid_switch(&config, value == 1);
@@ -751,11 +886,19 @@ fn main() {
                 &mut pressed,
                 &mut modifier_fds,
                 &mut grabbed_fds,
+                "read failure",
             );
             rescan = true;
         }
 
         if rescan {
+            prune_missing_devices(
+                &mut devices,
+                &mut opened_paths,
+                &mut pressed,
+                &mut modifier_fds,
+                &mut grabbed_fds,
+            );
             open_new_devices(&config, &mut devices, &mut opened_paths);
         }
     }
@@ -896,6 +1039,7 @@ mod tests {
             kill_data: root.join("kill-data"),
             dpad_events: true,
             touch_events: false,
+            f24_relay: true,
         };
 
         assert_eq!(
@@ -904,5 +1048,17 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn f24_relay_only_mirrors_gpio_key_f24_events_when_enabled() {
+        assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 1));
+        assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 0));
+        assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 2));
+        assert!(!should_relay_f24(false, "gpio-keys", EV_KEY, KEY_F24, 1));
+        assert!(!should_relay_f24(true, "InputPlumber Keyboard", EV_KEY, KEY_F24, 1));
+        assert!(!should_relay_f24(true, "gpio-keys", EV_SW, SW_LID, 1));
+        assert!(!should_relay_f24(true, "gpio-keys", EV_KEY, KEY_VOLUMEUP, 1));
+        assert!(!should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 3));
     }
 }
