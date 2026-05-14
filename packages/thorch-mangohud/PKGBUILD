@@ -2,13 +2,13 @@
 
 pkgname=thorch-mangohud
 pkgver=0.8.3_rocknix
-pkgrel=1
-_commit=d7654ebcefb3bdb106d581c937417aa2007eaeeb
+pkgrel=3
+_commit=330c42a5956e005a4d102473f5782bb0e3d94b6f
 _imgui_ver=1.91.6
 _implot_ver=0.16
 _spdlog_ver=1.14.1
 _vulkan_headers_ver=1.3.283
-pkgdesc='MangoHud with ROCKNIX SM8550 GPU support patch and config'
+pkgdesc='MangoHud with ROCKNIX Qualcomm GPU and battery patches plus config'
 arch=(aarch64)
 url='https://github.com/flightlessmango/MangoHud'
 license=(MIT)
@@ -45,8 +45,10 @@ source=(
   "spdlog_${_spdlog_ver}-1_patch.zip::https://wrapdb.mesonbuild.com/v2/spdlog_${_spdlog_ver}-1/get_patch"
   "vulkan-headers-${_vulkan_headers_ver}.tar.gz::https://github.com/KhronosGroup/Vulkan-Headers/archive/v${_vulkan_headers_ver}.tar.gz"
   "vulkan-headers_${_vulkan_headers_ver}-1_patch.zip::https://wrapdb.mesonbuild.com/v2/vulkan-headers_${_vulkan_headers_ver}-1/get_patch"
+  "qualcomm-battery-power-now.patch"
 )
 b2sums=(
+  'SKIP'
   'SKIP'
   'SKIP'
   'SKIP'
@@ -61,9 +63,8 @@ backup=(etc/MangoHud.conf)
 
 prepare() {
   cd "MangoHud-${_commit}"
-  local rocknix_patch="${THORCH_ROCKNIX_DIR:?THORCH_ROCKNIX_DIR is required}/packages/apps/mangohud/patches/SM8550/0001-SM8550-GPU.patch"
-  [[ -f "${rocknix_patch}" ]] || { printf 'missing ROCKNIX MangoHud patch: %s\n' "${rocknix_patch}" >&2; exit 1; }
-  patch -Np1 -i "${rocknix_patch}"
+  patch -Np1 -i "${startdir}/sm8550-gpu.patch"
+  patch -Np1 -i "${startdir}/qualcomm-battery-power-now.patch"
   ln -s "${srcdir}/imgui-${_imgui_ver}" subprojects/
   ln -s "${srcdir}/implot-${_implot_ver}" subprojects/
   ln -s "${srcdir}/spdlog-${_spdlog_ver}" subprojects/
@@ -87,5 +88,6 @@ package() {
   [[ -f "${rocknix_config}" ]] || { printf 'missing ROCKNIX MangoHud config: %s\n' "${rocknix_config}" >&2; exit 1; }
   install -Dm644 "${rocknix_config}" "${pkgdir}/etc/MangoHud.conf"
   install -Dm644 "${rocknix_config}" "${pkgdir}/usr/share/thorch/mangohud/MangoHud.conf"
+  sed -i 's/^# battery_time$/battery_time/' "${pkgdir}/etc/MangoHud.conf" "${pkgdir}/usr/share/thorch/mangohud/MangoHud.conf"
   install -Dm644 "MangoHud-${_commit}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
