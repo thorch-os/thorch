@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Thorch Hardware
+Comment=Adjust Thor fan, RGB, and CPU boost preferences
+Exec=/usr/bin/thorch-hardware-settings
+Icon=preferences-system
+Terminal=false
+Categories=Settings;

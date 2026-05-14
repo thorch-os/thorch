@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+app_dir="${THORCH_HARDWARE_SETTINGS_APPDIR:-/usr/lib/thorch/hardware-settings}"
+main_qml="${app_dir}/Main.qml"
+runner="${THORCH_HARDWARE_SETTINGS_RUNNER:-}"
+
+choose_runner() {
+  local candidate
+  local -a candidates=()
+
+  if [[ -n "${runner}" ]]; then
+    candidates+=("${runner}")
+  fi
+  candidates+=(/usr/bin/qmlscene6 /usr/bin/qml6)
+
+  for candidate in "${candidates[@]}"; do
+    [[ -x "${candidate}" ]] || continue
+    printf '%s\n' "${candidate}"
+    return 0
+  done
+
+  return 1
+}
+
+runner="$(choose_runner)" || {
+  printf 'thorch-hardware-settings: qmlscene6 or qml6 is required\n' >&2
+  exit 1
+}
+
+exec "${runner}" "${main_qml}" "$@"
