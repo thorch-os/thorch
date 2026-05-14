@@ -324,6 +324,7 @@ run_rootfs "thorch-rebuild-abl-kernel --root-uuid ${root_uuid} --rootfstype ext4
 rm -f "${rootfs_dir}/boot/Image"
 run_rootfs "thorch-check-boot"
 rootfs_services=(
+  bluetooth.service
   NetworkManager.service
   sshd.service
   sddm.service

@@ -33,9 +33,9 @@ overlay.
 `thorch-kde-defaults` installs the Plasma Desktop dependencies, SDDM defaults,
 KWin display and touch seeds, virtual keyboard settings, audio user units,
 touch calibration service, the F24 desktop escape helper, OLED Plasma theme and
-color scheme, desktop/mobile session switchers, Firefox, and the core KDE
-desktop applications. Plasma Mobile is installed for testing and SteamOS-mode
-handoff, but the image builder selects Plasma Desktop by default unless
+color scheme, desktop/mobile session switchers, Bluetooth support, Firefox, and
+the core KDE desktop applications. Plasma Mobile is installed for testing and
+SteamOS-mode handoff, but the image builder selects Plasma Desktop by default unless
 `THORCH_DEFAULT_SESSION` is changed. Session changes go through
 `thorch-sessionctl`, which stages SDDM autologin updates and prefers a clean
 reboot over restarting SDDM from inside a live Plasma session.

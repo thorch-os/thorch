@@ -1,0 +1,13 @@
+enable_bluetooth() {
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl enable --now bluetooth.service >/dev/null 2>&1 || true
+  fi
+}
+
+post_install() {
+  enable_bluetooth
+}
+
+post_upgrade() {
+  enable_bluetooth
+}
