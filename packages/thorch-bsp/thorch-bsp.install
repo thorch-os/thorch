@@ -1,9 +1,11 @@
 post_install() {
   /usr/bin/thorch-hardwarectl migrate >/dev/null 2>&1 || true
   /usr/lib/thorch/plasma-mobile-action-drawer-mode sync || true
+  rm -f /etc/systemd/logind.conf.d/50-thorch-fake-suspend.conf \
+    /etc/systemd/sleep.conf.d/50-thorch-disable-hw-suspend.conf
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    systemctl disable --now thorch-hwcontrold.service thorch-powerkeyd.service >/dev/null 2>&1 || true
-    systemctl enable --now thorch-inputd.service thorch-powerd.service thorch-hw-defaults.service >/dev/null 2>&1 || true
+    systemctl disable --now thorch-hwcontrold.service thorch-powerkeyd.service thorch-powerd.service >/dev/null 2>&1 || true
+    systemctl enable --now thorch-inputd.service thorch-hw-defaults.service >/dev/null 2>&1 || true
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl is-active --quiet dev-zram0.swap || systemctl start dev-zram0.swap >/dev/null 2>&1 || true
   fi
@@ -12,9 +14,11 @@ post_install() {
 post_upgrade() {
   /usr/bin/thorch-hardwarectl migrate >/dev/null 2>&1 || true
   /usr/lib/thorch/plasma-mobile-action-drawer-mode sync || true
+  rm -f /etc/systemd/logind.conf.d/50-thorch-fake-suspend.conf \
+    /etc/systemd/sleep.conf.d/50-thorch-disable-hw-suspend.conf
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    systemctl disable --now thorch-hwcontrold.service thorch-powerkeyd.service >/dev/null 2>&1 || true
-    systemctl enable --now thorch-inputd.service thorch-powerd.service thorch-hw-defaults.service >/dev/null 2>&1 || true
+    systemctl disable --now thorch-hwcontrold.service thorch-powerkeyd.service thorch-powerd.service >/dev/null 2>&1 || true
+    systemctl enable --now thorch-inputd.service thorch-hw-defaults.service >/dev/null 2>&1 || true
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl is-active --quiet dev-zram0.swap || systemctl start dev-zram0.swap >/dev/null 2>&1 || true
   fi

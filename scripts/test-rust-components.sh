@@ -12,7 +12,6 @@ fi
 
 components=(
   "packages/thorch-bsp/inputd/thorch-inputd.rs"
-  "packages/thorch-bsp/powerd/thorch-powerd.rs"
 )
 
 for source in "${components[@]}"; do

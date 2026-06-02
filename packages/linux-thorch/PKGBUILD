@@ -1,8 +1,8 @@
 # Maintainer: Thorch contributors
 
 pkgname=linux-thorch
-pkgver=7.0.2
-pkgrel=2
+pkgver=7.0.10
+pkgrel=1
 pkgdesc='Thorch-packaged ROCKNIX Linux kernel artifacts for AYN Thor / Qualcomm SM8550'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'

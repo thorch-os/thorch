@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 const EV_KEY: u16 = 1;
 const EV_SYN: u16 = 0;
 const EV_ABS: u16 = 3;
-const EV_SW: u16 = 5;
 const SYN_REPORT: u16 = 0;
 const KEY_VOLUMEDOWN: u16 = 114;
 const KEY_VOLUMEUP: u16 = 115;
@@ -34,7 +33,6 @@ const BTN_DPAD_LEFT: u16 = 546;
 const BTN_DPAD_RIGHT: u16 = 547;
 const ABS_HAT0X: u16 = 16;
 const ABS_HAT0Y: u16 = 17;
-const SW_LID: u16 = 0;
 const EVIOCGRAB: usize = 0x40044590;
 const UI_SET_EVBIT: usize = 0x40045564;
 const UI_SET_KEYBIT: usize = 0x40045565;
@@ -99,7 +97,6 @@ struct Config {
     screen_switch: String,
     game_guide: String,
     keyboard_signal: String,
-    powerd: String,
     kill_data: PathBuf,
     dpad_events: bool,
     touch_events: bool,
@@ -226,7 +223,6 @@ impl Config {
             screen_switch: env_or(&["THORCH_INPUTD_SCREEN_SWITCH"], "/usr/bin/screen_switch"),
             game_guide: env_or(&["THORCH_INPUTD_GAME_GUIDE"], "/usr/bin/game-guides-tool"),
             keyboard_signal: env_or(&["THORCH_INPUTD_KEYBOARD_SIGNAL"], "/usr/bin/pkill"),
-            powerd: env_or(&["THORCH_INPUTD_POWERD"], "/usr/bin/thorch-powerd"),
             kill_data: PathBuf::from(env_or(&["THORCH_INPUTD_KILL_DATA"], "/tmp/.process-kill-data")),
             dpad_events: env_bool(&["THORCH_INPUTD_DPAD_EVENTS"], true),
             touch_events: env_bool(&["THORCH_INPUTD_TOUCH_EVENTS"], false),
@@ -378,10 +374,6 @@ fn run_wifi(config: &Config, enabled: bool) {
         run_command(&config.nmcli, &["radio", "wifi", "off"]);
         run_command(&config.rfkill, &["block", "wifi"]);
     }
-}
-
-fn run_lid_switch(config: &Config, closed: bool) {
-    run_command(&config.powerd, &[if closed { "suspend" } else { "resume" }]);
 }
 
 fn run_volume(config: &Config, direction: &str) {
@@ -751,11 +743,6 @@ fn main() {
                 }
             }
 
-            if event_type == EV_SW && code == SW_LID {
-                run_lid_switch(&config, value == 1);
-                continue;
-            }
-
             if event_type == EV_ABS && config.dpad_events {
                 let direction = match (code, value) {
                     (ABS_HAT0Y, -1) => Some("up"),
@@ -1035,7 +1022,6 @@ mod tests {
             screen_switch: String::new(),
             game_guide: String::new(),
             keyboard_signal: String::new(),
-            powerd: String::new(),
             kill_data: root.join("kill-data"),
             dpad_events: true,
             touch_events: false,
@@ -1052,6 +1038,9 @@ mod tests {
 
     #[test]
     fn f24_relay_only_mirrors_gpio_key_f24_events_when_enabled() {
+        const EV_SW: u16 = 5;
+        const SW_LID: u16 = 0;
+
         assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 1));
         assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 0));
         assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 2));

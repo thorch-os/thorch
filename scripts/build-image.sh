@@ -336,7 +336,6 @@ rootfs_services=(
   thorch-touchscreen-setup.service
   thorch-session-recovery.service
   thorch-inputd.service
-  thorch-powerd.service
   thorch-hw-defaults.service
   thorch-debug-report.service
 )

@@ -2,14 +2,14 @@
 
 pkgname=thorch-bsp
 pkgver=1
-pkgrel=18
+pkgrel=19
 pkgdesc='Thorch AYN Thor boot and board support package'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-only GPL-2.0-or-later BSD-3-Clause custom)
 depends=(android-tools bash coreutils dnsmasq dosfstools e2fsprogs file findutils grep gzip iproute2 iw kmod mkinitcpio mtools networkmanager openssh procps-ng python rfkill sudo systemd util-linux wireless-regdb zram-generator)
 makedepends=(rust)
-backup=(etc/thorch/hardware.conf etc/thorch/inputd.conf etc/thorch/powerd.conf)
+backup=(etc/thorch/hardware.conf etc/thorch/inputd.conf)
 install=thorch-bsp.install
 source=()
 sha256sums=()
@@ -21,20 +21,10 @@ build() {
     -o "${srcdir}/thorch-inputd-tests"
   "${srcdir}/thorch-inputd-tests" --test-threads=1
 
-  rustc --test "${startdir}/powerd/thorch-powerd.rs" \
-    --edition=2021 \
-    -C opt-level=0 \
-    -o "${srcdir}/thorch-powerd-tests"
-  "${srcdir}/thorch-powerd-tests" --test-threads=1
-
   rustc "${startdir}/inputd/thorch-inputd.rs" \
     --edition=2021 \
     -C opt-level=2 \
     -o "${srcdir}/thorch-inputd"
-  rustc "${startdir}/powerd/thorch-powerd.rs" \
-    --edition=2021 \
-    -C opt-level=2 \
-    -o "${srcdir}/thorch-powerd"
 }
 
 package() {
@@ -70,7 +60,6 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-hardwarectl"
   rm -f "${pkgdir}/usr/bin/thorch-powerkeyd"
   install -Dm755 "${srcdir}/thorch-inputd" "${pkgdir}/usr/bin/thorch-inputd"
-  install -Dm755 "${srcdir}/thorch-powerd" "${pkgdir}/usr/bin/thorch-powerd"
   chmod 755 "${pkgdir}/usr/bin/thorch-rgb"
   chmod 755 "${pkgdir}/usr/bin/thorch-fancontrol"
   chmod 755 "${pkgdir}/usr/bin/thorch-quicksetting-toggle"
@@ -81,4 +70,6 @@ package() {
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-sd-prefer"
   chmod 755 "${pkgdir}/usr/lib/initcpio/hooks/thorch-sd-prefer"
   chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-rgb"
+  chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-powerkey-wake-guard"
+  chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-usb-role-suspend"
 }

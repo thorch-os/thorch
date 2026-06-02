@@ -1,0 +1,48 @@
+From 3e2178c657ff2aebae061b38e064c63c5e2080bd Mon Sep 17 00:00:00 2001
+From: Thorch contributors <debug@thorch.local>
+Date: Sun, 17 May 2026 15:05:00 +1200
+Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn-thor: split hall lid switch from
+ gpio-keys
+
+Thor's native suspend stack hands lid-close handling back to systemd-logind,
+but inputd still needs to grab the volume-up and AYN custom-key device so those
+events can be translated into the expected userspace actions without leaking the
+raw input events.
+
+Move the Hall lid sensor onto its own gpio-keys device. That lets inputd keep
+owning the hotkey-only gpio-keys device while logind still sees SW_LID from a
+separate switch input.
+---
+ arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
+index 42f975d75091..1b83697db8ee 100644
+--- a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
++++ b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
+@@ -26,6 +26,11 @@ gpio-keys {
+ 			linux,code = <KEY_F24>;
+ 			linux,can-disable;
+ 		};
++	};
++
++	thorch-lid-switch {
++		compatible = "gpio-keys";
++		label = "thorch-lid-switch";
+ 
+ 		hall-lid-sensor {
+ 			label = "Hall Lid Sensor";
+@@ -33,9 +41,9 @@ hall-lid-sensor {
+ 			linux,input-type = <EV_SW>;
+ 			linux,code = <SW_LID>;
+ 			linux,can-disable;
+ 			wakeup-source;
+ 		};
+-	};
++	};
+ 
+ 	vdd_bl_5v0: vdd-bl-5v0-regulator {
+ 		compatible = "regulator-fixed";
+ 		regulator-name = "vdd_bl_5v0";
+-- 
+2.51.0

@@ -102,7 +102,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cmdline="clk_ignore_unused pd_ignore_unused panic=30 audit=0 allow_mismatched_32bit_el0 fw_devlink.strict=1 pcie_ports=compat irqaffinity=0-2 cgroup.memory=nokmem,nosocket nosoftlockup quiet rw rootwait rootdelay=15 mem_sleep_default=s2idle console=tty0 console=ttyMSM0,115200n8 fbcon=rotate:1 root=UUID=${root_uuid} rootfstype=${rootfstype}"
+cmdline="panic=30 audit=0 fw_devlink.strict=1 quiet rw rootwait rootdelay=15 mem_sleep_default=deep console=tty0 console=ttyMSM0,115200n8 fbcon=rotate:1 root=UUID=${root_uuid} rootfstype=${rootfstype}"
 
 mkdir -p "${tmpdir}/py/gki"
 touch "${tmpdir}/py/gki/__init__.py"

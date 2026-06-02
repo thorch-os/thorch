@@ -1,0 +1,7 @@
+# Park the UFS controller at system-suspend power level 3 (device SLEEP, link
+# HIBERN8) instead of the SM8550 default level 5 (device POWERDOWN, link OFF).
+# no_phy_retention=true pins spm_lvl=5 in ufs-qcom, which forces a cold
+# POWERDOWN bring-up on every deep resume; that path intermittently storms
+# (-110 UIC timeouts) and hard-wedges. Suspending to SLEEP/HIBERN8 keeps enough
+# device state to re-init reliably. Validated 30/30 clean (0 storm, 0 wedge).
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="1d84000.ufshc", ATTR{spm_lvl}="3"

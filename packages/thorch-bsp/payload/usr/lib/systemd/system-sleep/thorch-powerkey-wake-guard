@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -u
+
+phase="${1:-unknown}"
+
+# After a deep resume the power-button release that woke the device can be read
+# by logind as a fresh power-key press (and trigger another suspend/shutdown).
+# Briefly block handle-power-key so the wake press is swallowed.
+if [[ "${phase}" == "post" ]] && command -v systemd-inhibit >/dev/null 2>&1; then
+  guard_sec="${THORCH_POWERKEY_WAKE_GUARD_SEC:-8}"
+  if command -v systemd-run >/dev/null 2>&1; then
+    systemd-run --quiet --collect --unit=thorch-powerkey-wake-guard \
+      /usr/bin/systemd-inhibit \
+      --what=handle-power-key \
+      --who=thorch-native-suspend \
+      --why="ignore wake-button release after resume" \
+      --mode=block \
+      /usr/bin/sleep "${guard_sec}" >/dev/null 2>&1 || true
+  else
+    systemd-inhibit \
+      --what=handle-power-key \
+      --who=thorch-native-suspend \
+      --why="ignore wake-button release after resume" \
+      --mode=block \
+      sleep "${guard_sec}" >/dev/null 2>&1 &
+  fi
+fi
+
+exit 0

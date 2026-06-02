@@ -1,4 +1,4 @@
-# thorch-powerd owns the clamshell switch for fake suspend. Hide the switch
-# from libinput/KWin so Plasma does not apply laptop lid output profiles and
-# migrate windows away from the control display.
-SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_PATH}=="platform-gpio-keys", ENV{ID_INPUT_SWITCH}=="1", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+# systemd-logind owns the dedicated clamshell switch and routes lid-close to
+# native suspend. Hide the switch from libinput/KWin so Plasma does not apply
+# laptop lid output profiles and migrate windows away from the control display.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_PATH}=="platform-thorch-lid-switch", ENV{ID_INPUT_SWITCH}=="1", ENV{LIBINPUT_IGNORE_DEVICE}="1"

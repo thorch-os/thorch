@@ -37,6 +37,10 @@ Options:
   --jobs <n>                Parallel make jobs. Default: nproc.
   --cross-compile <prefix>  Cross compiler prefix. Default: aarch64-linux-gnu-.
   --no-fetch                Use the existing source checkout without fetching.
+  --reuse-build-dir         Reuse the out-of-tree build directory for faster
+                            local/debug rebuilds. Default is a clean build dir.
+  --skip-kernel-patches     Assume the source checkout already has kernel
+                            patches applied. DTS overlays are still refreshed.
 EOF
 }
 
@@ -68,6 +72,8 @@ template=""
 jobs="${THORCH_KERNEL_JOBS:-$(nproc)}"
 cross_compile="${THORCH_KERNEL_CROSS_COMPILE:-aarch64-linux-gnu-}"
 fetch=1
+reuse_build_dir="${THORCH_KERNEL_REUSE_BUILD_DIR:-0}"
+skip_kernel_patches=0
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -149,6 +155,14 @@ while [[ "$#" -gt 0 ]]; do
       fetch=0
       shift
       ;;
+    --reuse-build-dir|--incremental)
+      reuse_build_dir=1
+      shift
+      ;;
+    --skip-kernel-patches)
+      skip_kernel_patches=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -159,6 +173,11 @@ while [[ "$#" -gt 0 ]]; do
       ;;
   esac
 done
+
+case "${reuse_build_dir}" in
+  0|1) ;;
+  *) die "THORCH_KERNEL_REUSE_BUILD_DIR must be 0 or 1" ;;
+esac
 
 source_abs="$(path_abs "${source_dir}")"
 build_abs="$(path_abs "${build_dir}")"
@@ -271,8 +290,20 @@ apply_patch_dir() {
 }
 
 patch_marker="${source_abs}/.thorch-rocknix-patches-applied"
-if [[ "${fetch}" -eq 0 && -f "${patch_marker}" ]]; then
+if [[ "${skip_kernel_patches}" -eq 1 ]]; then
+  log "skipping kernel patch application for existing source checkout"
+elif [[ "${fetch}" -eq 0 && -f "${patch_marker}" ]]; then
   log "using existing ROCKNIX-patched kernel source tree"
+  log "ensuring requested local kernel patches are applied"
+  for patch_dir in "${patch_dirs[@]}"; do
+    [[ -n "${patch_dir}" ]] || continue
+    case "${patch_dir}" in
+      vendor/*|*/vendor/*)
+        continue
+        ;;
+    esac
+    apply_patch_dir "${patch_dir}"
+  done
 else
   log "applying ROCKNIX kernel patches"
   for patch_dir in "${patch_dirs[@]}"; do
@@ -291,12 +322,25 @@ for patch_dir in "${dts_patch_dirs[@]}"; do
   apply_patch_dir "${patch_dir}"
 done
 
-rm -rf "${build_abs}"
-install -d "${build_abs}"
-install -Dm644 "${config_abs}" "${build_abs}/.config"
+if [[ "${reuse_build_dir}" -eq 1 ]]; then
+  log "reusing kernel build directory at ${build_abs}"
+  install -d "${build_abs}"
+  if [[ ! -f "${build_abs}/.config" ]]; then
+    install -Dm644 "${config_abs}" "${build_abs}/.config"
+  fi
+else
+  rm -rf "${build_abs}"
+  install -d "${build_abs}"
+  install -Dm644 "${config_abs}" "${build_abs}/.config"
+fi
 
 apply_config_line() {
   local line="$1" key value symbol string
+
+  if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]CONFIG_([A-Za-z0-9_]+)[[:space:]]is[[:space:]]not[[:space:]]set[[:space:]]*$ ]]; then
+    bash "${source_abs}/scripts/config" --file "${build_abs}/.config" --disable "${BASH_REMATCH[1]}"
+    return 0
+  fi
 
   line="${line%%#*}"
   line="${line#"${line%%[![:space:]]*}"}"
@@ -465,14 +509,23 @@ for line in config_text.splitlines():
     if line.startswith("CONFIG_") and "=" in line:
         key, value = line.split("=", 1)
         config[key] = value
+    elif line.startswith("# CONFIG_") and line.endswith(" is not set"):
+        key = line.split()[1]
+        config[key] = "n"
 
 missing = []
 for raw in required_path.read_text(encoding="utf-8").splitlines():
-    line = raw.split("#", 1)[0].strip()
-    if not line:
-        continue
-    key, value = line.split("=", 1)
-    if config.get(key) != value:
+    raw = raw.strip()
+    if raw.startswith("# CONFIG_") and raw.endswith(" is not set"):
+        key = raw.split()[1]
+        value = "n"
+    else:
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        key, value = line.split("=", 1)
+
+    if (config.get(key, "n") if value == "n" else config.get(key)) != value:
         missing.append(f"{key}={value}")
 
 if missing:

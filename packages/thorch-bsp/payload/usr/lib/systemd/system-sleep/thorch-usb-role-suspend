@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -u
+
+role_file=/sys/class/usb_role/a600000.usb-role-switch/role
+state_file=/run/thorch-usb-role-before-suspend
+
+[ -w "${role_file}" ] || exit 0
+
+phase="${1:-unknown}"
+verb="${2:-unknown}"
+
+if [[ "${verb}" != "suspend" ]]; then
+  exit 0
+fi
+
+case "${phase}" in
+  pre)
+    current_role="$(cat "${role_file}" 2>/dev/null || true)"
+    printf '%s\n' "${current_role}" >"${state_file}" 2>/dev/null || true
+    if [[ "${current_role}" == "device" ]]; then
+      printf '%s\n' host >"${role_file}" 2>/dev/null || true
+      sleep 2
+    fi
+    ;;
+  post)
+    if [[ -r "${state_file}" ]]; then
+      original_role="$(cat "${state_file}" 2>/dev/null || true)"
+      rm -f "${state_file}"
+      if [[ -n "${original_role}" ]]; then
+        printf '%s\n' "${original_role}" >"${role_file}" 2>/dev/null || true
+      fi
+    fi
+    ;;
+esac
