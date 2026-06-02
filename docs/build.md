@@ -209,7 +209,7 @@ IMAGE=/dev/sdX`; the `/KERNEL` check must report that it embeds the Thor DTB.
 - `THORCH_ROCKNIX_KERNEL_DIR`: ROCKNIX-derived kernel artifact directory.
 - `THORCH_ROCKNIX_RUNTIME_DIR`: imported ROCKNIX runtime/FEX artifact directory.
 - `THORCH_KERNEL_SOURCE_BUILD`: set to `0` only to keep the imported ROCKNIX kernel payload for diagnostics; Waydroid BinderFS support is not guaranteed.
-- `THORCH_KERNEL_REF`: Linux kernel tag/ref used by the ROCKNIX SM8550 recipe, default `v7.0.2`.
+- `THORCH_KERNEL_REF`: Linux kernel tag/ref used by the ROCKNIX SM8550 recipe, default `v7.0.10`.
 - `THORCH_KERNEL_TARBALL_URL`: kernel source tarball URL; set empty to use the git repo/ref path.
 - `THORCH_KERNEL_CONFIG`: ROCKNIX base kernel config, default `vendor/rocknix-sm8550/linux/linux.aarch64.conf`.
 - `THORCH_KERNEL_CONFIG_FRAGMENT`: Thorch required config fragment, default `packages/linux-thorch/waydroid-kernel.config`.
