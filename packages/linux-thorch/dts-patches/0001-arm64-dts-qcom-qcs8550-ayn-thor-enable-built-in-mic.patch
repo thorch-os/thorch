@@ -1,5 +1,5 @@
 From 7bf638771e7d26226eab92ab05f9d776ffdd8dde Mon Sep 17 00:00:00 2001
-From: Thorch Developers <thorch@local>
+From: jaewun <jaewun@users.noreply.github.com>
 Date: Sat, 9 May 2026 00:45:00 +1200
 Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn-thor: enable built-in mic
 
