@@ -1,5 +1,5 @@
 From 2b4adfaf66434bddbde753c3ae7229d8c73a0ea5 Mon Sep 17 00:00:00 2001
-From: Thorch Debug <debug@thorch.local>
+From: jaewun <jaewun@users.noreply.github.com>
 Date: Mon, 11 May 2026 01:20:00 +1200
 Subject: [PATCH] thermal: qcom: tsens: skip AYN Thor uplow wake IRQs
 

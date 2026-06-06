@@ -1,5 +1,5 @@
 From 3e2178c657ff2aebae061b38e064c63c5e2080bd Mon Sep 17 00:00:00 2001
-From: Thorch contributors <debug@thorch.local>
+From: jaewun <jaewun@users.noreply.github.com>
 Date: Sun, 17 May 2026 15:05:00 +1200
 Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn-thor: split hall lid switch from
  gpio-keys

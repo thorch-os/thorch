@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Thorch Developers <thorch@local>
+From: jaewun <jaewun@users.noreply.github.com>
 Date: Fri, 8 May 2026 22:40:00 +1200
 Subject: [PATCH] ASoC: wcd938x: add DAPM input sources for DMIC widgets
 
