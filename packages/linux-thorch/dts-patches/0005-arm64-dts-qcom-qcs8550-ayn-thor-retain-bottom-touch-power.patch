@@ -1,0 +1,23 @@
+From: jaewun <jaewun@users.noreply.github.com>
+Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn-thor: retain bottom touch power in suspend
+
+Thor's lower FT5452 touchscreen cannot safely take the edt-ft5x06 driver's
+normal reset/regulator poweroff path during deep suspend. Use the board-local
+retain-power property so the controller remains powered without marking the
+touch IRQ as a system wake source.
+---
+ arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
+--- a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
++++ b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
+@@ -393,6 +393,8 @@ touchscreen@38 {
+ 
+ 		touchscreen-inverted-x;
+ 
++		edt,retain-power-in-suspend;
++
+ 		no-regmap-bulk-read;
+ 	};
+ };

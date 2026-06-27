@@ -12,8 +12,8 @@ Keep normal TSENS interrupt handling active and keep critical TSENS wake
 enabled. Only skip enable_irq_wake() for the ordinary "uplow" TSENS IRQs on
 ayn,thor.
 ---
- drivers/thermal/qcom/tsens.c | 15 ++++++++++++++-
- 1 file changed, 14 insertions(+), 1 deletion(-)
+ drivers/thermal/qcom/tsens.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/thermal/qcom/tsens.c b/drivers/thermal/qcom/tsens.c
 index fbdab9d00000..fbdab9d00001 100644
@@ -35,7 +35,7 @@ index fbdab9d00000..fbdab9d00001 100644
  static int tsens_register_irq(struct tsens_priv *priv, char *irqname,
  			      irq_handler_t thread_fn)
  {
-@@ -1203,11 +1212,15 @@ static int tsens_register_irq(struct tsens_priv *priv, char *irqname,
+@@ -1203,11 +1212,11 @@ static int tsens_register_irq(struct tsens_priv *priv, char *irqname,
  
  		if (ret)
  			dev_err(&pdev->dev, "%s: failed to get irq\n",
@@ -43,10 +43,6 @@ index fbdab9d00000..fbdab9d00001 100644
 -		else
 +		else if (tsens_irq_wake_enabled(irqname))
  			enable_irq_wake(irq);
-+		else
-+			dev_info(&pdev->dev,
-+				 "leaving TSENS %s IRQ %d as non-wakeup on AYN Thor\n",
-+				 irqname, irq);
  	}
  
  	put_device(&pdev->dev);

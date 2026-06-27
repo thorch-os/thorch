@@ -55,7 +55,7 @@ path_abs() {
 
 root="$(repo_root)"
 source_repo="${THORCH_KERNEL_REPO:-https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git}"
-source_ref="${THORCH_KERNEL_REF:-v7.0.10}"
+source_ref="${THORCH_KERNEL_REF:-v7.0.11}"
 source_version="${source_ref#v}"
 source_major="${source_version%%.*}"
 tarball_url="${THORCH_KERNEL_TARBALL_URL:-https://www.kernel.org/pub/linux/kernel/v${source_major}.x/linux-${source_version}.tar.xz}"
