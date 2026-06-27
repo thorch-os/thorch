@@ -2,7 +2,7 @@
 
 pkgname=thorch-bsp
 pkgver=1
-pkgrel=19
+pkgrel=20
 pkgdesc='Thorch AYN Thor boot and board support package'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
@@ -70,6 +70,7 @@ package() {
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-sd-prefer"
   chmod 755 "${pkgdir}/usr/lib/initcpio/hooks/thorch-sd-prefer"
   chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-rgb"
+  chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-sleep-powersave"
   chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-powerkey-wake-guard"
   chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-usb-role-suspend"
 }
