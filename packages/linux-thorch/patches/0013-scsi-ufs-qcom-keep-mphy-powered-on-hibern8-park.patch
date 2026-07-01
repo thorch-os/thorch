@@ -1,35 +1,22 @@
 From: jaewun <jaewun@users.noreply.github.com>
 Subject: [PATCH] scsi: ufs: qcom: keep M-PHY powered across hibern8 parking on no_phy_retention
 
-The SM8550 qcom host is flagged no_phy_retention: its M-PHY loses ALL
-calibrated SerDes/lane/PCS state on any phy_power_off (qmp_ufs_power_off ->
-regulator_bulk_disable of vdda-phy/vdda-pll). The only code that recalibrates
-is ufs_qcom_power_up_sequence() -> phy_calibrate(), reached only through a full
-link-startup (reset_and_restore).
+The SM8550 qcom host is flagged no_phy_retention: phy_power_off() can drop
+calibrated M-PHY state, and recalibration is done by full link startup through
+ufs_qcom_power_up_sequence().
 
-ufs_qcom_setup_clocks(on=false) calls phy_power_off() UNCONDITIONALLY, on every
-SW clk-gate and every rpm_lvl=3 runtime-PM suspend that merely parks the link in
-HIBERN8. The matching ungate/runtime-resume then issues a bare UIC hibern8-EXIT
-(DME_HIBERNATE_EXIT), which assumes a retained, calibrated PHY -- so on the now
-decalibrated PHY it times out: "pwr ctrl cmd 0x18 ... completion timeout" ->
-"hibern8 exit failed ret=-110" -> ufshcd_set_link_broken -> dead UFS link. This
-is the dominant, load-independent face of the wedge (it fires on idle micro-gap
-clk-gating). The clk-scaling gear-change exit hits the same trap because the PHY
-was already decalibrated by a prior gate/runtime cycle.
+ufs_qcom_setup_clocks(on=false) is also used for SW clk-gating and runtime PM
+cases where the UFS link is only parked in HIBERN8. The matching resume path
+issues DME_HIBERNATE_EXIT, which assumes retained PHY state rather than running
+a full link startup.
 
-Fix: on no_phy_retention hosts, when the link is merely parked in HIBERN8, keep
-the PHY powered -- skip phy_power_off() on the way down and the matching
-phy_power_on() on the way up. phy_power_off/on are refcounted (drivers/phy:
-ops fire only on the 1<->0 power_count transition), and uic_link_state reads
-HIBERN8 at BOTH the gate-descent setup_clocks(false) (after set_link_hibern8)
-and the ungate-ascent setup_clocks(true) (before hibern8-exit), so skipping both
-is refcount-exact (power_count stays pinned at 1). The bare hibern8-EXIT then
-always relocks on a calibrated PHY. True LINK_OFF (system suspend, spm_lvl=5)
-is unchanged: it still powers the PHY off and recalibrates via reset_and_restore
-on resume. Strictly gated on no_phy_retention, so MCQ and all other hosts are
-byte-for-byte unchanged.
+On no_phy_retention hosts, keep the PHY powered when the link is merely parked
+in HIBERN8: skip phy_power_off() on the way down and the matching phy_power_on()
+on the way up. True LINK_OFF system suspend is unchanged and still powers the
+PHY off before recalibrating on resume.
 
----
+Signed-off-by: jaewun <jaewun@users.noreply.github.com>
+
 --- a/drivers/ufs/host/ufs-qcom.c
 +++ b/drivers/ufs/host/ufs-qcom.c
 @@ -1253,7 +1253,9 @@
@@ -42,7 +29,7 @@ byte-for-byte unchanged.
  	int err;
  
  	/*
-@@ -1264,7 +1266,23 @@
+@@ -1264,7 +1266,16 @@
  	if (!host)
  		return 0;
  
@@ -50,23 +37,16 @@ byte-for-byte unchanged.
  	phy = host->generic_phy;
 +
 +	/*
-+	 * no_phy_retention hosts (e.g. SM8550) lose ALL calibrated M-PHY state
-+	 * on any phy_power_off (qmp_ufs_power_off -> regulator_bulk_disable of
-+	 * vdda-phy/vdda-pll); the only recalibration is a full link-startup
-+	 * (reset_and_restore). A bare UIC hibern8-EXIT assumes retained PHY
-+	 * state and times out -110 on a decalibrated PHY. So when the link is
-+	 * merely parked in HIBERN8 (SW clk-gating and rpm_lvl=3 runtime PM),
-+	 * keep the PHY powered: skip phy_power_off here and the matching
-+	 * phy_power_on below. power_count stays pinned at 1 so the skip is
-+	 * refcount-exact. True LINK_OFF (system suspend) still powers the PHY
-+	 * off and recalibrates via reset_and_restore on resume.
++	 * no_phy_retention hosts can lose calibrated M-PHY state on phy_power_off().
++	 * Keep the PHY powered when the link is only parked in HIBERN8; true
++	 * LINK_OFF still powers the PHY off and recalibrates on resume.
 +	 */
 +	keep_phy = drvdata && drvdata->no_phy_retention &&
 +		   ufs_qcom_is_link_hibern8(hba);
  
  	switch (status) {
  	case PRE_CHANGE:
-@@ -1283,19 +1301,23 @@
+@@ -1283,19 +1294,23 @@
  				ufs_qcom_dev_ref_clk_ctrl(host, false);
  			}
  
