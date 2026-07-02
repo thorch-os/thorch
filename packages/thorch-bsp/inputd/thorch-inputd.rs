@@ -182,6 +182,7 @@ impl Config {
                 &["THORCH_INPUTD_DEVICE_NAMES", "THORCH_HWCONTROLD_DEVICE_NAMES"],
                 &[
                     "gpio-keys",
+                    "gpio-keys-ayn",
                     "pmic_resin",
                     "AYN Odin2 Gamepad",
                     "RSInput Gamepad",
@@ -272,11 +273,16 @@ fn log(message: &str) {
 }
 
 fn can_grab_device(name: &str) -> bool {
-    !matches!(name, "pmic_pwrkey" | "gpio-keys" | "pmic_resin")
+    !matches!(
+        name,
+        "pmic_pwrkey" | "gpio-keys" | "gpio-keys-ayn" | "gpio-keys-lid" | "pmic_resin"
+    )
 }
 
+// The hall lid sensor lives on its own gpio-keys-lid device (ROCKNIX dts
+// layout) and must stay ungrabbed so systemd-logind sees SW_LID.
 fn should_grab_on_open(name: &str) -> bool {
-    matches!(name, "gpio-keys" | "pmic_resin")
+    matches!(name, "gpio-keys" | "gpio-keys-ayn" | "pmic_resin")
 }
 
 fn run_command(program: &str, args: &[&str]) {
@@ -479,7 +485,7 @@ fn write_input_event(file: &mut File, event_type: u16, code: u16, value: i32) ->
 
 fn should_relay_f24(enabled: bool, device_name: &str, event_type: u16, code: u16, value: i32) -> bool {
     enabled
-        && device_name == "gpio-keys"
+        && matches!(device_name, "gpio-keys" | "gpio-keys-ayn")
         && event_type == EV_KEY
         && code == KEY_F24
         && matches!(value, 0 | 1 | 2)
@@ -1044,10 +1050,30 @@ mod tests {
         assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 1));
         assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 0));
         assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 2));
+        assert!(should_relay_f24(true, "gpio-keys-ayn", EV_KEY, KEY_F24, 1));
         assert!(!should_relay_f24(false, "gpio-keys", EV_KEY, KEY_F24, 1));
         assert!(!should_relay_f24(true, "InputPlumber Keyboard", EV_KEY, KEY_F24, 1));
         assert!(!should_relay_f24(true, "gpio-keys", EV_SW, SW_LID, 1));
+        assert!(!should_relay_f24(true, "gpio-keys-lid", EV_SW, SW_LID, 1));
         assert!(!should_relay_f24(true, "gpio-keys", EV_KEY, KEY_VOLUMEUP, 1));
         assert!(!should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 3));
+    }
+
+    #[test]
+    fn lid_switch_device_is_never_grabbed_and_ayn_key_device_is() {
+        assert!(should_grab_on_open("gpio-keys"));
+        assert!(should_grab_on_open("gpio-keys-ayn"));
+        assert!(should_grab_on_open("pmic_resin"));
+        assert!(!should_grab_on_open("gpio-keys-lid"));
+        assert!(!should_grab_on_open("pmic_pwrkey"));
+
+        // Permanently-managed devices must be excluded from dynamic
+        // modifier-based grab toggling.
+        assert!(!can_grab_device("gpio-keys"));
+        assert!(!can_grab_device("gpio-keys-ayn"));
+        assert!(!can_grab_device("gpio-keys-lid"));
+        assert!(!can_grab_device("pmic_pwrkey"));
+        assert!(!can_grab_device("pmic_resin"));
+        assert!(can_grab_device("RSInput Gamepad"));
     }
 }
