@@ -1,22 +1,28 @@
+# Thorch handheld defaults for Plasma 6.7 powerdevil (PowerDevilProfileSettings.kcfg).
+# Actions: 0 = do nothing, 1 = sleep. Idle display dim/turn-off stays disabled:
+# gamepad input does not reset the Wayland idle timer, so an idle-dimmed screen
+# would go dark mid-game.
+
 [AC][Display]
 DimDisplayWhenIdle=false
 TurnOffDisplayWhenIdle=false
 
 [AC][SuspendAndShutdown]
-AutoSuspendIdleTimeoutSec=0
+AutoSuspendWhenIdle=false
+AutoSuspendAction=0
 LidAction=1
 PowerButtonAction=1
-PowerDownAction=0
 
 [Battery][Display]
 DimDisplayWhenIdle=false
 TurnOffDisplayWhenIdle=false
 
 [Battery][SuspendAndShutdown]
-AutoSuspendIdleTimeoutSec=0
+AutoSuspendWhenIdle=true
+AutoSuspendAction=1
+AutoSuspendIdleTimeoutSec=600
 LidAction=1
 PowerButtonAction=1
-PowerDownAction=0
 
 [LowBattery][Display]
 DimDisplayWhenIdle=false
@@ -24,7 +30,8 @@ TurnOffDisplayWhenIdle=false
 UseProfileSpecificDisplayBrightness=false
 
 [LowBattery][SuspendAndShutdown]
-AutoSuspendIdleTimeoutSec=0
+AutoSuspendWhenIdle=true
+AutoSuspendAction=1
+AutoSuspendIdleTimeoutSec=300
 LidAction=1
 PowerButtonAction=1
-PowerDownAction=0
