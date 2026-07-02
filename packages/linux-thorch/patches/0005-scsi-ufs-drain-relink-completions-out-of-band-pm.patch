@@ -26,6 +26,11 @@ can leave the freezer waiting on I/O that depends on the same recovery. Keep
 clk-gating hibern8 enabled, but suppress the fatal EH guard for that specific
 ungate window and run link recovery directly.
 
+Rebased onto 7.1: ufshcd_intr() now takes a direct hardirq path when a UIC
+command is active instead of always deferring to the thread. The relink drain
+is checked before that path so relink-time completions are still serviced
+without ufshcd_sl_intr()'s error handling scheduling EH during PM recovery.
+
 Signed-off-by: jaewun <jaewun@users.noreply.github.com>
 ---
 --- a/drivers/ufs/core/ufshcd.c
@@ -320,25 +325,27 @@ Signed-off-by: jaewun <jaewun@users.noreply.github.com>
  /**
   * ufshcd_intr - Main interrupt service routine
   * @irq: irq number
-@@ -7222,6 +7438,18 @@
+@@ -7371,6 +7587,20 @@
  	struct ufs_hba *hba = __hba;
  	u32 intr_status, enabled_intr_status;
- 
+
 +	/*
 +	 * On this non-MCQ controller interrupt handling is normally deferred to
 +	 * the threaded handler, which may not run during PM relink. Service
 +	 * UTP/UIC/TMF completions inline and read-clear UIC error-code registers.
 +	 * Do not run ufshcd_check_errors() here: it can schedule error handling
-+	 * while PM recovery is already in progress.
++	 * while PM recovery is already in progress. Checked before the
++	 * active_uic_cmd hardirq path so relink-time completions never reach
++	 * ufshcd_sl_intr()'s error handling.
 +	 */
 +	if (!hba->mcq_enabled && ufshcd_relinking(hba)) {
 +		ufshcd_pm_drain_completions(hba);
 +		return IRQ_HANDLED;
 +	}
 +
- 	/* Move interrupt handling to thread when MCQ & ESI are not enabled */
- 	if (!hba->mcq_enabled || !hba->mcq_esi_enabled)
- 		return IRQ_WAKE_THREAD;
+ 	/*
+ 	 * Handle interrupt in thread if MCQ or ESI is disabled,
+ 	 * and no active UIC command.
 @@ -9729,6 +9957,7 @@
  
  static void ufshcd_hba_exit(struct ufs_hba *hba)
