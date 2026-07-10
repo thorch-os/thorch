@@ -114,6 +114,46 @@ test_partition_start_byte_conversion_for_adjacency() (
   [[ "${root_device}" == "/dev/nvme0n1p11" ]] || fail "adjacent root was not selected"
 )
 
+test_btrfs_internal_target_detection() (
+  load_installer_functions
+
+  findmnt() {
+    if [[ "$*" == "-n -o SOURCE /" ]]; then
+      printf '/dev/mmcblk0p2\n'
+      return 0
+    fi
+    return 1
+  }
+
+  blkid() {
+    case "$*" in
+      "-s LABEL -o value /dev/nvme0n1p10") printf 'ROCKNIX\n' ;;
+      "-s LABEL -o value /dev/nvme0n1p11") printf 'THORCH_ROOT\n' ;;
+      *) return 2 ;;
+    esac
+  }
+
+  lsblk() {
+    case "$*" in
+      "-nrpo NAME,TYPE")
+        printf '/dev/mmcblk0 disk\n/dev/mmcblk0p2 part\n/dev/nvme0n1 disk\n/dev/nvme0n1p10 part\n/dev/nvme0n1p11 part\n'
+        ;;
+      "-no PKNAME /dev/mmcblk0p2") printf 'mmcblk0\n' ;;
+      "-no PKNAME /dev/nvme0n1p10"|"-no PKNAME /dev/nvme0n1p11") printf 'nvme0n1\n' ;;
+      "-no FSTYPE /dev/nvme0n1p10") printf 'vfat\n' ;;
+      "-no FSTYPE /dev/nvme0n1p11") printf 'btrfs\n' ;;
+      "-no PARTLABEL /dev/nvme0n1p10") printf 'ROCKNIX\n' ;;
+      "-no PARTLABEL /dev/nvme0n1p11") printf 'STORAGE\n' ;;
+      "-no NAME,LABEL,PARTLABEL "*) printf 'mock\n' ;;
+      *) return 1 ;;
+    esac
+  }
+
+  find_thorch_internal_target
+  [[ "${boot_device}" == "/dev/nvme0n1p10" ]] || fail "btrfs ROCKNIX boot was not selected"
+  [[ "${root_device}" == "/dev/nvme0n1p11" ]] || fail "btrfs THORCH_ROOT was not selected"
+)
+
 test_reuse_confirmation_precedes_deletion() {
   local log="${tmp}/reuse-mutating-commands.log"
   set +e
@@ -194,9 +234,43 @@ test_shrink_confirmation_precedes_userdata_wipe() {
   [[ ! -s "${log}" ]] || fail "shrink path mutated userdata before final confirmation: $(cat "${log}")"
 }
 
+test_cache_tmpfs_fstab_filter() (
+  load_installer_functions
+
+  local fstab="${tmp}/fstab"
+  cat > "${fstab}" <<'EOF'
+UUID=root / ext4 rw,relatime 0 1
+UUID=boot /boot vfat rw,relatime 0 2
+tmpfs /home/thorch/.cache tmpfs rw,nosuid,nodev,relatime,size=536870912,mode=0700,uid=1001,gid=1001 0 0
+tmpfs /home/thorch/../../etc/.cache tmpfs rw,nosuid,nodev 0 0
+tmpfs /tmp tmpfs rw,nosuid,nodev 0 0
+EOF
+
+  local expected actual
+  expected='tmpfs /home/thorch/.cache tmpfs rw,nosuid,nodev,relatime,size=536870912,mode=0700,uid=1001,gid=1001 0 0'
+  actual="$(source_cache_tmpfs_fstab_entries "${fstab}")"
+  [[ "${actual}" == "${expected}" ]] || fail "cache tmpfs fstab filter returned: ${actual}"
+)
+
+test_cache_tmpfs_mountpoint_restore() (
+  load_installer_functions
+
+  target="${tmp}/target-cache"
+  mkdir -p "${target}"
+  ensure_cache_tmpfs_mountpoints $'tmpfs /home/thorch/.cache tmpfs rw,nosuid,nodev,relatime,size=536870912,mode=0700,uid=1001,gid=1001 0 0\ntmpfs /home/thorch/../../escaped/.cache tmpfs rw 0 0'
+  [[ -d "${target}/home/thorch/.cache" ]] || fail "cache tmpfs mountpoint was not restored"
+  [[ ! -e "${tmp}/escaped" ]] || fail "cache tmpfs mountpoint escaped the installer target"
+)
+
+grep -q -- '--one-file-system' "${script}" ||
+  fail "internal installer root copy can cross into mounted tmpfs contents"
+
 test_blank_rocknix_partlabel_detection
 test_partition_start_byte_conversion_for_adjacency
+test_btrfs_internal_target_detection
 test_reuse_confirmation_precedes_deletion
 test_shrink_confirmation_precedes_userdata_wipe
+test_cache_tmpfs_fstab_filter
+test_cache_tmpfs_mountpoint_restore
 
 printf 'thorch internal installer partition safety tests passed\n'

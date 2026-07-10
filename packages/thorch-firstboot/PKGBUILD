@@ -2,7 +2,7 @@
 
 pkgname=thorch-firstboot
 pkgver=1
-pkgrel=2
+pkgrel=4
 pkgdesc='QML setup assistant for Thorch'
 arch=(aarch64)
 license=(GPL-2.0-or-later)

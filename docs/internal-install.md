@@ -63,9 +63,15 @@ Safety behavior:
 - Requires the typed confirmation `INSTALL THORCH`.
 - Backs up readable existing boot files under `/var/lib/thorch-installer`.
 - Formats the selected boot partition as FAT32 label `ROCKNIX`.
-- Formats the selected root partition as ext4 label `THORCH_ROOT`.
-- Copies the running SD system, writes `fstab`, regenerates initramfs, rebuilds
-  `/boot/KERNEL`, and validates the boot directory.
+- Formats the selected root partition as ext4 or Btrfs label `THORCH_ROOT`.
+  By default it follows the running SD root filesystem type; set
+  `THORCH_ROOT_FSTYPE=ext4` or `THORCH_ROOT_FSTYPE=btrfs` to override it.
+  Btrfs uses `THORCH_BTRFS_MOUNT_OPTIONS`, defaulting to
+  `rw,relatime,compress=zstd:1`.
+- Copies the running SD system without crossing into mounted runtime
+  filesystems, preserves Thorch cache tmpfs entries and root mount options in
+  `fstab`, regenerates initramfs with the selected root filesystem support,
+  rebuilds `/boot/KERNEL`, and validates the boot directory.
 
 The installer never flashes ABL. The device must already have a Linux-capable ABL
 path.
@@ -82,9 +88,10 @@ On some devices ABL may still load the internal `/KERNEL` before the SD card's
 `/KERNEL`. Thorch handles that in the initramfs: when `thorch-sd-prefer` finds
 the expected two-partition Thorch SD layout, it switches the root filesystem to
 the SD card before fsck and mount. The layout check requires a `ROCKNIX` FAT
-boot partition and a `THORCH_ROOT` ext4 root partition on the same `mmcblk`
-card. Pass `thorch.sdprefer=0` on the kernel command line to disable the
-preference, or `thorch.sdwait=<seconds>` to change the short detection wait.
+boot partition and a `THORCH_ROOT` ext4 or Btrfs root partition on the same
+`mmcblk` card. Pass `thorch.sdprefer=0` on the kernel command line to disable
+the preference, or `thorch.sdwait=<seconds>` to change the short detection
+wait.
 
 If the screen says `no match found for DTB!`, the SD or internal FAT partition
 has been selected but its top-level `/KERNEL` is wrong for this Thor boot path.
@@ -94,5 +101,7 @@ Validate the card or image with:
 make check IMAGE=/dev/sdX
 ```
 
-The check must pass the Android boot image, root UUID, framebuffer rotation, and
-embedded Thor DTB test for `/KERNEL`.
+The check strictly parses the Android boot image, gzip kernel stream, and
+appended DTBs. It must pass the root UUID, framebuffer rotation,
+`allow_mismatched_32bit_el0`, BinderFS, exactly one symbol-bearing Thor DTB, and
+no generic AIM300 DTB tests for `/KERNEL`.

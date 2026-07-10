@@ -34,6 +34,9 @@ target=/mnt/thorch-internal
 create_from_userdata=0
 userdata_keep_gib=""
 assume_yes=0
+root_fstype=""
+root_mount_options=""
+root_fstab_pass=""
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -163,6 +166,78 @@ partition_fstype() {
   lsblk -no FSTYPE "$1" 2>/dev/null | awk 'NF {print $1; exit}' || true
 }
 
+supported_root_fstype() {
+  case "$1" in
+    ext4|btrfs)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+current_root_fstype() {
+  findmnt -no FSTYPE / 2>/dev/null | awk 'NF {print $1; exit}' || true
+}
+
+configure_root_filesystem() {
+  local requested current
+
+  current="$(current_root_fstype)"
+  requested="${THORCH_ROOT_FSTYPE:-${current}}"
+  requested="${requested,,}"
+  if ! supported_root_fstype "${requested}"; then
+    if [[ -n "${THORCH_ROOT_FSTYPE:-}" ]]; then
+      fail "unsupported THORCH_ROOT_FSTYPE: ${THORCH_ROOT_FSTYPE}; use ext4 or btrfs"
+    fi
+    requested=ext4
+  fi
+
+  case "${requested}" in
+    ext4)
+      need mkfs.ext4
+      root_mount_options="rw,relatime"
+      root_fstab_pass=1
+      ;;
+    btrfs)
+      need mkfs.btrfs
+      need btrfs
+      root_mount_options="${THORCH_BTRFS_MOUNT_OPTIONS:-rw,relatime,compress=zstd:1}"
+      root_fstab_pass=0
+      ;;
+  esac
+
+  [[ "${root_mount_options}" != *[[:space:]]* ]] || fail "root mount options must not contain whitespace: ${root_mount_options}"
+  root_fstype="${requested}"
+}
+
+format_root_device() {
+  case "${root_fstype}" in
+    ext4)
+      mkfs.ext4 -F -L THORCH_ROOT "${root_device}"
+      ;;
+    btrfs)
+      mkfs.btrfs -f -L THORCH_ROOT "${root_device}"
+      ;;
+  esac
+}
+
+ensure_mkinitcpio_module() {
+  local conf="$1" module="$2"
+
+  if ! grep -Eq '^#?MODULES=' "${conf}"; then
+    printf 'MODULES=(%s)\n' "${module}" >> "${conf}"
+    return
+  fi
+
+  if grep -Eq "^#?MODULES=.*(^|[[:space:](])${module}([[:space:])]|$)" "${conf}"; then
+    return
+  fi
+
+  sed -i -E "s/^#?MODULES=\(([^)]*)\)/MODULES=(\1 ${module})/" "${conf}"
+}
+
 partition_start() {
   local dev="$1" real sys start
   real="$(readlink -f "${dev}" 2>/dev/null || printf '%s\n' "${dev}")"
@@ -290,7 +365,7 @@ create_target_in_free_space_after_userdata() {
 
   echo ":: thorch-install phase=create-root"
   before_nums="$(partition_numbers "${disk}")"
-  parted -a optimal -s "${disk}" mkpart primary ext4 "${boot_end_mib}MiB" 100%
+  parted -a optimal -s "${disk}" mkpart primary "${root_fstype}" "${boot_end_mib}MiB" 100%
   root_num="$(new_partition_number_since "${disk}" "${before_nums}")"
   parted -s "${disk}" name "${root_num}" STORAGE
   partprobe_wait "${disk}"
@@ -438,7 +513,8 @@ find_thorch_internal_target() {
       boot_candidates+=("${name}")
     fi
 
-    if [[ "${fstype}" == "ext4" && ( "${label}" == "THORCH_ROOT" || "${label}" == "armbi_root" || "${partlabel}" == "STORAGE" ) ]]; then
+    if supported_root_fstype "${fstype}" &&
+      [[ "${label}" == "THORCH_ROOT" || "${label}" == "armbi_root" || "${partlabel}" == "STORAGE" ]]; then
       reject_android_partition "${name}"
       require_unmounted "${name}"
       root_candidates+=("${name}")
@@ -519,8 +595,12 @@ cleanup_target_mounts() {
 }
 
 mount_target() {
-  local dev="$1" mp="$2"
-  mount "${dev}" "${mp}"
+  local dev="$1" mp="$2" options="${3:-}"
+  if [[ -n "${options}" ]]; then
+    mount -o "${options}" "${dev}" "${mp}"
+  else
+    mount "${dev}" "${mp}"
+  fi
   mounted_targets+=("${mp}")
 }
 
@@ -572,10 +652,32 @@ backup_existing_boot() {
   rmdir "${tmp}"
 }
 
+source_cache_tmpfs_fstab_entries() {
+  local source_fstab="${1:-/etc/fstab}"
+
+  awk '
+    $1 == "tmpfs" && $2 ~ /^\/home\/[^/[:space:]]+\/\.cache$/ && $3 == "tmpfs" {
+      print
+    }
+  ' "${source_fstab}" 2>/dev/null || true
+}
+
+ensure_cache_tmpfs_mountpoints() {
+  local entries="$1" source mountpoint rest
+
+  [[ -n "${entries}" ]] || return 0
+  while read -r source mountpoint rest; do
+    [[ -n "${mountpoint}" ]] || continue
+    [[ "${mountpoint}" =~ ^/home/[^/[:space:]]+/\.cache$ ]] || continue
+    mkdir -p "${target}${mountpoint}"
+  done <<< "${entries}"
+}
+
 require_root
-for cmd in arch-chroot blkid blockdev dd findmnt lsblk mkfs.ext4 mkfs.vfat mount parted partprobe thorch-check-boot thorch-rebuild-abl-kernel readlink rsync sed udevadm umount; do
+for cmd in arch-chroot blkid blockdev dd findmnt lsblk mkfs.vfat mount parted partprobe thorch-check-boot thorch-rebuild-abl-kernel readlink rsync sed udevadm umount; do
   need "${cmd}"
 done
+configure_root_filesystem
 normalize_target
 is_removable_root || fail "refusing to install: current / does not appear to be booted from removable SD"
 
@@ -598,7 +700,7 @@ require_unmounted "${root_device}"
 cat <<EOF
 Thorch will install the running system to internal storage:
   boot partition: ${boot_device}  -> FAT32 label ROCKNIX
-  root partition: ${root_device}  -> ext4 label THORCH_ROOT
+  root partition: ${root_device}  -> ${root_fstype} label THORCH_ROOT
 
 This formats both selected partitions. It will not flash ABL.
 EOF
@@ -612,11 +714,11 @@ prepare_target_dir
 
 echo ":: thorch-install phase=format"
 mkfs.vfat -F 32 -n ROCKNIX "${boot_device}"
-mkfs.ext4 -F -L THORCH_ROOT "${root_device}"
+format_root_device
 
 trap cleanup_target_mounts EXIT
 
-mount_target "${root_device}" "${target}"
+mount_target "${root_device}" "${target}" "${root_mount_options}"
 mkdir -p "${target}/boot"
 mount_target "${boot_device}" "${target}/boot"
 
@@ -625,9 +727,12 @@ if [[ "${THORCH_INSTALL_PROGRESS:-0}" == "1" ]]; then
   rsync_progress_args=(--info=progress2,name0)
 fi
 
+cache_tmpfs_fstab_entries="$(source_cache_tmpfs_fstab_entries)"
+
 echo ":: thorch-install phase=copy-root"
 rsync -aAXH --numeric-ids \
   "${rsync_progress_args[@]}" \
+  --one-file-system \
   --exclude=/dev/* \
   --exclude=/proc/* \
   --exclude=/sys/* \
@@ -641,6 +746,7 @@ rsync -aAXH --numeric-ids \
 
 mkdir -p "${target}"/{dev,proc,sys,run,tmp,mnt,media}
 chmod 1777 "${target}/tmp"
+ensure_cache_tmpfs_mountpoints "${cache_tmpfs_fstab_entries}"
 echo ":: thorch-install phase=copy-boot"
 rsync -a "${rsync_progress_args[@]}" /boot/ "${target}/boot/"
 
@@ -648,19 +754,23 @@ root_uuid="$(blkid -s UUID -o value "${root_device}")"
 boot_uuid="$(blkid -s UUID -o value "${boot_device}")"
 
 cat > "${target}/etc/fstab" <<EOF
-UUID=${root_uuid} / ext4 rw,relatime 0 1
+UUID=${root_uuid} / ${root_fstype} ${root_mount_options} 0 ${root_fstab_pass}
 UUID=${boot_uuid} /boot vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2
+${cache_tmpfs_fstab_entries}
 EOF
 
 if [[ -f "${target}/usr/lib/initcpio/install/thorch-sd-prefer" ]] &&
   ! grep -Eq '^HOOKS=.*(^|[[:space:](])thorch-sd-prefer([[:space:])]|$)' "${target}/etc/mkinitcpio.conf"; then
   sed -i 's/\bthorch-firmware\b/thorch-firmware thorch-sd-prefer/' "${target}/etc/mkinitcpio.conf"
 fi
+if [[ "${root_fstype}" == "btrfs" ]]; then
+  ensure_mkinitcpio_module "${target}/etc/mkinitcpio.conf" btrfs
+fi
 
 echo ":: thorch-install phase=mkinitcpio"
 arch-chroot "${target}" mkinitcpio -P
 echo ":: thorch-install phase=rebuild-boot"
-thorch-rebuild-abl-kernel --boot-dir "${target}/boot" --root-uuid "${root_uuid}" --rootfstype ext4
+thorch-rebuild-abl-kernel --boot-dir "${target}/boot" --root-uuid "${root_uuid}" --rootfstype "${root_fstype}"
 echo ":: thorch-install phase=check-boot"
 thorch-check-boot --boot-dir "${target}/boot"
 

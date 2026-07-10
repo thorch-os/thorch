@@ -55,7 +55,7 @@ path_abs() {
 
 root="$(repo_root)"
 source_repo="${THORCH_KERNEL_REPO:-https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git}"
-source_ref="${THORCH_KERNEL_REF:-v7.0.11}"
+source_ref="${THORCH_KERNEL_REF:-v7.1.2}"
 source_version="${source_ref#v}"
 source_major="${source_version%%.*}"
 tarball_url="${THORCH_KERNEL_TARBALL_URL:-https://www.kernel.org/pub/linux/kernel/v${source_major}.x/linux-${source_version}.tar.xz}"
@@ -393,21 +393,24 @@ log "resolving kernel config"
 make "${make_args[@]}" olddefconfig
 
 mapfile -t dtb_targets < <(
-  find "${source_abs}/arch/arm64/boot/dts/qcom" -maxdepth 1 -name 'qcs8550-*.dts' \
+  find "${dts_abs}/qcom" -maxdepth 1 -name 'qcs8550-*.dts' \
   | LC_ALL=C sort | sed 's|.*/qcom/||; s|\.dts$|.dtb|; s|^|qcom/|'
 )
-[[ "${#dtb_targets[@]}" -gt 0 ]] || die "no qcs8550 DTS files found in ${source_abs}/arch/arm64/boot/dts/qcom/"
+[[ "${#dtb_targets[@]}" -gt 0 ]] || die "no ROCKNIX qcs8550 DTS files found in ${dts_abs}/qcom/"
 
-log "building Thor kernel, ${#dtb_targets[@]} SM8550 DTBs, and modules"
-make "${make_args[@]}" -j"${jobs}" Image "${dtb_targets[@]}" modules
+log "building Thor kernel, ${#dtb_targets[@]} ROCKNIX SM8550 DTBs, and modules"
+make "${make_args[@]}" -j"${jobs}" DTC_FLAGS=-@ Image "${dtb_targets[@]}" modules
 kernver="$(make "${make_args[@]}" -s kernelrelease)"
 [[ -n "${kernver}" ]] || die "unable to determine built kernel release"
 
 image="${build_abs}/arch/arm64/boot/Image"
-dtb_dir="${build_abs}/arch/arm64/boot/dts/qcom"
 [[ -f "${image}" ]] || die "kernel build did not produce ${image}"
-[[ -n "$(find "${dtb_dir}" -maxdepth 1 -name 'qcs8550-*.dtb' -print -quit 2>/dev/null)" ]] \
-  || die "kernel build did not produce any qcs8550 DTBs in ${dtb_dir}"
+dtb_paths=()
+for dtb_target in "${dtb_targets[@]}"; do
+  dtb_path="${build_abs}/arch/arm64/boot/dts/${dtb_target}"
+  [[ -f "${dtb_path}" ]] || die "kernel build did not produce ${dtb_path}"
+  dtb_paths+=("${dtb_path}")
+done
 
 modules_stage="${build_abs}/modules-stage"
 rm -rf "${modules_stage}"
@@ -418,8 +421,8 @@ depmod -b "${modules_stage}" "${kernver}"
 [[ -d "${modules_stage}/lib/modules/${kernver}" ]] || die "modules_install did not produce lib/modules/${kernver}"
 
 boot_tmp="${build_abs}/KERNEL"
-log "repacking Android boot template with source-built kernel and all SM8550 DTBs"
-python3 - "${template_abs}" "${image}" "${boot_tmp}" "${dtb_dir}" <<'PY'
+log "repacking Android boot template with source-built kernel and ROCKNIX SM8550 DTBs"
+python3 - "${template_abs}" "${image}" "${boot_tmp}" "${dtb_paths[@]}" <<'PY'
 import gzip
 import pathlib
 import struct
@@ -428,11 +431,9 @@ import sys
 template_path = pathlib.Path(sys.argv[1])
 image_path = pathlib.Path(sys.argv[2])
 out_path = pathlib.Path(sys.argv[3])
-dtb_dir = pathlib.Path(sys.argv[4])
-
-dtb_paths = sorted(dtb_dir.glob("qcs8550-*.dtb"))
+dtb_paths = [pathlib.Path(path) for path in sys.argv[4:]]
 if not dtb_paths:
-    raise SystemExit(f"no qcs8550-*.dtb files found in {dtb_dir}")
+    raise SystemExit("no ROCKNIX SM8550 DTBs were supplied")
 print(f"appending {len(dtb_paths)} DTB(s): {', '.join(p.name for p in dtb_paths)}", file=sys.stderr)
 
 data = template_path.read_bytes()
@@ -472,6 +473,8 @@ for dtb_path in dtb_paths:
     dtb = dtb_path.read_bytes()
     if not dtb.startswith(b"\xd0\r\xfe\xed"):
         raise SystemExit(f"{dtb_path} is not a flattened device tree")
+    if b"__symbols__\x00" not in dtb:
+        raise SystemExit(f"{dtb_path} is missing the ROCKNIX overlay symbol table")
     dtb_blob += dtb
 
 payload = gzip.compress(image_path.read_bytes(), compresslevel=9, mtime=0) + dtb_blob
@@ -536,14 +539,14 @@ if missing:
 PY
 
 log "installing source-built Thor kernel artifacts into ${dest_abs}"
-rm -rf "${dest_abs}/usr/lib/modules"
+rm -rf "${dest_abs}/usr/lib/modules" "${dest_abs}/boot/dtb/qcom"
 install -d "${dest_abs}/usr/lib/modules" "${dest_abs}/boot/dtb/qcom"
 rsync -a "${modules_stage}/lib/modules/" "${dest_abs}/usr/lib/modules/"
 install -Dm644 "${image}" "${dest_abs}/boot/Image"
 install -Dm644 "${boot_tmp}" "${dest_abs}/boot/KERNEL"
-while IFS= read -r dtb_file; do
+for dtb_file in "${dtb_paths[@]}"; do
     install -Dm644 "${dtb_file}" "${dest_abs}/boot/dtb/qcom/$(basename "${dtb_file}")"
-done < <(find "${dtb_dir}" -maxdepth 1 -name 'qcs8550-*.dtb' | LC_ALL=C sort)
+done
 
 provenance="${dest_abs}/PROVENANCE"
 provenance_tmp="$(mktemp)"

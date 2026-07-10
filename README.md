@@ -37,8 +37,13 @@ the recovery and staging path.
   ambient desktop color modes.
 - ROCKNIX ABL-compatible FAT boot partition.
 - Top-level `/KERNEL` Android boot image repacked from the ROCKNIX boot-image
-  template with Thorch's BinderFS-capable kernel, initramfs, and image root
-  UUID.
+  template with Thorch's BinderFS-capable kernel, ROCKNIX handheld DTB set,
+  Thor-specific initramfs, asymmetric-CPU compatibility argument, and image
+  root UUID.
+- Ext4 or compressed Btrfs roots, auto-sized around the populated system with
+  configurable free-space headroom.
+- A 512 MiB tmpfs for the selected user's cache by default to reduce Firefox
+  and KDE write amplification on SD cards.
 - Internal installer that formats selected Linux boot/root partitions and never
   flashes ABL.
 
@@ -81,7 +86,7 @@ running them, especially anything that writes block devices.
 
 The internal installer formats selected Linux boot/root partitions. The explicit
 `--create-from-userdata` mode shrinks Android `userdata` by deleting and
-recreating it smaller, which wipes the Android instance stored there. Thorch v1
+recreating it smaller, which wipes the Android instance stored there. Thorch
 does not flash or replace ABL, but block-device mistakes can still make a device
 painful to recover.
 
@@ -101,7 +106,7 @@ safety notes before running them.
 Install host dependencies on an Arch-like build host:
 
 ```bash
-sudo pacman -S --needed base-devel curl devtools dosfstools e2fsprogs git gptfdisk jq libarchive mtools pacman-contrib qemu-user-static qemu-user-static-binfmt rsync squashfs-tools systemd util-linux
+sudo pacman -S --needed base-devel btrfs-progs curl devtools dosfstools e2fsprogs git gptfdisk jq libarchive mtools pacman-contrib qemu-user-static qemu-user-static-binfmt rsync squashfs-tools systemd util-linux
 ```
 
 Sync public ROCKNIX sources and firmware:
@@ -112,17 +117,25 @@ make sync
 
 This populates `vendor/rocknix-sm8550` with public firmware, source overlays,
 InputPlumber data, ROCKNIX package patch/config inputs, and SM8550 quirk
-metadata. It also records source provenance for later audits.
+metadata. It also records source provenance for later audits. With no override,
+the Makefile reads the pinned `ROCKNIX_REF` from `config/thorch.conf`; pass a
+different full commit only when deliberately updating the hardware baseline.
 
 Sync matching ROCKNIX runtime artifacts and build the Thorch kernel. By default
 this downloads the latest official ROCKNIX SM8550 nightly, verifies its
 `.sha256`, extracts the boot-image template and FEX runtime artifacts, writes
 them to `vendor/rocknix-kernel` and `vendor/rocknix-runtime`, then source-builds
-a ROCKNIX-derived Thor kernel with BinderFS support:
+a ROCKNIX-derived Thor kernel with BinderFS support. The requested source and
+kernel refs live in `config/thorch.conf`; generated `PROVENANCE` files record
+the exact resolved inputs used by each build:
 
 ```bash
 make kernel
 ```
+
+Package and image builds compare the recorded kernel release and installed
+module tree with `THORCH_KERNEL_REF`; stale or mismatched artifacts are rejected
+instead of being silently packaged.
 
 You can also import manually from a mounted or extracted ROCKNIX image. The
 import needs a real ROCKNIX `/KERNEL` and matching modules; the make target then
@@ -147,6 +160,34 @@ Build the image. The default password/PIN for the default user and root is
 make build
 ```
 
+Ext4 is the conservative root default. To build the compressed Btrfs image used
+for current SD-card testing:
+
+```bash
+THORCH_ROOT_FSTYPE=btrfs make build
+```
+
+Auto-sized images remove package caches and retain 1 GiB of root headroom by
+default. Btrfs population goes through a kernel mount with zstd compression,
+then every file is read back before the raw GPT image is assembled. This avoids
+invalid compressed extents produced by affected btrfs-progs offline `--rootdir`
+compression paths for some already-compressed files.
+
+For a ROCKNIX-style containerized build, use the project builder image and run
+the same make target inside Docker or Podman:
+
+```bash
+make docker-image-pull || make docker-image-build
+make docker-build
+```
+
+Nightly GitHub Actions image builds are documented in
+[docs/nightly-actions.md](docs/nightly-actions.md). They run on GitHub-hosted
+Ubuntu using the same `make docker-nightly` builder path and the plain `chroot`
+rootfs backend; no self-hosted Arch runner or nested `systemd-nspawn` is
+required. The container wrapper disables SELinux relabeling on the workspace
+bind mount for Docker-on-SELinux hosts.
+
 The Arch Linux ARM rootfs tarball is verified before extraction. By default the
 builder downloads the matching detached `.sig`, fetches the pinned Arch Linux
 ARM signing key into a temporary GPG keyring if needed, and verifies the
@@ -168,7 +209,9 @@ make fast
 
 Write the image to a removable SD card. The writer refuses mounted devices and
 does not mount or unmount anything. `make write` validates the image first,
-including that `/KERNEL` is an Android boot image with the Thor DTB embedded:
+including that `/KERNEL` is an Android boot image with the root UUID,
+`allow_mismatched_32bit_el0`, BinderFS support, exactly one symbol-bearing Thor
+DTB, and no generic AIM300 DTB:
 
 ```bash
 make write DEVICE=/dev/sdX
@@ -210,9 +253,15 @@ overlays only the Thor input maps. The image builder enables its service only
 when that package/unit is present, so custom package sets can omit it.
 
 After first boot from a larger SD card, the firstboot flow grows the booted root
-partition and ext4 filesystem to fill the card unless you choose internal
-storage. The expander only operates on the mounted `/` device and accepts either
-removable media or the expected two-partition Thorch SD layout.
+partition and its ext4 or Btrfs filesystem to fill the card unless you choose
+internal storage. The expander only operates on the mounted `/` device and
+accepts either removable media or the expected two-partition Thorch SD layout.
+
+To cut down on tiny browser and desktop writes on SD cards, new images mount
+the default user's `~/.cache` as tmpfs (`THORCH_USER_CACHE_TMPFS_SIZE=512M`).
+Set `THORCH_USER_CACHE_TMPFS_SIZE=0` before building if you want cache data to
+stay on the root filesystem. If firstboot renames or creates the selected user,
+it retargets the tmpfs entry to that user's home and numeric UID/GID.
 
 `thorch-kde-defaults` pulls in Firefox and the core KDE desktop applications:
 Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.
@@ -245,7 +294,14 @@ If the device reports `no match found for DTB!`, it is still in the bootloader;
 SSH will not be available. That usually means the top-level `/KERNEL` on the FAT
 boot partition is not the rebuilt Thorch Android boot image. Re-run
 `make check IMAGE=/dev/sdX` against the SD card and rebuild or rewrite the image
-if the `/KERNEL` DTB check fails.
+if the `/KERNEL` DTB check fails. The checker parses the compressed kernel and
+appended DTB table rather than searching arbitrary boot-image bytes, so a Thor
+string in the ramdisk cannot create a false pass.
+
+An early `CPU_OUT_OF_SPEC` taint or `Unsupported CPU feature variation`
+message means the boot command line is missing ROCKNIX's
+`allow_mismatched_32bit_el0` compatibility argument. Current images preserve it,
+and `make check` rejects images that do not.
 
 Thorch keeps the FAT boot filesystem labelled `ROCKNIX` for compatibility with
 the imported ROCKNIX boot image conventions, but the current evidence does not
@@ -256,8 +312,9 @@ boot image.
 If an internal Thorch install is present and ABL loads the internal `/KERNEL`
 before the SD card's `/KERNEL`, Thorch's initramfs now prefers an inserted
 Thorch SD root automatically. It detects the expected two-partition SD layout:
-`ROCKNIX` FAT boot plus `THORCH_ROOT` ext4 root on the same `mmcblk` card. Pass
-`thorch.sdprefer=0` on the kernel command line to disable this behavior.
+`ROCKNIX` FAT boot plus a `THORCH_ROOT` ext4 or Btrfs root on the same `mmcblk`
+card. Pass `thorch.sdprefer=0` on the kernel command line to disable this
+behavior.
 
 ## Internal Install
 
@@ -275,6 +332,11 @@ The installer refuses to run unless `/` appears to be on removable media. It
 also rejects common Android partition labels, backs up existing boot files when
 readable, formats only the selected partitions, rebuilds `/boot/KERNEL`, and
 validates the boot layout.
+
+Internal install uses the running SD root filesystem type by default, so a
+Btrfs SD image produces a compressed Btrfs internal root and an ext4 image
+produces ext4. Set `THORCH_ROOT_FSTYPE=ext4` or `btrfs` explicitly to override
+that choice; Btrfs mount options come from `THORCH_BTRFS_MOUNT_OPTIONS`.
 
 Without device arguments it can auto-detect one existing internal ROCKNIX/Thorch
 target. It only shrinks and wipes Android `userdata` when launched explicitly

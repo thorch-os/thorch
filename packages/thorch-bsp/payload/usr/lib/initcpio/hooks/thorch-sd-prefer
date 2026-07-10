@@ -43,7 +43,7 @@ _thorch_partition_count() {
 }
 
 _thorch_find_sd_root() {
-    local sysdisk disk syspart partdev fstype label bootdev rootdev
+    local sysdisk disk syspart partdev fstype label bootdev rootdev rootfs
 
     for sysdisk in /sys/block/mmcblk[0-9]*; do
         [ -d "$sysdisk" ] || continue
@@ -65,13 +65,14 @@ _thorch_find_sd_root() {
 
             if [ "$fstype" = "vfat" ] && [ "$label" = "ROCKNIX" ]; then
                 bootdev="$partdev"
-            elif [ "$fstype" = "ext4" ] && [ "$label" = "THORCH_ROOT" ]; then
+            elif { [ "$fstype" = "ext4" ] || [ "$fstype" = "btrfs" ]; } && [ "$label" = "THORCH_ROOT" ]; then
                 rootdev="$partdev"
+                rootfs="$fstype"
             fi
         done
 
         [ -n "$bootdev" ] && [ -n "$rootdev" ] || continue
-        printf '%s\n' "$rootdev"
+        printf '%s %s\n' "$rootdev" "$rootfs"
         return 0
     done
 
@@ -79,16 +80,18 @@ _thorch_find_sd_root() {
 }
 
 run_hook() {
-    local wait waited=0 sdroot
+    local wait waited=0 sdroot_info sdroot sdrootfstype
 
     _thorch_sd_prefer_disabled && return 0
 
     wait="$(_thorch_sd_wait_seconds)"
     while :; do
-        if sdroot="$(_thorch_find_sd_root)"; then
+        if sdroot_info="$(_thorch_find_sd_root)"; then
+            sdroot="${sdroot_info% *}"
+            sdrootfstype="${sdroot_info##* }"
             msg ":: Thorch SD root detected at $sdroot; preferring it over the boot image root"
             root="$sdroot"
-            rootfstype=ext4
+            rootfstype="$sdrootfstype"
             export root rootfstype
 
             # fsck_root re-reads root through getarg(), so append a later root

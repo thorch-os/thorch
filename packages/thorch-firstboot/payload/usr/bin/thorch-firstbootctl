@@ -19,6 +19,7 @@ USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 VALID_MODES = {"desktop", "mobile", "steamos-mobile", "steamos-desktop"}
 VALID_THEMES = {"thorch-oled", "breeze-dark", "breeze-light", "high-contrast"}
 VALID_INSTALL_CHOICES = {"live-sd", "expand-sd", "install-internal"}
+SUPPORTED_ROOT_FSTYPES = {"ext4", "btrfs"}
 
 GROUPS = ("wheel", "adm", "video", "input", "audio", "storage", "render")
 
@@ -129,7 +130,7 @@ def block_label(device):
 def booted_from_thorch_sd_root():
     root_source = command_text(["findmnt", "-no", "SOURCE", "/"])
     root_fstype = command_text(["findmnt", "-no", "FSTYPE", "/"])
-    if root_fstype != "ext4":
+    if root_fstype not in SUPPORTED_ROOT_FSTYPES:
         return False
 
     root_device = resolve_block_source(root_source)
@@ -278,6 +279,54 @@ def ensure_user(username):
     return entry
 
 
+def cache_tmpfs_fstab_line(entry, options):
+    cache_dir = pathlib.Path(entry.pw_dir) / ".cache"
+    kept_options = []
+    for option in options.split(","):
+        if not option:
+            continue
+        key = option.split("=", 1)[0]
+        if key in {"mode", "uid", "gid"}:
+            continue
+        kept_options.append(option)
+    kept_options.extend([f"mode=0700", f"uid={entry.pw_uid}", f"gid={entry.pw_gid}"])
+    return f"tmpfs {cache_dir} tmpfs {','.join(kept_options)} 0 0"
+
+
+def retarget_cache_tmpfs(entry, fstab_path=pathlib.Path("/etc/fstab")):
+    try:
+        lines = fstab_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+
+    changed = False
+    wrote_entry = False
+    updated = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) >= 6 and fields[0] == "tmpfs" and fields[2] == "tmpfs" and re.fullmatch(r"/home/[^/\s]+/\.cache", fields[1]):
+            changed = True
+            if wrote_entry:
+                continue
+            updated.append(cache_tmpfs_fstab_line(entry, fields[3]))
+            wrote_entry = True
+            continue
+        updated.append(line)
+
+    if not changed:
+        return
+
+    fstab_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+def configure_user_cache(entry):
+    cache_dir = pathlib.Path(entry.pw_dir) / ".cache"
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(cache_dir, 0o700)
+    os.chown(cache_dir, entry.pw_uid, entry.pw_gid)
+    retarget_cache_tmpfs(entry)
+
+
 def set_passwords(username, user_password, admin_password):
     payload = f"{username}:{user_password}\nroot:{admin_password}\n"
     run(["chpasswd"], input=payload, text=True)
@@ -406,6 +455,7 @@ def apply_json():
     require_root()
     settings = validate_payload(read_payload())
     entry = ensure_user(settings["username"])
+    configure_user_cache(entry)
     set_passwords(settings["username"], settings["user_password"], settings["admin_password"])
     apply_theme(entry, settings["theme"])
     configure_session(settings["username"], settings["mode"])

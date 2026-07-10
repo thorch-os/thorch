@@ -52,35 +52,78 @@ if [[ -f "${boot_dir}/KERNEL" ]]; then
 import pathlib
 import struct
 import sys
+import zlib
 
-kernel = pathlib.Path(sys.argv[1]).read_bytes()
+data = pathlib.Path(sys.argv[1]).read_bytes()
+if data[:8] != b"ANDROID!" or len(data) < 48:
+    raise SystemExit("KERNEL is not an Android boot image")
+
+(
+    kernel_size,
+    _kernel_addr,
+    ramdisk_size,
+    _ramdisk_addr,
+    second_size,
+    _second_addr,
+    _tags_addr,
+    page_size,
+    header_version,
+    _os_version,
+) = struct.unpack_from("<10I", data, 8)
+if header_version != 0 or page_size <= 0 or len(data) < page_size:
+    raise SystemExit("KERNEL has an unsupported Android boot header")
+
+def align(size, page):
+    return ((size + page - 1) // page) * page
+
+kernel_offset = page_size
+ramdisk_offset = kernel_offset + align(kernel_size, page_size)
+second_offset = ramdisk_offset + align(ramdisk_size, page_size)
+end_offset = second_offset + align(second_size, page_size)
+if len(data) < end_offset:
+    raise SystemExit("KERNEL is truncated")
+
+header = data[:page_size]
 missing = [
     marker.decode("ascii")
-    for marker in (b"root=UUID=", b"fbcon=rotate:1")
-    if marker not in kernel
+    for marker in (b"root=UUID=", b"fbcon=rotate:1", b"allow_mismatched_32bit_el0")
+    if marker not in header
 ]
 
-magic = b"\xd0\r\xfe\xed"
-pos = 0
-has_thor_dtb = False
-while True:
-    at = kernel.find(magic, pos)
-    if at < 0:
-        break
-    if len(kernel) < at + 8:
-        break
-    size = struct.unpack_from(">I", kernel, at + 4)[0]
-    if size < 8 or len(kernel) < at + size:
-        pos = at + 4
-        continue
-    dtb = kernel[at:at + size]
-    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb:
-        has_thor_dtb = True
-        break
-    pos = at + size
+kernel = data[kernel_offset:kernel_offset + kernel_size]
+try:
+    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    decompressor.decompress(kernel)
+    decompressor.flush()
+except zlib.error as exc:
+    raise SystemExit(f"KERNEL kernel payload is not valid gzip: {exc}")
+if not decompressor.eof:
+    raise SystemExit("KERNEL kernel payload is truncated")
 
-if not has_thor_dtb:
-    missing.append("embedded Thor DTB")
+trailer = decompressor.unused_data
+dtbs = []
+pos = 0
+while pos < len(trailer):
+    if trailer[pos:pos + 4] != b"\xd0\r\xfe\xed" or len(trailer) < pos + 8:
+        raise SystemExit("KERNEL has a malformed appended DTB table")
+    size = struct.unpack_from(">I", trailer, pos + 4)[0]
+    if size < 8 or len(trailer) < pos + size:
+        raise SystemExit("KERNEL has a truncated appended DTB")
+    dtbs.append(trailer[pos:pos + size])
+    pos += size
+
+if not dtbs:
+    missing.append("appended DTBs")
+if any(b"__symbols__\x00" not in dtb for dtb in dtbs):
+    missing.append("ROCKNIX overlay symbols on every DTB")
+thor_dtbs = [
+    dtb for dtb in dtbs
+    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb
+]
+if len(thor_dtbs) != 1:
+    missing.append("embedded ROCKNIX Thor DTB with overlay symbols")
+if any(b"qcom,qcs8550-aim300-aiot\x00" in dtb for dtb in dtbs):
+    missing.append("generic AIM300 DTB must be absent")
 
 if missing:
     print("KERNEL missing: " + ", ".join(missing), file=sys.stderr)

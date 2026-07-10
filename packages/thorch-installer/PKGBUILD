@@ -2,11 +2,11 @@
 
 pkgname=thorch-installer
 pkgver=1
-pkgrel=2
+pkgrel=5
 pkgdesc='Thorch internal installer and recovery tooling for AYN Thor'
 arch=(aarch64)
 license=(GPL-2.0-or-later)
-depends=(arch-install-scripts bash coreutils dosfstools e2fsprogs findutils gawk grep parted rsync systemd util-linux thorch-bsp)
+depends=(arch-install-scripts bash btrfs-progs coreutils dosfstools e2fsprogs findutils gawk grep parted rsync systemd util-linux thorch-bsp)
 source=()
 sha256sums=()
 

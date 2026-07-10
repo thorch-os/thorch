@@ -9,7 +9,9 @@ anchor for mkinitcpio, the required config fragment for build guards, and a
 mkinitcpio preset. It does not install raw `/boot/Image`; `/boot/KERNEL` is the
 ABL boot payload. When building `/boot/KERNEL`, Thorch preserves the imported
 ROCKNIX Android boot-image layout but uses Thorch's source-built kernel payload
-and embedded Thor DTB while replacing the initramfs and root command line.
+and exact ROCKNIX handheld DTB manifest while replacing the initramfs and root
+command line. The DTBs retain overlay symbols, the payload contains exactly one
+Thor DTB, and generic AIM300 DTBs are excluded.
 
 `thorch-bsp` owns the ABL boot contract, including
 `thorch-rebuild-abl-kernel`, `thorch-check-boot`, the mkinitcpio firmware hook,
@@ -20,6 +22,13 @@ overrides, quick settings for USB/SSH/RGB toggles, and ALSA UCM snippets. The
 action-drawer override is stateful: package install/upgrade runs a sync helper
 so SteamOS mode can keep its patched Plasma Mobile drawer enabled while normal
 desktop/mobile sessions restore the stock QML.
+
+The boot checker parses the compressed kernel and appended DTBs instead of
+searching arbitrary image bytes. It enforces the image root UUID, framebuffer
+rotation, ROCKNIX's `allow_mismatched_32bit_el0` CPU compatibility argument,
+BinderFS support, and the Thor DTB invariants. The firmware hook copies only
+Thor and shared SM8550 early-boot firmware into initramfs; the full firmware
+tree remains installed in the root filesystem.
 
 `thorch-firmware-rocknix` packages the synced public ROCKNIX firmware tree into
 `/usr/lib/firmware`. It also installs the matching ROCKNIX `/SYSTEM`
@@ -44,7 +53,8 @@ reboot over restarting SDDM from inside a live Plasma session.
 Polkit rule, autostart entry, and optional Wayland session entry. The helper
 scans/connects Wi-Fi through NetworkManager, creates or updates the selected
 user, applies password policy, writes the chosen KDE theme, stages the selected
-Thorch session through `thorch-sessionctl`, and records completion under
+Thorch session through `thorch-sessionctl`, retargets the configured cache tmpfs
+to that user's home and numeric UID/GID, and records completion under
 `/var/lib/thorch/firstboot`. The QML flow exposes a Skip action from every page,
 runs automatic SD expansion and create-if-needed internal-install actions
 in-window, and can call the gaming stack installer command when Steam mode is
@@ -52,8 +62,11 @@ selected.
 
 `thorch-installer` provides `thorch-install-internal` and
 `thorch-expand-root` for firstboot and CLI recovery flows. The root expander
-grows only the currently mounted ext4 `/` partition and requires a removable
-device or the expected two-partition Thorch SD layout unless `--force` is used.
+grows only the currently mounted ext4 or Btrfs `/` partition and requires a
+removable device or the expected two-partition Thorch SD layout unless
+`--force` is used. Internal install defaults to the running root filesystem
+type, supports explicit ext4/Btrfs selection, and preserves the cache tmpfs
+configuration.
 
 `thorch-fex-bin` repackages the matching ROCKNIX `/SYSTEM` FEX runtime. It
 installs FEX, Vulkan/OpenGL, audio, DRM, and Wayland thunks, binfmt
