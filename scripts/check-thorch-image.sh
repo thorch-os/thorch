@@ -85,31 +85,70 @@ validate_image() {
     kernel_strings="${tmpdir}/KERNEL.strings"
     strings -n 8 "${tmpdir}/KERNEL" > "${kernel_strings}"
 
-    kernel_embeds_dtb() {
+    kernel_has_rocknix_thor_dtb() {
       python3 - "${tmpdir}/KERNEL" <<'PY'
 import pathlib
 import struct
 import sys
+import zlib
 
-kernel = pathlib.Path(sys.argv[1]).read_bytes()
-magic = b"\xd0\r\xfe\xed"
+data = pathlib.Path(sys.argv[1]).read_bytes()
+if data[:8] != b"ANDROID!":
+    sys.exit(1)
+
+kernel_size = struct.unpack_from("<I", data, 8)[0]
+page_size = struct.unpack_from("<I", data, 36)[0]
+payload = data[page_size:page_size + kernel_size]
+try:
+    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    decompressor.decompress(payload)
+    decompressor.flush()
+    dtbs = decompressor.unused_data
+except zlib.error:
+    sys.exit(1)
+if not decompressor.eof:
+    sys.exit(1)
+
+parsed = []
 pos = 0
+while pos < len(dtbs):
+    if dtbs[pos:pos + 4] != b"\xd0\r\xfe\xed" or len(dtbs) < pos + 8:
+        sys.exit(1)
+    size = struct.unpack_from(">I", dtbs, pos + 4)[0]
+    if size < 8 or len(dtbs) < pos + size:
+        sys.exit(1)
+    parsed.append(dtbs[pos:pos + size])
+    pos += size
 
-while True:
-    at = kernel.find(magic, pos)
-    if at < 0:
-        sys.exit(1)
-    if len(kernel) < at + 8:
-        sys.exit(1)
-    size = struct.unpack_from(">I", kernel, at + 4)[0]
-    if size < 8 or len(kernel) < at + size:
-        pos = at + 4
-        continue
-    dtb = kernel[at:at + size]
-    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb:
-        sys.exit(0)
-    pos = at + size
+if not parsed or any(b"__symbols__\x00" not in dtb for dtb in parsed):
+    sys.exit(1)
+matches = [
+    dtb for dtb in parsed
+    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb
+]
+sys.exit(0 if len(matches) == 1 else 1)
 PY
+    }
+
+    kernel_cmdline_has() {
+      python3 - "${tmpdir}/KERNEL" "$1" <<'PY'
+import pathlib
+import struct
+import sys
+
+data = pathlib.Path(sys.argv[1]).read_bytes()
+marker = sys.argv[2].encode("ascii")
+if data[:8] != b"ANDROID!" or len(data) < 40:
+    sys.exit(1)
+page_size = struct.unpack_from("<I", data, 36)[0]
+if page_size <= 0 or len(data) < page_size:
+    sys.exit(1)
+sys.exit(0 if marker in data[:page_size] else 1)
+PY
+    }
+
+    kernel_excludes_generic_dtb() {
+      ! grep -q 'qcom,qcs8550-aim300-aiot' "${kernel_strings}"
     }
 
     kernel_supports_waydroid() {
@@ -133,7 +172,9 @@ try:
     decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
     image = decompressor.decompress(payload) + decompressor.flush()
 except zlib.error:
-    image = payload
+    sys.exit(1)
+if not decompressor.eof:
+    sys.exit(1)
 
 start = image.find(b"IKCFG_ST")
 end = image.find(b"IKCFG_ED", start)
@@ -163,9 +204,11 @@ PY
     }
 
     check "KERNEL is an Android boot image" grep -q '^Android bootimg' <<<"${kernel_file_type}"
-    check "KERNEL command line uses root UUID" grep -q 'root=UUID=' "${kernel_strings}"
-    check "KERNEL command line rotates fbcon right" grep -q 'fbcon=rotate:1' "${kernel_strings}"
-    check "KERNEL embeds the Thor DTB" kernel_embeds_dtb
+    check "KERNEL command line uses root UUID" kernel_cmdline_has 'root=UUID='
+    check "KERNEL command line rotates fbcon right" kernel_cmdline_has 'fbcon=rotate:1'
+    check "KERNEL allows ROCKNIX asymmetric 32-bit CPU features" kernel_cmdline_has 'allow_mismatched_32bit_el0'
+    check "KERNEL embeds the ROCKNIX Thor DTB with overlay symbols" kernel_has_rocknix_thor_dtb
+    check "KERNEL excludes the generic AIM300 DTB" kernel_excludes_generic_dtb
     check "KERNEL supports Waydroid BinderFS" kernel_supports_waydroid
   fi
 

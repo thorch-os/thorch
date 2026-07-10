@@ -3,10 +3,9 @@
 build() {
   local f
   for d in \
-    /usr/lib/firmware/qcom/sm8550 \
+    /usr/lib/firmware/qcom/sm8550/ayn/thor \
     /usr/lib/firmware/qcom/vpu \
-    /usr/lib/firmware/ath12k/WCN7850/hw2.0 \
-    /usr/lib/firmware/qca; do
+    /usr/lib/firmware/ath12k/WCN7850/hw2.0; do
     [[ -d "${d}" ]] || continue
     while IFS= read -r f; do
       add_file "${f}"
@@ -16,6 +15,10 @@ build() {
   for f in \
     /usr/lib/firmware/qcom/a740_sqe.fw \
     /usr/lib/firmware/qcom/gmu_gen70200.bin \
+    /usr/lib/firmware/qcom/sm8550/a740_zap.mbn \
+    /usr/lib/firmware/qcom/sm8550/ayn/cdsp.mbn \
+    /usr/lib/firmware/qcom/sm8550/ayn/cdsp_dtb.mbn \
+    /usr/lib/firmware/qcom/sm8550/AYN-Thor-tplg.bin \
     /usr/lib/firmware/renesas_usb_fw.mem; do
     [[ -f "${f}" ]] && add_file "${f}"
   done
@@ -26,4 +29,3 @@ help() {
 Adds Thorch/ROCKNIX Qualcomm SM8550 firmware to the initramfs.
 EOF
 }
-
