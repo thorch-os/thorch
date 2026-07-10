@@ -65,6 +65,109 @@ nspawn_machine_name() {
   printf 'thorch-%s-%s\n' "${label}" "${hash}"
 }
 
+rootfs_runner() {
+  case "${THORCH_ROOTFS_RUNNER:-chroot}" in
+    chroot|plain-chroot)
+      printf 'chroot\n'
+      ;;
+    systemd-nspawn|nspawn)
+      printf 'systemd-nspawn\n'
+      ;;
+    *)
+      die "unsupported THORCH_ROOTFS_RUNNER: ${THORCH_ROOTFS_RUNNER}; use chroot or systemd-nspawn"
+      ;;
+  esac
+}
+
+require_rootfs_runner() {
+  case "$(rootfs_runner)" in
+    chroot)
+      require_cmd chroot mknod mount mountpoint qemu-aarch64-static umount
+      ;;
+    systemd-nspawn)
+      require_cmd qemu-aarch64-static systemd-nspawn
+      ;;
+  esac
+}
+
+ensure_chroot_device_node() {
+  local rootfs="$1" name="$2" major="$3" minor="$4" mode="$5" path
+
+  path="${rootfs}/dev/${name}"
+  if [[ -c "${path}" ]]; then
+    chmod "${mode}" "${path}"
+    return
+  fi
+
+  rm -f "${path}"
+  mknod -m "${mode}" "${path}" c "${major}" "${minor}"
+}
+
+prepare_chroot_device_nodes() {
+  local rootfs="$1"
+
+  install -d -m 0755 "${rootfs}/dev"
+  ensure_chroot_device_node "${rootfs}" null 1 3 0666
+  ensure_chroot_device_node "${rootfs}" zero 1 5 0666
+  ensure_chroot_device_node "${rootfs}" full 1 7 0666
+  ensure_chroot_device_node "${rootfs}" random 1 8 0666
+  ensure_chroot_device_node "${rootfs}" urandom 1 9 0666
+  install -d -m 0755 "${rootfs}/dev/pts" "${rootfs}/dev/shm"
+  ln -sfn /proc/self/fd "${rootfs}/dev/fd"
+  ln -sfn /proc/self/fd/0 "${rootfs}/dev/stdin"
+  ln -sfn /proc/self/fd/1 "${rootfs}/dev/stdout"
+  ln -sfn /proc/self/fd/2 "${rootfs}/dev/stderr"
+}
+
+run_plain_chroot_cmd() {
+  local rootfs="$1" mounted_proc=0 status=0
+  shift
+
+  prepare_chroot_device_nodes "${rootfs}"
+  install -d -m 0555 "${rootfs}/proc"
+  if ! mountpoint -q "${rootfs}/proc"; then
+    mount -t proc proc "${rootfs}/proc"
+    mounted_proc=1
+  fi
+
+  chroot "${rootfs}" /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
+
+  if [[ "${mounted_proc}" -eq 1 ]]; then
+    umount "${rootfs}/proc" 2>/dev/null || true
+  fi
+
+  return "${status}"
+}
+
+run_aarch64_rootfs_cmd() {
+  local rootfs="$1" machine="$2" runner
+  shift 2
+
+  runner="$(rootfs_runner)"
+  case "${runner}" in
+    chroot)
+      run_plain_chroot_cmd "${rootfs}" "$@"
+      ;;
+    systemd-nspawn)
+      rm -rf "${rootfs}/run/systemd/nspawn"
+      systemd-nspawn \
+        --quiet \
+        --pipe \
+        --machine="${machine}" \
+        --register=no \
+        --directory="${rootfs}" \
+        /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
+      ;;
+  esac
+}
+
+run_aarch64_rootfs_shell() {
+  local rootfs="$1" machine="$2"
+  shift 2
+
+  run_aarch64_rootfs_cmd "${rootfs}" "${machine}" /bin/bash --noprofile --norc -c "$*"
+}
+
 parse_size_bytes() {
   local size="$1"
   numfmt --from=iec "${size}"
@@ -219,6 +322,7 @@ configure_alarm_pacman() {
   if ! grep -q '^DisableSandbox' "${rootfs}/etc/pacman.conf"; then
     sed -i '/^\[options\]/a DisableSandbox' "${rootfs}/etc/pacman.conf"
   fi
+  sed -i 's/^CheckSpace/#CheckSpace/' "${rootfs}/etc/pacman.conf"
 }
 
 configure_chroot_resolver() {
@@ -292,12 +396,27 @@ repair_alarm_usrmerge_links() {
 validate_rocknix_kernel_provenance() {
   local kernel_dir="$1"
   local provenance="${kernel_dir}/PROVENANCE"
-  local firmware
+  local expected_kernel_ref="${THORCH_KERNEL_REF:-}"
+  local firmware provenance_ref="" provenance_release="" module_releases
 
   if [[ ! -f "${provenance}" ]]; then
     warn "missing ROCKNIX kernel provenance at ${provenance}"
   elif grep -Eq '(^ROCKNIX_REF=smoke-test-existing-kernel-tree$|^SOURCE_(BOOT|ROOT)_DIR=.*/packages/[^/]+/pkg($|/)|^SOURCE_(IMAGE|DTB|MODULES)=packages/[^/]+/pkg/)' "${provenance}"; then
     die "ROCKNIX kernel provenance points at a local makepkg/smoke-test output; re-import from a mounted or extracted ROCKNIX image"
+  else
+    provenance_ref="$(awk -F= '$1 == "THORCH_KERNEL_REF" {print substr($0, index($0, "=") + 1); exit}' "${provenance}" 2>/dev/null || true)"
+    provenance_release="$(awk -F= '$1 == "THORCH_KERNEL_RELEASE" {print substr($0, index($0, "=") + 1); exit}' "${provenance}" 2>/dev/null || true)"
+  fi
+
+  if [[ -n "${expected_kernel_ref}" && -n "${provenance_ref}" && "${provenance_ref}" != "${expected_kernel_ref}" ]]; then
+    die "ROCKNIX kernel artifacts were built from ${provenance_ref}, but THORCH_KERNEL_REF is ${expected_kernel_ref}; run make kernel"
+  fi
+
+  module_releases="$(find "${kernel_dir}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd, -)"
+  [[ -n "${module_releases}" ]] || die "ROCKNIX kernel artifacts are missing /usr/lib/modules; run make kernel"
+  if [[ -n "${provenance_release}" ]] &&
+    ! tr ',' '\n' <<<"${module_releases}" | grep -Fxq -- "${provenance_release}"; then
+    die "ROCKNIX kernel modules are ${module_releases}, but provenance records ${provenance_release}; run make kernel"
   fi
 
   for firmware in \

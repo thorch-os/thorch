@@ -11,14 +11,18 @@ usage() {
 usage: scripts/build-image.sh [--skip-package-build] [--reuse-rootfs]
 
 Builds a Thorch Arch Linux ARM raw image for AYN Thor. The image contains a FAT
-boot partition labelled ROCKNIX and an ext4 root partition. It is intended to
-boot as an SD installer/recovery system, then install itself internally.
+boot partition labelled ROCKNIX and a THORCH_ROOT root partition. It is intended
+to boot as an SD installer/recovery system, then install itself internally.
 
 This builder does not mount image partitions or bind-mount host /dev, /proc, or
-/sys. Rootfs commands run through systemd-nspawn, and the final GPT image is
-assembled from standalone filesystem images.
+/sys. Rootfs commands run through THORCH_ROOTFS_RUNNER, which defaults to plain
+chroot with qemu-aarch64-static. The final GPT image is assembled from
+standalone filesystem images.
 
 THORCH_IMAGE_PACKAGES controls which local packages are built and installed.
+THORCH_ROOT_FSTYPE controls the root filesystem type: ext4 or btrfs.
+THORCH_USER_CACHE_TMPFS_SIZE controls the default user's ~/.cache tmpfs size;
+set it to 0/off/none/disabled to keep cache writes on the root filesystem.
 
   --reuse-rootfs        continue from build/image-rootfs and reinstall current
                         local Thorch packages; useful for quick iteration.
@@ -49,7 +53,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 require_root
-require_cmd awk bsdtar curl dd du file mcopy mdir mkfs.ext4 mkfs.vfat numfmt qemu-aarch64-static rsync sfdisk systemctl systemd-nspawn truncate uuidgen
+require_cmd awk bsdtar cat curl dd du file find mcopy mdir mkfs.vfat numfmt python3 rsync sfdisk stat sync systemctl truncate uuidgen vercmp
+require_rootfs_runner
 
 root="$(repo_root)"
 build_dir="${root}/${THORCH_BUILD_DIR}"
@@ -57,12 +62,16 @@ cache_dir="${build_dir}/cache"
 rootfs_dir="${build_dir}/image-rootfs"
 boot_stage="${build_dir}/boot-stage"
 boot_img="${build_dir}/boot.vfat"
-root_img="${build_dir}/root.ext4"
 image="${root}/${THORCH_OUTPUT_DIR}/thorch-arch-aarch64.img"
 repo_dir="${root}/${THORCH_LOCAL_REPO_DIR}"
 rootfs_tar="${cache_dir}/ArchLinuxARM-aarch64-latest.tar.gz"
 rootfs_machine="$(nspawn_machine_name image-rootfs "${rootfs_dir}")"
 read -r -a image_packages <<< "${THORCH_IMAGE_PACKAGES}"
+cache_tmpfs_size_bytes=
+root_fstype="${THORCH_ROOT_FSTYPE,,}"
+root_mount_options=
+root_fstab_pass=
+root_img=
 stock_kernel_firmware=(
   linux-aarch64
   linux-firmware
@@ -85,9 +94,48 @@ boot_size="${THORCH_BOOT_SIZE:-512M}"
 sector_size=512
 first_lba=2048
 
+cache_tmpfs_enabled() {
+  case "${THORCH_USER_CACHE_TMPFS_SIZE}" in
+    ''|0|off|Off|OFF|false|False|FALSE|no|No|NO|none|None|NONE|disabled|Disabled|DISABLED)
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
+configure_root_filesystem() {
+  case "${root_fstype}" in
+    ext4)
+      require_cmd mkfs.ext4
+      root_mount_options="rw,relatime"
+      root_fstab_pass=1
+      ;;
+    btrfs)
+      require_cmd btrfs mkfs.btrfs mount umount
+      root_mount_options="${THORCH_BTRFS_MOUNT_OPTIONS:-rw,relatime,compress=zstd:1}"
+      root_fstab_pass=0
+      ;;
+    *)
+      die "unsupported THORCH_ROOT_FSTYPE: ${THORCH_ROOT_FSTYPE}; use ext4 or btrfs"
+      ;;
+  esac
+
+  [[ "${root_mount_options}" != *[[:space:]]* ]] || \
+    die "root mount options must not contain whitespace: ${root_mount_options}"
+  root_img="${build_dir}/root.${root_fstype}"
+}
+
 [[ "${THORCH_USER}" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || die "invalid THORCH_USER: ${THORCH_USER}"
 [[ "${THORCH_PASSWORD}" != *$'\n'* ]] || die "THORCH_PASSWORD must not contain newlines"
 [[ "${#image_packages[@]}" -gt 0 ]] || die "THORCH_IMAGE_PACKAGES must contain at least one package"
+configure_root_filesystem
+if cache_tmpfs_enabled; then
+  cache_tmpfs_size_bytes="$(parse_size_bytes "${THORCH_USER_CACHE_TMPFS_SIZE}")" || \
+    die "invalid THORCH_USER_CACHE_TMPFS_SIZE: ${THORCH_USER_CACHE_TMPFS_SIZE}"
+  [[ "${cache_tmpfs_size_bytes}" =~ ^[0-9]+$ && "${cache_tmpfs_size_bytes}" -gt 0 ]] || \
+    die "THORCH_USER_CACHE_TMPFS_SIZE must be greater than zero when enabled"
+fi
 thorch_user_q="$(printf '%q' "${THORCH_USER}")"
 
 rocknix_kernel_artifacts_ready() {
@@ -120,25 +168,11 @@ install -d "${cache_dir}" "${root}/${THORCH_OUTPUT_DIR}"
 ensure_alarm_rootfs "${rootfs_tar}"
 
 run_rootfs() {
-  rm -rf "${rootfs_dir}/run/systemd/nspawn"
-  systemd-nspawn \
-    --quiet \
-    --pipe \
-    --machine="${rootfs_machine}" \
-    --register=no \
-    --directory="${rootfs_dir}" \
-    /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 /bin/bash --noprofile --norc -c "$*"
+  run_aarch64_rootfs_shell "${rootfs_dir}" "${rootfs_machine}" "$*"
 }
 
 run_rootfs_cmd() {
-  rm -rf "${rootfs_dir}/run/systemd/nspawn"
-  systemd-nspawn \
-    --quiet \
-    --pipe \
-    --machine="${rootfs_machine}" \
-    --register=no \
-    --directory="${rootfs_dir}" \
-    /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
+  run_aarch64_rootfs_cmd "${rootfs_dir}" "${rootfs_machine}" "$@"
 }
 
 set_rootfs_passwords() {
@@ -191,20 +225,49 @@ calculate_image_bytes() {
 
 stage_image_packages() {
   local package_files=()
-  local pkg matches
+  local pkg
 
   install -d "${rootfs_dir}/var/cache/thorch"
   rm -f "${rootfs_dir}/var/cache/thorch/"*.pkg.tar.* 2>/dev/null || true
 
-  shopt -s nullglob
   for pkg in "${image_packages[@]}"; do
-    matches=("${repo_dir}/${pkg}-"*.pkg.tar.*)
-    [[ "${#matches[@]}" -gt 0 ]] || die "missing built package for ${pkg} in ${repo_dir}"
-    package_files+=("${matches[@]}")
+    package_files+=("$(best_repo_package_for "${pkg}")")
+  done
+
+  cp -f "${package_files[@]}" "${rootfs_dir}/var/cache/thorch/"
+}
+
+pkginfo_value() {
+  local pkgfile="$1" key="$2"
+  bsdtar -xOqf "${pkgfile}" .PKGINFO | awk -F ' = ' -v key="${key}" '$1 == key {print $2; exit}'
+}
+
+best_repo_package_for() {
+  local pkg="$1" file pkgname version best="" best_version="" cmp
+
+  shopt -s nullglob
+  for file in "${repo_dir}/${pkg}-"*.pkg.tar.*; do
+    pkgname="$(pkginfo_value "${file}" pkgname)"
+    [[ "${pkgname}" == "${pkg}" ]] || continue
+    version="$(pkginfo_value "${file}" pkgver)"
+    [[ -n "${version}" ]] || die "unable to read package version from ${file}"
+
+    if [[ -z "${best}" ]]; then
+      best="${file}"
+      best_version="${version}"
+      continue
+    fi
+
+    cmp="$(vercmp "${version}" "${best_version}")"
+    if (( cmp > 0 )) || { (( cmp == 0 )) && [[ "${file}" -nt "${best}" ]]; }; then
+      best="${file}"
+      best_version="${version}"
+    fi
   done
   shopt -u nullglob
 
-  cp -f "${package_files[@]}" "${rootfs_dir}/var/cache/thorch/"
+  [[ -n "${best}" ]] || die "missing built package for ${pkg} in ${repo_dir}"
+  printf '%s\n' "${best}"
 }
 
 cleanup_rootfs_for_image() {
@@ -226,8 +289,188 @@ remove_orphaned_dependencies() {
   run_rootfs "orphans=\$(pacman -Qdtq 2>/dev/null || true); [[ -z \"\${orphans}\" ]] || pacman -Rns --noconfirm \${orphans}"
 }
 
+ensure_btrfs_root_support() {
+  [[ "${root_fstype}" == "btrfs" ]] || return 0
+  run_rootfs "pacman -S --noconfirm --needed btrfs-progs"
+}
+
+ensure_mkinitcpio_module() {
+  local conf="$1" module="$2"
+
+  if ! grep -Eq "^#?MODULES=" "${conf}"; then
+    printf 'MODULES=(%s)\n' "${module}" >> "${conf}"
+    return
+  fi
+
+  if grep -Eq "^#?MODULES=.*(^|[[:space:](])${module}([[:space:])]|$)" "${conf}"; then
+    return
+  fi
+
+  sed -i -E "s/^#?MODULES=\(([^)]*)\)/MODULES=(\1 ${module})/" "${conf}"
+}
+
+prepare_mkinitcpio_config() {
+  sed -i 's/^#\?HOOKS=.*/HOOKS=(base udev modconf kms keyboard keymap consolefont block thorch-firmware thorch-sd-prefer filesystems fsck)/' \
+    "${rootfs_dir}/etc/mkinitcpio.conf"
+  if [[ "${root_fstype}" == "btrfs" ]]; then
+    ensure_mkinitcpio_module "${rootfs_dir}/etc/mkinitcpio.conf" btrfs
+  fi
+}
+
+create_root_filesystem_image() {
+  case "${root_fstype}" in
+    ext4)
+      mkfs.ext4 -F -L THORCH_ROOT -U "${root_uuid}" -d "${rootfs_dir}" "${root_img}" >/dev/null
+      ;;
+    btrfs)
+      mkfs.btrfs -f -L THORCH_ROOT -U "${root_uuid}" \
+        --byte-count "${root_bytes}" \
+        "${root_img}" >/dev/null
+      populate_btrfs_image
+      ;;
+  esac
+}
+
+populate_btrfs_image() {
+  local populate_mount="${build_dir}/btrfs-populate-root"
+  local min_size shrink_size
+
+  rm -rf "${populate_mount}"
+  install -d "${populate_mount}"
+  if ! mount -o "loop,${root_mount_options}" "${root_img}" "${populate_mount}"; then
+    rmdir "${populate_mount}" 2>/dev/null || true
+    die "unable to mount ${root_img} for btrfs population"
+  fi
+  if ! rsync -aHAX --numeric-ids "${rootfs_dir}/" "${populate_mount}/"; then
+    umount "${populate_mount}" >/dev/null 2>&1 || true
+    rmdir "${populate_mount}" 2>/dev/null || true
+    die "unable to populate btrfs root image"
+  fi
+  sync "${populate_mount}"
+
+  if image_size_is_auto; then
+    min_size="$(btrfs inspect-internal min-dev-size "${populate_mount}" | awk 'NR == 1 {print $1}')"
+    [[ "${min_size}" =~ ^[0-9]+$ && "${min_size}" -gt 0 ]] || {
+      umount "${populate_mount}" >/dev/null 2>&1 || true
+      rmdir "${populate_mount}" 2>/dev/null || true
+      die "unable to determine minimum populated btrfs size"
+    }
+    shrink_size="$(round_up_bytes "$((min_size + 64 * 1024 * 1024))" $((1024 * 1024)))"
+    if ! btrfs filesystem resize "${shrink_size}" "${populate_mount}" >/dev/null; then
+      umount "${populate_mount}" >/dev/null 2>&1 || true
+      rmdir "${populate_mount}" 2>/dev/null || true
+      die "unable to shrink populated btrfs root image"
+    fi
+  fi
+
+  umount "${populate_mount}"
+  rmdir "${populate_mount}" 2>/dev/null || true
+  if image_size_is_auto; then
+    truncate -s "${shrink_size}" "${root_img}"
+  fi
+}
+
+verify_btrfs_image_readable() {
+  local verify_mount="${build_dir}/btrfs-verify-root"
+
+  rm -rf "${verify_mount}"
+  install -d "${verify_mount}"
+  if ! mount -o loop,ro "${root_img}" "${verify_mount}"; then
+    rmdir "${verify_mount}" 2>/dev/null || true
+    die "unable to mount ${root_img} for full data verification"
+  fi
+  if ! find "${verify_mount}" -xdev -type f -exec cat -- {} + >/dev/null; then
+    umount "${verify_mount}" >/dev/null 2>&1 || true
+    rmdir "${verify_mount}" 2>/dev/null || true
+    die "btrfs root image contains unreadable file data"
+  fi
+  umount "${verify_mount}"
+  rmdir "${verify_mount}" 2>/dev/null || true
+}
+
+resize_btrfs_image_to_max() {
+  local size_bytes="$1"
+  local resize_mount="${build_dir}/btrfs-resize-root"
+
+  truncate -s "${size_bytes}" "${root_img}"
+  rm -rf "${resize_mount}"
+  install -d "${resize_mount}"
+  if ! mount -o loop,rw "${root_img}" "${resize_mount}"; then
+    rmdir "${resize_mount}" 2>/dev/null || true
+    die "unable to mount ${root_img} for btrfs resize"
+  fi
+  if ! btrfs filesystem resize max "${resize_mount}" >/dev/null; then
+    umount "${resize_mount}" >/dev/null 2>&1 || true
+    rmdir "${resize_mount}" 2>/dev/null || true
+    die "unable to resize btrfs root image to $(numfmt --to=iec --suffix=B "${size_bytes}")"
+  fi
+  umount "${resize_mount}"
+  rmdir "${resize_mount}" 2>/dev/null || true
+}
+
+copy_sparse_file_into_image() {
+  local src="$1" dst="$2" offset="$3"
+
+  python3 - "${src}" "${dst}" "${offset}" <<'PY'
+import errno
+import os
+import sys
+
+src, dst, offset_text = sys.argv[1:]
+offset = int(offset_text)
+chunk_size = 16 * 1024 * 1024
+unsupported = {
+    errno.EINVAL,
+    getattr(errno, "ENOTSUP", errno.EINVAL),
+    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+}
+
+size = os.stat(src).st_size
+with open(src, "rb", buffering=0) as src_file, open(dst, "r+b", buffering=0) as dst_file:
+    src_fd = src_file.fileno()
+    dst_fd = dst_file.fileno()
+    pos = 0
+    while pos < size:
+        try:
+            data = os.lseek(src_fd, pos, os.SEEK_DATA)
+        except OSError as exc:
+            if exc.errno == errno.ENXIO:
+                break
+            if exc.errno in unsupported:
+                data = pos
+            else:
+                raise
+
+        if data >= size:
+            break
+
+        try:
+            hole = os.lseek(src_fd, data, os.SEEK_HOLE)
+        except OSError as exc:
+            if exc.errno in unsupported:
+                hole = size
+            else:
+                raise
+
+        end = min(hole, size)
+        os.lseek(src_fd, data, os.SEEK_SET)
+        os.lseek(dst_fd, offset + data, os.SEEK_SET)
+        remaining = end - data
+        while remaining > 0:
+            buf = os.read(src_fd, min(chunk_size, remaining))
+            if not buf:
+                raise OSError(f"unexpected EOF while copying {src}")
+            view = memoryview(buf)
+            while view:
+                written = os.write(dst_fd, view)
+                view = view[written:]
+            remaining -= len(buf)
+        pos = end
+PY
+}
+
 log "preparing image rootfs"
-rm -rf "${boot_stage}" "${boot_img}" "${root_img}"
+rm -rf "${boot_stage}" "${boot_img}" "${build_dir}/root.ext4" "${build_dir}/root.btrfs"
 if [[ "${reuse_rootfs}" -eq 0 ]]; then
   rm -rf "${rootfs_dir}"
   install -d "${rootfs_dir}"
@@ -248,6 +491,7 @@ if [[ "${reuse_rootfs}" -eq 0 ]]; then
   log "installing local Thorch packages: ${image_packages[*]}"
   stage_image_packages
   run_rootfs "pacman -U --noconfirm --overwrite 'usr/lib/firmware/ath12k/WCN7850/hw2.0/*' --overwrite 'usr/share/vulkan/icd.d/freedreno_icd*.json' --overwrite 'usr/lib/libvulkan_freedreno.so' --overwrite 'usr/lib/libdisplay-info.so.2' --overwrite 'usr/lib/libdisplay-info.so.0.2.0' --overwrite 'usr/share/fex-emu/libvulkan_freedreno.so' /var/cache/thorch/*.pkg.tar.*"
+  ensure_btrfs_root_support
   remove_stock_firmware
   remove_orphaned_dependencies
 else
@@ -258,6 +502,7 @@ else
   stage_image_packages
   log "refreshing local Thorch packages in reused rootfs"
   run_rootfs "pacman -U --noconfirm --overwrite 'usr/lib/firmware/ath12k/WCN7850/hw2.0/*' --overwrite 'usr/share/vulkan/icd.d/freedreno_icd*.json' --overwrite 'usr/lib/libvulkan_freedreno.so' --overwrite 'usr/lib/libdisplay-info.so.2' --overwrite 'usr/lib/libdisplay-info.so.0.2.0' --overwrite 'usr/share/fex-emu/libvulkan_freedreno.so' /var/cache/thorch/*.pkg.tar.*"
+  ensure_btrfs_root_support
   remove_stock_firmware
   remove_orphaned_dependencies
 fi
@@ -289,6 +534,7 @@ if [[ "${THORCH_DEFAULT_SESSION}" == "plasma" || "${THORCH_DEFAULT_SESSION}" == 
   sed -i 's/^Session=.*/Session=plasma.desktop/' "${rootfs_dir}/etc/sddm.conf.d/10-thorch.conf"
 fi
 rsync -a "${rootfs_dir}/etc/skel/." "${rootfs_dir}/home/${THORCH_USER}/"
+install -d -m 0700 "${rootfs_dir}/home/${THORCH_USER}/.cache"
 rm -f \
   "${rootfs_dir}/etc/skel/Desktop/thorch-expand-root.desktop" \
   "${rootfs_dir}/etc/skel/Desktop/thorch-install-waydroid.desktop" \
@@ -305,13 +551,21 @@ root_uuid="$(uuidgen)"
 fat_id="$(od -An -N4 -tx4 /dev/urandom | tr -d ' \n')"
 fat_id="${fat_id^^}"
 boot_uuid="${fat_id:0:4}-${fat_id:4:4}"
+cache_tmpfs_fstab=
+if cache_tmpfs_enabled; then
+  thorch_uid="$(run_rootfs_cmd /usr/bin/id -u "${THORCH_USER}" | strip_control_output)"
+  thorch_gid="$(run_rootfs_cmd /usr/bin/id -g "${THORCH_USER}" | strip_control_output)"
+  [[ "${thorch_uid}" =~ ^[0-9]+$ && "${thorch_gid}" =~ ^[0-9]+$ ]] || \
+    die "unable to resolve numeric uid/gid for ${THORCH_USER}"
+  cache_tmpfs_fstab="tmpfs /home/${THORCH_USER}/.cache tmpfs rw,nosuid,nodev,relatime,size=${cache_tmpfs_size_bytes},mode=0700,uid=${thorch_uid},gid=${thorch_gid} 0 0"
+fi
 
 cat > "${rootfs_dir}/etc/fstab" <<EOF
-UUID=${root_uuid} / ext4 rw,relatime 0 1
+UUID=${root_uuid} / ${root_fstype} ${root_mount_options} 0 ${root_fstab_pass}
 UUID=${boot_uuid} /boot vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2
+${cache_tmpfs_fstab}
 EOF
-sed -i 's/^#\?HOOKS=.*/HOOKS=(base udev modconf kms keyboard keymap consolefont block thorch-firmware thorch-sd-prefer filesystems fsck)/' \
-  "${rootfs_dir}/etc/mkinitcpio.conf"
+prepare_mkinitcpio_config
 
 rocknix_kernver="$(find "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | head -n1 || true)"
 [[ -n "${rocknix_kernver}" ]] || die "unable to determine imported ROCKNIX kernel release"
@@ -320,7 +574,7 @@ install -Dm644 "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/Image" \
 run_rootfs "mkinitcpio -P"
 install -Dm644 "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/KERNEL" \
   "${rootfs_dir}/usr/share/thorch/rocknix/KERNEL"
-run_rootfs "thorch-rebuild-abl-kernel --root-uuid ${root_uuid} --rootfstype ext4"
+run_rootfs "thorch-rebuild-abl-kernel --root-uuid ${root_uuid} --rootfstype ${root_fstype}"
 rm -f "${rootfs_dir}/boot/Image"
 run_rootfs "thorch-check-boot"
 rootfs_services=(
@@ -370,7 +624,32 @@ root_bytes=$((root_sectors * sector_size))
 [[ "${root_sectors}" -gt 0 ]] || die "image size ${THORCH_IMAGE_SIZE} is too small"
 
 truncate -s "${root_bytes}" "${root_img}"
-mkfs.ext4 -F -L THORCH_ROOT -U "${root_uuid}" -d "${rootfs_dir}" "${root_img}" >/dev/null
+create_root_filesystem_image
+root_img_bytes="$(stat -c '%s' "${root_img}")"
+root_img_sectors=$(((root_img_bytes + sector_size - 1) / sector_size))
+if image_size_is_auto && [[ "${root_fstype}" == "btrfs" ]]; then
+  headroom_bytes="$(parse_size_bytes "${THORCH_IMAGE_AUTO_HEADROOM}")"
+  root_bytes="$(round_up_bytes "$((root_img_bytes + headroom_bytes))" $((1024 * 1024)))"
+  root_sectors=$(((root_bytes + sector_size - 1) / sector_size))
+  root_bytes=$((root_sectors * sector_size))
+  resize_btrfs_image_to_max "${root_bytes}"
+  root_img_bytes="$(stat -c '%s' "${root_img}")"
+  root_img_sectors=$(((root_img_bytes + sector_size - 1) / sector_size))
+  image_sectors=$((root_start + root_sectors + 34))
+  image_bytes=$((image_sectors * sector_size))
+  log "auto-sized btrfs raw image to $(numfmt --to=iec --suffix=B "${image_bytes}") ($(numfmt --to=iec --suffix=B "${root_img_bytes}") root filesystem, $(numfmt --to=iec --suffix=B "${headroom_bytes}") headroom)"
+elif (( root_img_sectors > root_sectors )); then
+  image_size_is_auto || die "root filesystem image needs $(numfmt --to=iec --suffix=B "${root_img_bytes}") but THORCH_IMAGE_SIZE=${THORCH_IMAGE_SIZE} only reserved $(numfmt --to=iec --suffix=B "${root_bytes}")"
+  root_sectors="${root_img_sectors}"
+  root_bytes=$((root_sectors * sector_size))
+  image_sectors=$((root_start + root_sectors + 34))
+  image_bytes=$((image_sectors * sector_size))
+  log "expanded auto-sized raw image to $(numfmt --to=iec --suffix=B "${image_bytes}") after ${root_fstype} root image creation"
+fi
+if [[ "${root_fstype}" == "btrfs" ]]; then
+  log "force-reading btrfs root image data"
+  verify_btrfs_image_readable
+fi
 
 log "assembling raw GPT image ${image}"
 rm -f "${image}"
@@ -384,7 +663,7 @@ start=${root_start}, size=${root_sectors}, type=linux
 EOF
 
 dd if="${boot_img}" of="${image}" bs="${sector_size}" seek="${first_lba}" conv=notrunc status=none
-dd if="${root_img}" of="${image}" bs="${sector_size}" seek="${root_start}" conv=notrunc status=progress
+copy_sparse_file_into_image "${root_img}" "${image}" "$((root_start * sector_size))"
 sync
 
 "${script_dir}/check-thorch-image.sh" "${image}"

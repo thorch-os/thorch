@@ -9,8 +9,8 @@ help() {
 Prefers an inserted Thorch SD root over the root UUID embedded in /KERNEL.
 
 The runtime hook looks for the expected Thorch SD image shape: a two-partition
-mmcblk disk with a vfat ROCKNIX boot partition and an ext4 THORCH_ROOT root
-partition. Pass thorch.sdprefer=0 on the kernel command line to disable it, or
-thorch.sdwait=<seconds> to change the short detection wait.
+mmcblk disk with a vfat ROCKNIX boot partition and an ext4 or btrfs THORCH_ROOT
+root partition. Pass thorch.sdprefer=0 on the kernel command line to disable
+it, or thorch.sdwait=<seconds> to change the short detection wait.
 EOF
 }

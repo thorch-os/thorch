@@ -10,9 +10,11 @@ usage() {
   cat >&2 <<'EOF'
 usage: scripts/build-packages.sh [--skip-kernel] [--packages <name[,name...]>] [--skip-fresh] [--trust-existing]
 
-Builds Thorch aarch64 packages in an Arch Linux ARM rootfs using systemd-nspawn
-and qemu-user-static. The linux-thorch package wraps Thorch's ROCKNIX-derived
-kernel artifacts. Use --skip-kernel while iterating on userspace packages only.
+Builds Thorch aarch64 packages in an Arch Linux ARM rootfs using
+THORCH_ROOTFS_RUNNER and qemu-user-static. The runner defaults to plain chroot;
+set THORCH_ROOTFS_RUNNER=systemd-nspawn to use the old nspawn backend. The
+linux-thorch package wraps Thorch's ROCKNIX-derived kernel artifacts. Use
+--skip-kernel while iterating on userspace packages only.
 
   --packages           build only the comma-separated package list supplied;
                        useful for fast iteration on one package.
@@ -60,7 +62,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 require_root
-require_cmd bsdtar curl git qemu-aarch64-static repo-add rsync sha256sum systemd-nspawn vercmp
+require_cmd bsdtar curl git repo-add rsync sha256sum vercmp
+require_rootfs_runner
 
 root="$(repo_root)"
 if [[ "${THORCH_BUILD_DIR}" = /* ]]; then
@@ -381,14 +384,7 @@ configure_alarm_pacman "${build_root}"
 mask_chroot_stock_kernel_hooks "${build_root}"
 
 run_chroot() {
-  rm -rf "${build_root}/run/systemd/nspawn"
-  systemd-nspawn \
-    --quiet \
-    --pipe \
-    --machine="${machine_name}" \
-    --register=no \
-    --directory="${build_root}" \
-    /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 /bin/bash --noprofile --norc -c "$*"
+  run_aarch64_rootfs_shell "${build_root}" "${machine_name}" "$*"
 }
 
 remove_stock_firmware() {

@@ -5,8 +5,8 @@ usage() {
   cat >&2 <<'EOF'
 usage: thorch-expand-root [--force] [--yes]
 
-Expand the currently booted ext4 root partition to the end of its parent block
-device, then grow the mounted filesystem online.
+Expand the currently booted ext4 or btrfs root partition to the end of its
+parent block device, then grow the mounted filesystem online.
 
   --force   override removable/Thorch SD root safety checks
   --yes     do not ask for interactive confirmation
@@ -87,11 +87,21 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 [[ "${EUID}" -eq 0 ]] || die "this command must run as root"
-require_cmd awk blkid blockdev findfs findmnt lsblk partprobe resize2fs sfdisk udevadm
+require_cmd awk blkid blockdev findfs findmnt lsblk partprobe sfdisk udevadm
 
 root_source="$(findmnt -no SOURCE /)"
 root_fstype="$(findmnt -no FSTYPE /)"
-[[ "${root_fstype}" == "ext4" ]] || die "root filesystem is ${root_fstype}, not ext4"
+case "${root_fstype}" in
+  ext4)
+    require_cmd resize2fs
+    ;;
+  btrfs)
+    require_cmd btrfs
+    ;;
+  *)
+    die "root filesystem is ${root_fstype}, not ext4 or btrfs"
+    ;;
+esac
 
 root_source="$(resolve_block_source "${root_source}")"
 [[ -b "${root_source}" ]] || die "root source is not a block device: ${root_source}"
@@ -145,11 +155,19 @@ udevadm settle
 part_size_after="$(blockdev --getsize64 "${root_dev}")"
 if [[ "${part_size_after}" -le "${part_size_before}" ]]; then
   echo "No larger partition size is visible yet; running filesystem growth anyway."
-  echo "If resize2fs reports no change and free space remains, reboot and run this launcher again."
+  echo "If filesystem growth reports no change and free space remains, reboot and run this launcher again."
 fi
 
-echo "Growing ext4 filesystem on ${root_dev}..."
-resize2fs "${root_dev}"
+case "${root_fstype}" in
+  ext4)
+    echo "Growing ext4 filesystem on ${root_dev}..."
+    resize2fs "${root_dev}"
+    ;;
+  btrfs)
+    echo "Growing btrfs filesystem mounted at /..."
+    btrfs filesystem resize max /
+    ;;
+esac
 
 fs_blocks="$(findmnt -no SIZE /)"
 echo

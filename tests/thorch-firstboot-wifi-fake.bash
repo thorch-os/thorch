@@ -8,8 +8,10 @@ python3 - "${script}" <<'PY'
 import contextlib
 import io
 import json
+import pathlib
 import runpy
 import sys
+import tempfile
 
 
 script = sys.argv[1]
@@ -81,6 +83,28 @@ with contextlib.redirect_stdout(stdout):
 scan_payload = json.loads(stdout.getvalue())
 assert scan_payload["networks"][0]["security"] == "", scan_payload
 assert scan_payload["networks"][1]["security"] == "WPA2", scan_payload
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp_path = pathlib.Path(tmp)
+    fstab = tmp_path / "fstab"
+    fstab.write_text(
+        "\n".join(
+            [
+                "UUID=root / ext4 rw,relatime 0 1",
+                "UUID=boot /boot vfat rw,relatime 0 2",
+                "tmpfs /home/thorch/.cache tmpfs rw,nosuid,nodev,relatime,size=536870912,mode=0700,uid=1001,gid=1001 0 0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    entry = type("Entry", (), {"pw_dir": str(tmp_path / "home" / "bear"), "pw_uid": 1234, "pw_gid": 1234})()
+    module["retarget_cache_tmpfs"](entry, fstab)
+    assert (
+        "tmpfs "
+        + str(tmp_path / "home" / "bear" / ".cache")
+        + " tmpfs rw,nosuid,nodev,relatime,size=536870912,mode=0700,uid=1234,gid=1234 0 0"
+    ) in fstab.read_text(encoding="utf-8"), fstab.read_text(encoding="utf-8")
 
 print("ok")
 PY
