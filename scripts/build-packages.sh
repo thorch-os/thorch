@@ -97,6 +97,12 @@ stock_kernel_firmware=(
   linux-firmware-whence
 )
 
+if mountpoint -q "${build_root}/proc"; then
+  warn "unmounting stale package chroot proc filesystem: ${build_root}/proc"
+  unmount_path_if_mounted "${build_root}/proc" || \
+    die "unable to unmount stale package chroot proc filesystem: ${build_root}/proc"
+fi
+
 packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration)
 if [[ "${skip_kernel}" -eq 0 ]]; then
   packages=(linux-thorch "${packages[@]}")

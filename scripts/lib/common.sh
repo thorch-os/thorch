@@ -82,7 +82,7 @@ rootfs_runner() {
 require_rootfs_runner() {
   case "$(rootfs_runner)" in
     chroot)
-      require_cmd chroot mknod mount mountpoint qemu-aarch64-static umount
+      require_cmd chroot mknod mount mountpoint qemu-aarch64-static umount unshare
       ;;
     systemd-nspawn)
       require_cmd qemu-aarch64-static systemd-nspawn
@@ -119,24 +119,49 @@ prepare_chroot_device_nodes() {
   ln -sfn /proc/self/fd/2 "${rootfs}/dev/stderr"
 }
 
+unmount_path_if_mounted() {
+  local path="$1"
+
+  while mountpoint -q "${path}"; do
+    umount "${path}" || return 1
+  done
+}
+
 run_plain_chroot_cmd() {
-  local rootfs="$1" mounted_proc=0 status=0
+  local rootfs="$1"
   shift
 
   prepare_chroot_device_nodes "${rootfs}"
   install -d -m 0555 "${rootfs}/proc"
-  if ! mountpoint -q "${rootfs}/proc"; then
-    mount -t proc proc "${rootfs}/proc"
-    mounted_proc=1
+  if mountpoint -q "${rootfs}/proc"; then
+    warn "unmounting stale chroot proc filesystem: ${rootfs}/proc"
+    unmount_path_if_mounted "${rootfs}/proc" || \
+      die "unable to unmount stale chroot proc filesystem: ${rootfs}/proc"
   fi
 
-  chroot "${rootfs}" /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
-
-  if [[ "${mounted_proc}" -eq 1 ]]; then
-    umount "${rootfs}/proc" 2>/dev/null || true
-  fi
-
-  return "${status}"
+  # Keep proc in a private mount namespace. If the build is interrupted or
+  # killed, the mount cannot leak into the host namespace and block cleanup.
+  unshare --mount --propagation private \
+    /bin/bash -c '
+      set -euo pipefail
+      rootfs="$1"
+      shift
+      mounted_proc=0
+      status=0
+      cleanup() {
+        if [[ "${mounted_proc}" -eq 1 ]]; then
+          umount "${rootfs}/proc" >/dev/null 2>&1 || true
+        fi
+      }
+      trap cleanup EXIT
+      trap "exit 129" HUP
+      trap "exit 130" INT
+      trap "exit 143" TERM
+      mount -t proc proc "${rootfs}/proc"
+      mounted_proc=1
+      chroot "${rootfs}" /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
+      exit "${status}"
+    ' bash "${rootfs}" "$@"
 }
 
 run_aarch64_rootfs_cmd() {

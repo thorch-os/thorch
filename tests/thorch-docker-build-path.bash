@@ -8,6 +8,7 @@ dockerignore="${root}/.dockerignore"
 builder_workflow="${root}/.github/workflows/builder-image.yml"
 build_docs="${root}/docs/build.md"
 nightly_docs="${root}/docs/nightly-actions.md"
+ownership_script="${root}/scripts/fix-container-ownership.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -17,6 +18,7 @@ fail() {
 [[ -f "${dockerfile}" ]] || fail "Dockerfile is missing"
 [[ -f "${dockerignore}" ]] || fail ".dockerignore is missing"
 [[ -f "${builder_workflow}" ]] || fail "builder image workflow is missing"
+[[ -x "${ownership_script}" ]] || fail "container ownership repair script is missing or not executable"
 
 grep -q '^FROM archlinux:base-devel$' "${dockerfile}" ||
   fail "builder image is not based on archlinux:base-devel"
@@ -44,6 +46,34 @@ grep -q -- '--security-opt label=disable' "${makefile}" ||
 
 grep -q 'docker-audit docker-check docker-test docker-test-rust: THORCH_DOCKER_FIX_OWNERSHIP=0' "${makefile}" ||
   fail "read-only Docker targets still repair the complete workspace ownership"
+
+grep -q './scripts/fix-container-ownership.sh' "${makefile}" ||
+  fail "Docker wrapper does not use the selective ownership repair script"
+
+if (( EUID == 0 )); then
+  ownership_fixture="$(mktemp -d)"
+  trap 'rm -rf "${ownership_fixture}"' EXIT
+  mkdir -p \
+    "${ownership_fixture}/build/image-rootfs/etc" \
+    "${ownership_fixture}/build/pkg-root/etc" \
+    "${ownership_fixture}/build/cache" \
+    "${ownership_fixture}/output" \
+    "${ownership_fixture}/vendor"
+  chown -R 0:0 "${ownership_fixture}"
+
+  "${ownership_script}" 1234 1235 "${ownership_fixture}"
+
+  [[ "$(stat -c '%u:%g' "${ownership_fixture}/build/image-rootfs/etc")" == 0:0 ]] ||
+    fail "container ownership repair changed image-rootfs metadata"
+  [[ "$(stat -c '%u:%g' "${ownership_fixture}/build/pkg-root/etc")" == 0:0 ]] ||
+    fail "container ownership repair changed pkg-root metadata"
+  [[ "$(stat -c '%u:%g' "${ownership_fixture}/build/cache")" == 1234:1235 ]] ||
+    fail "container ownership repair did not repair ordinary build artifacts"
+  [[ "$(stat -c '%u:%g' "${ownership_fixture}/output")" == 1234:1235 ]] ||
+    fail "container ownership repair did not repair output artifacts"
+  [[ "$(stat -c '%u:%g' "${ownership_fixture}/vendor")" == 1234:1235 ]] ||
+    fail "container ownership repair did not repair vendor artifacts"
+fi
 
 grep -q 'docker/build-push-action' "${builder_workflow}" ||
   fail "builder workflow does not publish with docker/build-push-action"

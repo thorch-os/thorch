@@ -90,6 +90,41 @@ stock_kernel_firmware=(
   linux-firmware-whence
 )
 
+build_mount_dirs=(
+  "${build_dir}/btrfs-resize-root"
+  "${build_dir}/btrfs-verify-root"
+  "${build_dir}/btrfs-populate-root"
+  "${rootfs_dir}/proc"
+)
+
+cleanup_build_mounts() {
+  local mount_dir failed=0
+
+  for mount_dir in "${build_mount_dirs[@]}"; do
+    if mountpoint -q "${mount_dir}" && ! unmount_path_if_mounted "${mount_dir}"; then
+      warn "unable to unmount build path: ${mount_dir}"
+      failed=1
+    fi
+  done
+
+  return "${failed}"
+}
+
+cleanup_build_mounts_on_exit() {
+  local status="$?"
+
+  trap - EXIT
+  if ! cleanup_build_mounts; then
+    status=1
+  fi
+  exit "${status}"
+}
+
+trap cleanup_build_mounts_on_exit EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 boot_size="${THORCH_BOOT_SIZE:-512M}"
 sector_size=512
 first_lba=2048
@@ -470,6 +505,7 @@ PY
 }
 
 log "preparing image rootfs"
+cleanup_build_mounts || die "unable to clean stale image build mounts"
 rm -rf "${boot_stage}" "${boot_img}" "${build_dir}/root.ext4" "${build_dir}/root.btrfs"
 if [[ "${reuse_rootfs}" -eq 0 ]]; then
   rm -rf "${rootfs_dir}"

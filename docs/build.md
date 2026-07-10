@@ -92,8 +92,9 @@ for a local experiment.
 Package builds happen in an Arch Linux ARM aarch64 rootfs through
 `THORCH_ROOTFS_RUNNER` and `qemu-aarch64-static`. The runner defaults to plain
 `chroot`; set `THORCH_ROOTFS_RUNNER=systemd-nspawn` only if you need the old
-backend. The builder copies Thorch package inputs into the rootfs instead of
-bind-mounting the repository:
+backend. Plain chroot commands mount `/proc` in a private mount namespace so an
+interrupted build cannot leave the rootfs mounted. The builder copies Thorch
+package inputs into the rootfs instead of bind-mounting the repository:
 
 ```bash
 make packages
@@ -117,8 +118,10 @@ in the builder.
 
 The Docker wrapper mounts the repository at `/work`, runs the container
 privileged for loop-device/image operations, disables SELinux relabeling on the
-bind mount, and re-owns `build`, `output`, and `vendor` for the host user when
-the command exits.
+bind mount, and returns generated artifacts to the host user when the command
+exits. It preserves root ownership inside `build/image-rootfs` and
+`build/pkg-root`, because those chroot permissions become image metadata and
+are required for reliable rootfs reuse.
 
 During userspace iteration, skip rebuilding/repackaging the kernel:
 

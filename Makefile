@@ -60,7 +60,7 @@ define thorch_docker_run
 	  --workdir "$(THORCH_DOCKER_WORKDIR)" \
 	  $(THORCH_DOCKER_RUN_ARGS) \
 	  "$(THORCH_DOCKER_IMAGE)" \
-	  bash -lc 'set -euo pipefail; git config --global --add safe.directory "$(THORCH_DOCKER_WORKDIR)" 2>/dev/null || true; status=0; $(1) || status=$$?; if [[ "$(THORCH_DOCKER_FIX_OWNERSHIP)" == 1 ]]; then chown -R "$${HOST_UID}:$${HOST_GID}" build output vendor 2>/dev/null || true; fi; exit "$$status"'
+	  bash -lc 'set -euo pipefail; git config --global --add safe.directory "$(THORCH_DOCKER_WORKDIR)" 2>/dev/null || true; status=0; $(1) || status=$$?; if [[ "$(THORCH_DOCKER_FIX_OWNERSHIP)" == 1 ]]; then ./scripts/fix-container-ownership.sh "$${HOST_UID}" "$${HOST_GID}"; fi; exit "$$status"'
 endef
 
 docker-image-build:

@@ -23,6 +23,34 @@ grep -q 'run_aarch64_rootfs_cmd()' "${common}" ||
 grep -q 'chroot "${rootfs}" /usr/bin/qemu-aarch64-static' "${common}" ||
   fail "plain chroot backend is missing"
 
+grep -q 'unshare --mount --propagation private' "${common}" ||
+  fail "plain chroot proc mount is not isolated from the host namespace"
+
+grep -q 'unmount_path_if_mounted "${rootfs}/proc"' "${common}" ||
+  fail "plain chroot backend does not recover stale proc mounts"
+
+grep -q 'cleanup_build_mounts_on_exit' "${image_builder}" ||
+  fail "image builder does not clean temporary mounts on exit"
+
+if (( EUID == 0 )); then
+  mount_fixture="$(mktemp -d)"
+  cleanup_mount_fixture() {
+    if mountpoint -q "${mount_fixture}/proc"; then
+      umount "${mount_fixture}/proc" >/dev/null 2>&1 || true
+    fi
+    rm -rf "${mount_fixture}"
+  }
+  trap cleanup_mount_fixture EXIT
+  mkdir -p "${mount_fixture}/proc"
+  mount -t proc proc "${mount_fixture}/proc"
+  # shellcheck source=../scripts/lib/common.sh
+  source "${common}"
+  unmount_path_if_mounted "${mount_fixture}/proc" ||
+    fail "stale proc mount cleanup failed"
+  ! mountpoint -q "${mount_fixture}/proc" ||
+    fail "stale proc mount cleanup left a mount behind"
+fi
+
 grep -q 'systemd-nspawn)' "${common}" ||
   fail "systemd-nspawn opt-in backend is missing"
 
