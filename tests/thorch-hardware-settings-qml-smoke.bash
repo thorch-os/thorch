@@ -18,6 +18,20 @@ if [[ -z "${runner}" ]]; then
   exit 0
 fi
 
+probe_qml="${tmp}/probe.qml"
+cat > "${probe_qml}" <<'EOF'
+import QtQuick
+
+Item {
+    Component.onCompleted: Qt.quit()
+}
+EOF
+
+if ! QT_QPA_PLATFORM=offscreen timeout 5 "${runner}" "${probe_qml}" >/dev/null 2>&1; then
+  printf 'skip: qmlscene6 cannot run offscreen QML in this environment\n'
+  exit 0
+fi
+
 mkdir -p "${tmp}/bin"
 log="${tmp}/helper.log"
 stderr_log="${tmp}/stderr.log"
@@ -46,6 +60,9 @@ THORCH_TEST_LOG="${log}" \
 THORCH_HARDWARE_SETTINGS_APPDIR="${app_dir}" \
 THORCH_HARDWARE_SETTINGS_RUNNER="${runner}" \
   timeout 10 bash "${script}" --quit-after-ms=1200 > /dev/null 2> "${stderr_log}" || {
+    if [[ ! -s "${stderr_log}" ]]; then
+      printf 'no stderr captured from hardware settings wrapper\n' >&2
+    fi
     cat "${stderr_log}" >&2
     fail "hardware settings QML wrapper did not exit cleanly"
   }

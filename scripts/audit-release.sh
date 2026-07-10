@@ -28,6 +28,10 @@ require_file() {
   [[ -f "${root}/${rel}" ]] || fail_audit "missing required release file: ${rel}"
 }
 
+first_text_line() {
+  LC_ALL=C sed -n '1p' "$1" 2>/dev/null | tr -d '\000'
+}
+
 source_files() {
   if [[ -d "${root}/.git" ]]; then
     (
@@ -131,18 +135,21 @@ fi
 note "checking shell syntax"
 while IFS= read -r file; do
   rel="${file#${root}/}"
-  first_line="$(sed -n '1p' "${file}" 2>/dev/null || true)"
-  case "${rel}:${first_line}" in
-    config/thorch.conf:*|*:*bash*|*:*'/bin/sh'*|*:*'env sh'*|*:*hint/bash*|*/PKGBUILD:*)
-      bash -n "${file}" || fail_audit "shell syntax failed: ${rel}"
-      ;;
-  esac
+  first_line="$(first_text_line "${file}")"
+  if [[ "${rel}" == "config/thorch.conf" ||
+    "${rel}" == */PKGBUILD ||
+    "${first_line}" == '#!'*bash* ||
+    "${first_line}" == '#!'*'/bin/sh'* ||
+    "${first_line}" == '#!'*'env sh'* ||
+    "${first_line}" == *'hint/bash'* ]]; then
+    bash -n "${file}" || fail_audit "shell syntax failed: ${rel}"
+  fi
 done < <(source_files)
 
 note "checking executable bits"
 while IFS= read -r file; do
   rel="${file#${root}/}"
-  first_line="$(sed -n '1p' "${file}" 2>/dev/null || true)"
+  first_line="$(first_text_line "${file}")"
   if [[ "${first_line}" == '#!'* && ! -x "${file}" ]]; then
     fail_audit "shebang file is not executable: ${rel}"
   fi
@@ -151,7 +158,7 @@ done < <(source_files)
 note "checking Python syntax"
 while IFS= read -r file; do
   rel="${file#${root}/}"
-  first_line="$(sed -n '1p' "${file}" 2>/dev/null || true)"
+  first_line="$(first_text_line "${file}")"
   case "${first_line}" in
     *python*)
       python3 - "${file}" <<'PY' || fail_audit "python syntax failed: ${rel}"

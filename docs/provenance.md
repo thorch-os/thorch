@@ -12,6 +12,13 @@ payloads that Thorch repacks around its source-built kernel:
 
 https://github.com/ROCKNIX/distribution
 
+The requested source and kernel refs are defined in `config/thorch.conf`.
+Generated `SOURCE_PROVENANCE`, kernel `PROVENANCE`, and runtime `PROVENANCE`
+files record the exact resolved inputs. Thorch builds from the configured
+kernel source, applies the synced ROCKNIX patch/config/DTS inputs, then applies
+the local BinderFS/Waydroid config fragment. Release builds should change these
+inputs only as one reviewed baseline update.
+
 Use a pinned commit or labelled ROCKNIX image build for release builds:
 
 ```bash
@@ -26,27 +33,20 @@ traced back to the exact upstream source and image artifact.
 Image and package builds refuse kernel provenance that points back at local
 `makepkg` output or smoke-test imports. Re-import the ROCKNIX boot
 template/runtime from a mounted or extracted ROCKNIX image and rebuild the
-Thorch BinderFS kernel before preparing release artifacts.
+Thorch BinderFS kernel before preparing release artifacts. The builders also
+require the recorded kernel release and module tree to match
+`THORCH_KERNEL_REF`.
 
 ## AYN Linux
 
-AYN also publishes the kernel work that underpins the SM8550 handheld ports:
+AYN also publishes kernel work that underpins the SM8550 handheld ports:
 
 https://github.com/AYNTechnologies/linux
 
-The important public branches are:
-
-- `sm8550/v6.17.5`: AYN's SM8550 kernel branch with the shared QCS8550 device
-  tree, Odin 2, Odin 2 Mini, Odin 2 Portal, Thor, RSInput gamepad, panel,
-  backlight, RGB LED, SD, USB, and audio enablement.
-- `ayn/v7.0`: AYN's newer Linux 7.0 branch. As of 2026-05-04 it keeps the Thor
-  DTS equivalent to `sm8550/v6.17.5`, carries small SM8550 common cleanup, and
-  adds the separate CQ8725S/SM8750 Odin 3 device tree stack.
-
-Thorch follows ROCKNIX's packaged kernel recipe for builds, but AYN's branches
-should be treated as source-level provenance and review material when updating
+AYN's branch and tag history is source-level review material when updating
 kernel, DTS, firmware paths, ALSA card aliases, gamepad handling, or RGB
-support.
+support. Those references are not build pins: Thorch follows the configured
+ROCKNIX recipe and the exact inputs recorded in generated provenance files.
 
 ## Firmware
 
@@ -76,3 +76,7 @@ during image creation.
 
 Thorch-specific scripts, package recipes, installer guardrails, KDE defaults, and
 boot validation live in this repository.
+
+Nightly release notes include the Thorch commit, requested ROCKNIX source/image
+refs, selected root filesystem, and generated kernel provenance. Published image
+assets are accompanied by a SHA-256 file.
