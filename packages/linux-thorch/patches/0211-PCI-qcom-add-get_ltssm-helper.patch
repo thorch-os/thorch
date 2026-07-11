@@ -16,8 +16,8 @@ state can be queried safely even after DBI access is no longer valid.
 
 Signed-off-by: Krishna Chaitanya Chundru <krishna.chundru@oss.qualcomm.com>
 
-[ROCKNIX backport: mainline "PCI: qcom: Add D3cold support" v5 series, patch 2/5.
- Needed so the Qualcomm PCIe host can use the D3cold suspend path on Linux 7.0.11.
+[Thorch backport: mainline "PCI: qcom: Add D3cold support" v5 series, patch 2/5.
+ Needed so the Qualcomm PCIe host can use the D3cold suspend path on Linux 7.1.2.
  Ref: https://lore.kernel.org/all/20260429-d3cold-v5-2-89e9735b9df6@oss.qualcomm.com/ ]
 ---
  drivers/pci/controller/dwc/pcie-qcom.c | 31 +++++++++++++++++++++++++++++++

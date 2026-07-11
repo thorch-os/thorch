@@ -22,9 +22,9 @@ path (upstream has no TO_IDLE devicetree binding).
  	case PM_SUSPEND_STANDBY:
  		return &rdev->constraints->state_standby;
 +	/*
-+	 * ROCKNIX SM8550: s2idle is the default suspend mode and reaches the
-+	 * same RSC sleep/wake handoff as deep, so apply the regulator-state-mem
-+	 * configuration there too (upstream has no TO_IDLE binding).
++	 * SM8550 s2idle reaches the same RSC sleep/wake handoff as deep,
++	 * so apply the regulator-state-mem configuration there too (upstream
++	 * has no PM_SUSPEND_TO_IDLE devicetree binding).
 +	 */
 +	case PM_SUSPEND_TO_IDLE:
  	case PM_SUSPEND_MEM:

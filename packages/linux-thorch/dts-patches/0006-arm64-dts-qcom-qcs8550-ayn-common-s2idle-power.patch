@@ -1,4 +1,4 @@
-From: Thorch contributors <thorch@thorch.org>
+From: Luke Johnson <jaewun@me.com>
 Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn: add s2idle power states
 
 Add the board-level suspend constraints used by the Thorch-owned SM8550

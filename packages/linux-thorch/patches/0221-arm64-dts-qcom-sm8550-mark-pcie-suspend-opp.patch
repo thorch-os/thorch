@@ -1,4 +1,4 @@
-From: ROCKNIX SM8550 <rocknix@rocknix.org>
+From: Luke Johnson <jaewun@me.com>
 Date: Fri, 3 Jul 2026 00:00:00 +1200
 Subject: [PATCH] arm64: dts: qcom: sm8550: add PCIe suspend-only DDR/LLCC floor OPP
 
@@ -42,7 +42,9 @@ back at ~3.7-4.0 V): V-OPP baseline (no suspend floor OPP) 151 mA;
 (~210 mW) -- less than half the prior ~113 mA baseline.  Reliability:
 13/13 s2idle suspend/resume cycles woke cleanly (12x 90 s spaced + 1x
 20 min), suspend_stats success incrementing, boot_id unchanged, zero
-resets.
+resets. The earlier 250 MB/s wake floor was also reproduced on AYN Thor;
+the 5 MB/s floor remains board-validation-sensitive because it deliberately
+minimizes wake margin.
 
 pcie0 is the WiFi link (ath12k, trains Gen2 x2 -> opp-5000000); pcie1 is
 active on the AYANEO Pocket family (Renesas uPD720201 USB3 host).

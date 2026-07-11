@@ -34,6 +34,21 @@ for patch in "${required_patches[@]}"; do
   [[ -f "${patch_dir}/${patch}" ]] || fail "missing local suspend patch: ${patch}"
 done
 
+for patch in \
+  0218-regulator-qcom-rpmh-add-suspend-state-support.patch \
+  0219-regulator-core-apply-mem-state-for-s2idle.patch \
+  0220-PCI-qcom-use-suspend-opp-for-non-s2ram.patch \
+  0221-arm64-dts-qcom-sm8550-mark-pcie-suspend-opp.patch; do
+  grep -qx 'From: Luke Johnson <jaewun@me.com>' "${patch_dir}/${patch}" ||
+    fail "incorrect author metadata in ${patch}"
+done
+grep -qx 'From: Luke Johnson <jaewun@me.com>' "${board_patch}" ||
+  fail "incorrect author metadata in board suspend patch"
+! grep -q 'ROCKNIX SM8550' "${patch_dir}"/02*.patch ||
+  fail "local suspend patches still contain ROCKNIX pseudo-author branding"
+! grep -q 'Linux 7\.0\.11' "${patch_dir}"/02*.patch ||
+  fail "local suspend backport comments still name the old kernel baseline"
+
 grep -qx 'MemorySleepMode=s2idle' "${sleep_conf}" ||
   fail "systemd does not select s2idle"
 grep -q 'mem_sleep_default=s2idle' "${repacker}" ||

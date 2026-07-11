@@ -1,6 +1,6 @@
-From: ROCKNIX SM8550 <rocknix@rocknix.org>
+From: Luke Johnson <jaewun@me.com>
 Date: Fri, 3 Jul 2026 00:00:00 +1200
-Subject: [PATCH] PCI: qcom: use suspend OPP instead of dropping OPP for non-S2RAM suspend
+Subject: [PATCH] PCI: qcom: retain the suspend OPP during s2idle
 
 On SM8550/QCS8550, disabling the PCIe OPP before s2idle removes the
 OPP-derived MC0/SH0 (DDR/LLCC) sleep bandwidth votes.  When APSS enters
@@ -26,6 +26,9 @@ generic "opp-suspend" devicetree property (looked up via
 dev_pm_opp_get_suspend_opp_freq()) as the suspend floor, and call it
 from both former dev_pm_opp_set_opp(dev, NULL) sites.  Platforms that
 do not mark a suspend OPP keep the current behaviour unchanged.
+
+The helper is used in both paths that previously dropped the OPP: D3cold
+and the non-S2RAM fallback. PM_SUSPEND_MEM keeps its existing behavior.
 
 The resume path needs no change: qcom_pcie_resume_noirq() already
 re-derives the link OPP from the retrained link speed/width and sets it

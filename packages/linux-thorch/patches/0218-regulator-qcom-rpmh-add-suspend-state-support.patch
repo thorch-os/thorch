@@ -1,4 +1,4 @@
-From: ROCKNIX SM8550 <rocknix@rocknix.org>
+From: Luke Johnson <jaewun@me.com>
 Date: Thu, 2 Jul 2026 00:00:00 +1200
 Subject: [PATCH] regulator: qcom-rpmh: add suspend-state (SLEEP/WAKE TCS) support
 
