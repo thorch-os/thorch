@@ -1,7 +1,11 @@
-FROM archlinux:base-devel
+ARG THORCH_DOCKER_BASE_IMAGE=archlinux:base-devel
+FROM ${THORCH_DOCKER_BASE_IMAGE}
 
-RUN pacman -Syu --noconfirm --needed \
-      aarch64-linux-gnu-gcc \
+SHELL ["/bin/bash", "-c"]
+
+# Install a cross compiler only on x86_64. Arch Linux ARM builds the aarch64
+# kernel and root filesystem natively and does not need qemu-user there.
+RUN packages=( \
       android-tools \
       arch-install-scripts \
       base-devel \
@@ -28,8 +32,6 @@ RUN pacman -Syu --noconfirm --needed \
       pacman-contrib \
       pahole \
       python \
-      qemu-user-static \
-      qemu-user-static-binfmt \
       rsync \
       rust \
       squashfs-tools \
@@ -39,6 +41,11 @@ RUN pacman -Syu --noconfirm --needed \
       util-linux \
       xz \
       zstd \
+    ) \
+    && if [[ "$(uname -m)" != "aarch64" && "$(uname -m)" != "arm64" ]]; then \
+         packages+=(aarch64-linux-gnu-gcc qemu-user-static qemu-user-static-binfmt); \
+       fi \
+    && pacman --disable-sandbox -Syu --noconfirm --needed "${packages[@]}" \
     && pacman -Scc --noconfirm
 
 WORKDIR /work

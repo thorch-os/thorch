@@ -103,7 +103,7 @@ if mountpoint -q "${build_root}/proc"; then
     die "unable to unmount stale package chroot proc filesystem: ${build_root}/proc"
 fi
 
-packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration)
+packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix thorch-kde-defaults thorch-firstboot thorch-installer thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration)
 if [[ "${skip_kernel}" -eq 0 ]]; then
   packages=(linux-thorch "${packages[@]}")
 fi
@@ -384,7 +384,9 @@ else
   repair_alarm_usrmerge_links "${build_root}"
 fi
 
-cp /usr/bin/qemu-aarch64-static "${build_root}/usr/bin/"
+if [[ "$(uname -m)" != "aarch64" && "$(uname -m)" != "arm64" ]]; then
+  cp /usr/bin/qemu-aarch64-static "${build_root}/usr/bin/"
+fi
 configure_chroot_resolver "${build_root}"
 configure_alarm_pacman "${build_root}"
 mask_chroot_stock_kernel_hooks "${build_root}"

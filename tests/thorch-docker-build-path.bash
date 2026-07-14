@@ -9,6 +9,10 @@ builder_workflow="${root}/.github/workflows/builder-image.yml"
 build_docs="${root}/docs/build.md"
 nightly_docs="${root}/docs/nightly-actions.md"
 ownership_script="${root}/scripts/fix-container-ownership.sh"
+image_builder="${root}/scripts/build-image.sh"
+fast_image_builder="${root}/scripts/build-image-fast.sh"
+package_builder="${root}/scripts/build-packages.sh"
+common_helpers="${root}/scripts/lib/common.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -20,14 +24,23 @@ fail() {
 [[ -f "${builder_workflow}" ]] || fail "builder image workflow is missing"
 [[ -x "${ownership_script}" ]] || fail "container ownership repair script is missing or not executable"
 
-grep -q '^FROM archlinux:base-devel$' "${dockerfile}" ||
-  fail "builder image is not based on archlinux:base-devel"
+grep -q '^ARG THORCH_DOCKER_BASE_IMAGE=archlinux:base-devel$' "${dockerfile}" ||
+  fail "builder image does not default to archlinux:base-devel"
+
+grep -q '^FROM ${THORCH_DOCKER_BASE_IMAGE}$' "${dockerfile}" ||
+  fail "builder image does not use the architecture-selectable base image"
 
 grep -q 'qemu-user-static' "${dockerfile}" ||
   fail "builder image does not include qemu-user-static"
 
+grep -q '"$(uname -m)" != "aarch64" && "$(uname -m)" != "arm64"' "${dockerfile}" ||
+  fail "builder image does not recognize both native ARM architecture names"
+
 grep -q 'THORCH_DOCKER_IMAGE ?= ghcr.io/thorch-os/thorch-build:latest' "${makefile}" ||
   fail "Makefile does not define the default Thorch builder image"
+
+grep -q 'menci/archlinuxarm:base-devel' "${makefile}" ||
+  fail "Makefile does not select an Arch Linux ARM builder on aarch64 hosts"
 
 grep -q '^docker-%:' "${makefile}" ||
   fail "Makefile does not provide ROCKNIX-style docker-* targets"
@@ -49,6 +62,27 @@ grep -q 'docker-audit docker-check docker-test docker-test-rust: THORCH_DOCKER_F
 
 grep -q './scripts/fix-container-ownership.sh' "${makefile}" ||
   fail "Docker wrapper does not use the selective ownership repair script"
+
+grep -q '^stage_qemu_for_rootfs() {' "${image_builder}" ||
+  fail "image builder does not isolate cross-architecture QEMU staging"
+
+grep -A8 '^stage_qemu_for_rootfs() {' "${image_builder}" | grep -q 'aarch64|arm64)' ||
+  fail "image builder still requires qemu-aarch64-static on native ARM"
+
+[[ "$(grep -c '^[[:space:]]*stage_qemu_for_rootfs$' "${image_builder}")" -eq 2 ]] ||
+  fail "fresh and reused image rootfs paths do not share architecture-aware QEMU staging"
+
+grep -A5 '^root="$(repo_root)"' "${image_builder}" | grep -q '\[\[ "${THORCH_BUILD_DIR}" = /\* \]\]' ||
+  fail "image builder does not preserve an absolute native-volume build path"
+
+grep -A5 '^root="$(repo_root)"' "${fast_image_builder}" | grep -q '\[\[ "${THORCH_BUILD_DIR}" = /\* \]\]' ||
+  fail "fast image builder does not preserve an absolute native-volume build path"
+
+grep -E '^packages=\(.*thorch-firstboot' "${package_builder}" >/dev/null ||
+  fail "default package build omits thorch-firstboot required by THORCH_IMAGE_PACKAGES"
+
+grep -A40 '^run_plain_chroot_cmd() {' "${common_helpers}" | grep -q '"$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64"' ||
+  fail "plain chroot runner does not recognize both native ARM architecture names"
 
 if (( EUID == 0 )); then
   ownership_fixture="$(mktemp -d)"

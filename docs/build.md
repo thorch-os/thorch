@@ -123,6 +123,13 @@ exits. It preserves root ownership inside `build/image-rootfs` and
 `build/pkg-root`, because those chroot permissions become image metadata and
 are required for reliable rootfs reuse.
 
+On an `arm64` or `aarch64` host, `make docker-image-build` selects the native
+`menci/archlinuxarm:base-devel` base and builds kernels and Arch Linux ARM
+packages without CPU emulation. On x86_64 it keeps the official
+`archlinux:base-devel` base and installs the aarch64 cross compiler and QEMU
+rootfs runner. Override `THORCH_DOCKER_BASE_IMAGE` to use a pinned or mirrored
+builder base.
+
 During userspace iteration, skip rebuilding/repackaging the kernel:
 
 ```bash
@@ -148,6 +155,13 @@ generated image. It also preserves ROCKNIX's
 `allow_mismatched_32bit_el0` argument, which the asymmetric Thor CPU layout
 needs to avoid an early CPU feature panic. An imported ROCKNIX `/KERNEL` is
 still required because it supplies the ABL boot image layout.
+
+Thorch adds the Android-characterized 124.8 MHz A740 OPP to the clean SM8550
+kernel source. It is the lowest running DCVS level; the GMU constructs a
+separate zero-frequency/off level. At boot, `thorch-hw-defaults` also mirrors
+ROCKNIX's SM8550 GMU workaround by disabling CPU0 cpuidle state1. Set
+`THORCH_DISABLE_CPU0_IDLE_STATE1=0` in `/etc/thorch/hardware.conf` only for a
+controlled power/stability comparison.
 
 The image builder assembles standalone FAT plus ext4 or Btrfs filesystem images
 and writes them into a sparse raw GPT image. It does not mount the final GPT
@@ -175,9 +189,11 @@ filesystem. Firstboot retargets this entry to the selected user's home and
 numeric UID/GID when the account changes.
 
 The generated initramfs includes Thor and shared SM8550 firmware needed during
-early boot rather than copying the entire firmware tree. This keeps `/KERNEL`
-small enough for the 512 MiB FAT partition without changing the complete
-firmware package installed in the root filesystem.
+early boot rather than copying the entire firmware tree. Adreno SQE, GMU, and
+ZAP firmware remain on the real root filesystem, matching ROCKNIX and keeping
+those blobs unavailable during initramfs execution. This keeps `/KERNEL` small
+enough for the 512 MiB FAT partition without changing the complete firmware
+package installed in the root filesystem.
 
 If the build host cannot show interactive `sudo` prompts, invoke the scripts
 through PolicyKit so the desktop authentication agent can prompt visibly:

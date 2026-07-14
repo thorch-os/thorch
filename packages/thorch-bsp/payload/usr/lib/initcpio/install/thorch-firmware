@@ -12,10 +12,9 @@ build() {
     done < <(find "${d}" -type f | sort)
   done
 
+  # Match ROCKNIX by keeping Adreno SQE, GMU, and ZAP firmware on the real root
+  # filesystem. This keeps those blobs unavailable during initramfs execution.
   for f in \
-    /usr/lib/firmware/qcom/a740_sqe.fw \
-    /usr/lib/firmware/qcom/gmu_gen70200.bin \
-    /usr/lib/firmware/qcom/sm8550/a740_zap.mbn \
     /usr/lib/firmware/qcom/sm8550/ayn/cdsp.mbn \
     /usr/lib/firmware/qcom/sm8550/ayn/cdsp_dtb.mbn \
     /usr/lib/firmware/qcom/sm8550/AYN-Thor-tplg.bin \
@@ -26,6 +25,6 @@ build() {
 
 help() {
   cat <<'EOF'
-Adds Thorch/ROCKNIX Qualcomm SM8550 firmware to the initramfs.
+Adds non-GPU Thorch/ROCKNIX Qualcomm SM8550 firmware to the initramfs.
 EOF
 }
