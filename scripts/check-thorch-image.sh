@@ -35,18 +35,46 @@ validate_image() {
   local image="$1"
   local boot_start sector_size boot_offset boot_ref tmpdir failures
   local root_listing kernel_file_type kernel_strings
+  local -a disk_metadata=()
+
+  local rocknix_boot_start=32768
+  local rocknix_boot_type="EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"
+  local linux_root_type="0FC63DAF-8483-4772-8E79-3D69D8477DE4"
 
   [[ -f "${image}" || -b "${image}" ]] || { echo "image/block device not found: ${image}" >&2; return 1; }
   printf 'validating: %s\n' "${image}"
 
-  boot_start="$(
-    sfdisk -d "${image}" |
-      awk -F 'start=|,' '$1 ~ /1[[:space:]]*:/ {gsub(/[[:space:]]/, "", $2); print $2; exit}'
-  )"
-  sector_size="$(
-    sfdisk -d "${image}" |
-      awk -F ': ' '$1 == "sector-size" {print $2; exit}'
-  )"
+  mapfile -t disk_metadata < <(
+    sfdisk --json "${image}" | python3 -c '
+import json
+import sys
+
+table = json.load(sys.stdin).get("partitiontable", {})
+partitions = table.get("partitions", [])
+boot = partitions[0] if len(partitions) > 0 else {}
+root = partitions[1] if len(partitions) > 1 else {}
+for value in (
+    table.get("label", ""),
+    table.get("sectorsize", ""),
+    len(partitions),
+    boot.get("start", ""),
+    boot.get("type", ""),
+    boot.get("name", ""),
+    boot.get("attrs", ""),
+    root.get("type", ""),
+    root.get("name", ""),
+):
+    print(value)
+'
+  )
+
+  if [[ "${#disk_metadata[@]}" -ne 9 ]]; then
+    echo "unable to parse partition metadata from image" >&2
+    return 1
+  fi
+
+  boot_start="${disk_metadata[3]}"
+  sector_size="${disk_metadata[1]}"
 
   if [[ -z "${boot_start}" || -z "${sector_size}" ]]; then
     echo "unable to find boot partition offset in image" >&2
@@ -69,6 +97,19 @@ validate_image() {
       failures=$((failures + 1))
     fi
   }
+
+  check "disk uses a GPT with exactly two partitions" \
+    test "${disk_metadata[0]}:${disk_metadata[2]}" = "gpt:2"
+  check "boot partition starts at the ROCKNIX 16 MiB offset" \
+    test "${boot_start}" = "${rocknix_boot_start}"
+  check "boot partition uses the ROCKNIX Basic Data type" \
+    test "${disk_metadata[4],,}" = "${rocknix_boot_type,,}"
+  check "boot partition is named system" \
+    test "${disk_metadata[5]}" = "system"
+  check "boot partition carries the legacy boot attribute" \
+    grep -qw LegacyBIOSBootable <<<"${disk_metadata[6]}"
+  check "root partition uses the Linux type and storage name" \
+    test "${disk_metadata[7],,}:${disk_metadata[8]}" = "${linux_root_type,,}:storage"
 
   has_fat_path() {
     local path="$1"

@@ -127,7 +127,11 @@ trap 'exit 143' TERM
 
 boot_size="${THORCH_BOOT_SIZE:-512M}"
 sector_size=512
-first_lba=2048
+# Match the known-good ROCKNIX qcom-abl image metadata: a legacy-bootable
+# Microsoft Basic Data partition at the 16 MiB offset, not an EFI System
+# Partition.
+first_lba=32768
+rocknix_boot_type="EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"
 
 cache_tmpfs_enabled() {
   case "${THORCH_USER_CACHE_TMPFS_SIZE}" in
@@ -694,8 +698,8 @@ sfdisk "${image}" >/dev/null <<EOF
 label: gpt
 unit: sectors
 
-start=${first_lba}, size=${boot_sectors}, type=uefi
-start=${root_start}, size=${root_sectors}, type=linux
+start=${first_lba}, size=${boot_sectors}, type=${rocknix_boot_type}, name=system, attrs=LegacyBIOSBootable
+start=${root_start}, size=${root_sectors}, type=linux, name=storage
 EOF
 
 dd if="${boot_img}" of="${image}" bs="${sector_size}" seek="${first_lba}" conv=notrunc status=none

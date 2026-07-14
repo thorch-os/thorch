@@ -162,7 +162,9 @@ already-compressed files. It then uses `btrfs inspect-internal min-dev-size` to
 shrink the filesystem, adds the configured headroom, and force-reads every file
 before image assembly.
 
-The boot partition defaults to 512 MiB. The raw image defaults to
+The boot partition defaults to 512 MiB and uses the ROCKNIX qcom-abl GPT
+metadata: Microsoft Basic Data, partition name `system`, legacy-boot attribute,
+and a 16 MiB start offset. The raw image defaults to
 `THORCH_IMAGE_SIZE=auto`, which removes build-time package caches and sizes the
 image around the populated rootfs plus `THORCH_IMAGE_AUTO_HEADROOM`, default
 `1G`. Set an explicit size such as `THORCH_IMAGE_SIZE=16G` when you want
