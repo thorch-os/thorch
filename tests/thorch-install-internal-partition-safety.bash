@@ -264,15 +264,6 @@ test_cache_tmpfs_mountpoint_restore() (
 
 grep -q -- '--one-file-system' "${script}" ||
   fail "internal installer root copy can cross into mounted tmpfs contents"
-grep -q 'name "${boot_num}" system' "${script}" ||
-  fail "internal installer does not use the ROCKNIX system partition name"
-grep -q 'set "${boot_num}" msftdata on' "${script}" ||
-  fail "internal installer does not use the ROCKNIX Basic Data partition type"
-grep -q 'set "${boot_num}" legacy_boot on' "${script}" ||
-  fail "internal installer does not set the ROCKNIX legacy boot attribute"
-if grep -q 'set "${boot_num}" boot on' "${script}"; then
-  fail "internal installer still creates an EFI System Partition"
-fi
 
 test_blank_rocknix_partlabel_detection
 test_partition_start_byte_conversion_for_adjacency

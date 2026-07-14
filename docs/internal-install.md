@@ -79,10 +79,10 @@ path.
 ## SD Recovery After Internal Install
 
 The internal Linux boot filesystem is formatted with the ROCKNIX-compatible
-label `ROCKNIX`. Newly allocated boot partitions also match the imported
-qcom-abl metadata: Microsoft Basic Data, partition name `system`, and the GPT
-legacy-boot attribute. The top-level `/KERNEL` remains the Android boot image
-that ABL loads.
+label `ROCKNIX` so the layout stays close to the imported ROCKNIX boot image
+conventions. Current evidence does not prove that Thor ABL selects Linux media
+by that filesystem label; the practical boot contract is a FAT/ESP-style
+partition with a top-level `/KERNEL` Android boot image.
 
 On some devices ABL may still load the internal `/KERNEL` before the SD card's
 `/KERNEL`. Thorch handles that in the initramfs: when `thorch-sd-prefer` finds
