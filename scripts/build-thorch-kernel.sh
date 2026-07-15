@@ -214,8 +214,12 @@ if [[ -n "${tarball_url}" && "${fetch}" -eq 1 ]]; then
   tarball_path="${cache_dir}/${tarball_name}"
 
   install -d "${cache_dir}"
-  log "downloading ROCKNIX kernel base tarball ${tarball_name}"
-  curl -fL --continue-at - -o "${tarball_path}" "${tarball_url}"
+  if [[ -f "${tarball_path}" ]] && tar -tf "${tarball_path}" >/dev/null 2>&1; then
+    log "using cached ROCKNIX kernel base tarball ${tarball_name}"
+  else
+    log "downloading ROCKNIX kernel base tarball ${tarball_name}"
+    curl -fL --continue-at - -o "${tarball_path}" "${tarball_url}"
+  fi
   if [[ -n "${tarball_sha256}" ]]; then
     printf '%s  %s\n' "${tarball_sha256}" "${tarball_path}" | sha256sum -c -
   fi
