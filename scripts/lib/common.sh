@@ -82,10 +82,12 @@ rootfs_runner() {
 require_rootfs_runner() {
   case "$(rootfs_runner)" in
     chroot)
-      require_cmd chroot mknod mount mountpoint qemu-aarch64-static umount unshare
+      require_cmd chroot mknod mount mountpoint umount unshare
+      [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]] || require_cmd qemu-aarch64-static
       ;;
     systemd-nspawn)
-      require_cmd qemu-aarch64-static systemd-nspawn
+      require_cmd systemd-nspawn
+      [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]] || require_cmd qemu-aarch64-static
       ;;
   esac
 }
@@ -159,7 +161,11 @@ run_plain_chroot_cmd() {
       trap "exit 143" TERM
       mount -t proc proc "${rootfs}/proc"
       mounted_proc=1
-      chroot "${rootfs}" /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
+      if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+        chroot "${rootfs}" /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
+      else
+        chroot "${rootfs}" /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
+      fi
       exit "${status}"
     ' bash "${rootfs}" "$@"
 }
@@ -175,13 +181,15 @@ run_aarch64_rootfs_cmd() {
       ;;
     systemd-nspawn)
       rm -rf "${rootfs}/run/systemd/nspawn"
-      systemd-nspawn \
-        --quiet \
-        --pipe \
-        --machine="${machine}" \
-        --register=no \
-        --directory="${rootfs}" \
-        /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
+      if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+        systemd-nspawn \
+          --quiet --pipe --machine="${machine}" --register=no --directory="${rootfs}" \
+          /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
+      else
+        systemd-nspawn \
+          --quiet --pipe --machine="${machine}" --register=no --directory="${rootfs}" \
+          /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
+      fi
       ;;
   esac
 }

@@ -6,6 +6,7 @@ cpu_boost_setting="${THORCH_CPU_BOOST:-1}"
 cpu_governor_setting="${THORCH_CPU_GOVERNOR:-performance}"
 gpu_governor_setting="${THORCH_GPU_GOVERNOR:-performance}"
 gpu_devfreq_path="${THORCH_GPU_DEVFREQ_PATH:-}"
+disable_cpu0_idle_state1_setting="${THORCH_DISABLE_CPU0_IDLE_STATE1:-1}"
 
 boolean_to_sysfs() {
   case "$1" in
@@ -173,6 +174,25 @@ apply_gpu_governor() {
   done < <(gpu_devfreq_paths)
 }
 
+cpu0_idle_state1_disable_path() {
+  printf '%s\n' "${sysfs_root}/devices/system/cpu/cpu0/cpuidle/state1/disable"
+}
+
+apply_cpu0_idle_workaround() {
+  local path value
+  path="$(cpu0_idle_state1_disable_path)"
+  [[ -w "${path}" && ! -d "${path}" ]] || return 0
+  value="$(boolean_to_sysfs "${disable_cpu0_idle_state1_setting}")"
+  write_sysfs "${path}" "${value}" || true
+}
+
+status_cpu0_idle_workaround() {
+  local path
+  path="$(cpu0_idle_state1_disable_path)"
+  [[ -r "${path}" ]] || return 0
+  printf '%s=%s\n' "${path}" "$(cat "${path}")"
+}
+
 status_governors() {
   local gpu policy
   while IFS= read -r policy; do
@@ -195,6 +215,7 @@ status_defaults() {
 
 case "${1:-apply}" in
   apply)
+    apply_cpu0_idle_workaround
     apply_cpu_boost
     apply_cpu_max_freq
     apply_cpu_governor
@@ -202,6 +223,7 @@ case "${1:-apply}" in
     ;;
   status)
     status_defaults
+    status_cpu0_idle_workaround
     status_governors
     ;;
   *)

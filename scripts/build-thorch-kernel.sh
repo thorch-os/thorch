@@ -70,7 +70,13 @@ read -r -a dts_patch_dirs <<< "${THORCH_KERNEL_DTS_PATCH_DIRS:-packages/linux-th
 dest="${THORCH_ROCKNIX_KERNEL_DIR}"
 template=""
 jobs="${THORCH_KERNEL_JOBS:-$(nproc)}"
-cross_compile="${THORCH_KERNEL_CROSS_COMPILE:-aarch64-linux-gnu-}"
+if [[ -n "${THORCH_KERNEL_CROSS_COMPILE+x}" ]]; then
+  cross_compile="${THORCH_KERNEL_CROSS_COMPILE}"
+elif [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+  cross_compile=""
+else
+  cross_compile="aarch64-linux-gnu-"
+fi
 fetch=1
 reuse_build_dir="${THORCH_KERNEL_REUSE_BUILD_DIR:-0}"
 skip_kernel_patches=0
@@ -420,7 +426,7 @@ make "${make_args[@]}" INSTALL_MOD_PATH="${modules_stage}" INSTALL_MOD_STRIP=1 D
 depmod -b "${modules_stage}" "${kernver}"
 [[ -d "${modules_stage}/lib/modules/${kernver}" ]] || die "modules_install did not produce lib/modules/${kernver}"
 
-boot_tmp="${build_abs}/KERNEL"
+boot_tmp="${build_abs}/thorch-boot.img"
 log "repacking Android boot template with source-built kernel and ROCKNIX SM8550 DTBs"
 python3 - "${template_abs}" "${image}" "${boot_tmp}" "${dtb_paths[@]}" <<'PY'
 import gzip

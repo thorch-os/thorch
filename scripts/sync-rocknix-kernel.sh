@@ -11,8 +11,9 @@ usage() {
 usage: scripts/sync-rocknix-kernel.sh [options]
 
 Downloads an official ROCKNIX SM8550 image, verifies it when a .sha256 asset is
-available, mounts it read-only, imports firmware/runtime/template artifacts, and
-then source-builds the Thorch Thor kernel with BinderFS support enabled.
+available, reads it through a read-only mount or userspace FAT extraction,
+imports firmware/runtime/template artifacts, and then source-builds the Thorch
+Thor kernel with BinderFS support enabled.
 
 Options:
   --source nightly|stable     Release channel to use. Project default: nightly.
@@ -32,7 +33,8 @@ Options:
                               only for local diagnostics; Waydroid will fail.
   --keep-mounted              Leave the loop image mounted for debugging.
 
-This script must run as root because it uses loop devices and read-only mounts.
+Root is required for the preferred loop-device path. If the container runtime
+does not expose loop mounts, the FAT boot partition is extracted with mtools.
 EOF
 }
 
@@ -114,7 +116,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 require_root
-require_cmd curl gzip jq losetup mount python3 readlink sha256sum sfdisk umount unsquashfs
+require_cmd curl gzip jq losetup mcopy mount python3 readlink sha256sum sfdisk umount unsquashfs
 
 root="$(repo_root)"
 if [[ "${cache_dir}" == /* ]]; then
@@ -243,6 +245,7 @@ esac
 
 mounts=()
 work_tree=""
+userspace_boot_tree=""
 loop_device=""
 cleanup() {
   if [[ "${keep_mounted}" -eq 1 ]]; then
@@ -256,6 +259,7 @@ cleanup() {
     umount "${mountpoint}" >/dev/null 2>&1 || true
   done
   [[ -n "${loop_device}" ]] && losetup -d "${loop_device}" >/dev/null 2>&1 || true
+  [[ -n "${userspace_boot_tree}" ]] && rm -rf "${userspace_boot_tree}" >/dev/null 2>&1 || true
   for mountpoint in "${mounts[@]}"; do
     rmdir "${mountpoint}" >/dev/null 2>&1 || true
   done
@@ -282,7 +286,22 @@ for part in "${partitions[@]}"; do
     rmdir "${mountpoint}" >/dev/null 2>&1 || true
   fi
 done
-[[ "${#mounts[@]}" -gt 0 ]] || die "unable to mount partitions in ${image}"
+if [[ "${#mounts[@]}" -eq 0 ]]; then
+  log "loop mounts unavailable; extracting ROCKNIX FAT boot files with mtools"
+  read -r partition_start sector_size < <(
+    sfdisk --json "${image}" |
+      jq -er '.partitiontable as $table | [$table.partitions[0].start, $table.sectorsize] | @tsv'
+  )
+  [[ "${partition_start}" =~ ^[0-9]+$ && "${sector_size}" =~ ^[0-9]+$ ]] ||
+    die "unable to determine the ROCKNIX boot partition offset"
+  partition_offset=$((partition_start * sector_size))
+  userspace_boot_tree="$(mktemp -d /tmp/thorch-rocknix-boot.XXXXXX)"
+  if ! mcopy -o -i "${image}@@${partition_offset}" \
+      ::/KERNEL ::/SYSTEM "${userspace_boot_tree}/"; then
+    die "unable to extract ROCKNIX boot files from ${image}"
+  fi
+  mounts+=("${userspace_boot_tree}")
+fi
 
 find_mounted_boot_dir() {
   local mountpoint

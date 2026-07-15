@@ -12,6 +12,9 @@ ROCKNIX Android boot-image layout but uses Thorch's source-built kernel payload
 and exact ROCKNIX handheld DTB manifest while replacing the initramfs and root
 command line. The DTBs retain overlay symbols, the payload contains exactly one
 Thor DTB, and generic AIM300 DTBs are excluded.
+The DTS patch set also restores Android's characterized 124.8 MHz lowest A740
+operating point. This is a normal running DCVS level; the GMU supplies its
+separate zero/off table entry.
 
 `thorch-bsp` owns the ABL boot contract, including
 `thorch-rebuild-abl-kernel`, `thorch-check-boot`, the mkinitcpio firmware hook,
@@ -19,7 +22,10 @@ USB debug gadget, boot diagnostics, Thor joystick RGB control, Rust power/input
 daemons, ROCKNIX-derived SM8550 PWM fan profiles, dual-panel
 backlight helpers, gamepad/input udev rules, Plasma Mobile action-drawer
 overrides, quick settings for USB/SSH/RGB toggles, and ALSA UCM snippets. The
-action-drawer override is stateful: package install/upgrade runs a sync helper
+boot hardware-default service adapts ROCKNIX's SM8550 GMU workaround by
+disabling CPU0 cpuidle state1, with a documented config override for controlled
+testing. The action-drawer override is stateful: package install/upgrade runs a
+sync helper
 so SteamOS mode can keep its patched Plasma Mobile drawer enabled while normal
 desktop/mobile sessions restore the stock QML.
 
@@ -27,7 +33,9 @@ The boot checker parses the compressed kernel and appended DTBs instead of
 searching arbitrary image bytes. It enforces the image root UUID, framebuffer
 rotation, ROCKNIX's `allow_mismatched_32bit_el0` CPU compatibility argument,
 BinderFS support, and the Thor DTB invariants. The firmware hook copies only
-Thor and shared SM8550 early-boot firmware into initramfs; the full firmware
+non-GPU Thor and shared SM8550 early-boot firmware into initramfs. Adreno SQE,
+GMU, and ZAP firmware remain on the real root filesystem, matching ROCKNIX and
+keeping those blobs unavailable during initramfs execution. The full firmware
 tree remains installed in the root filesystem.
 
 `thorch-firmware-rocknix` packages the synced public ROCKNIX firmware tree into
@@ -86,7 +94,8 @@ thermal, CPU/GPU frequency paths, modifier buttons, and MangoHud support while
 preserving the original ROCKNIX quirk scripts from the synced
 `vendor/rocknix-sm8550` tree under `/usr/share/thorch/rocknix-quirks/SM8550`
 for provenance. It does not execute ROCKNIX's `/storage` autostart scripts
-directly.
+directly; hardware-affecting behavior is reviewed and adapted into Thorch
+services rather than running that directory wholesale.
 
 `thorch-mangohud` builds MangoHud with ROCKNIX's SM8550 GPU fdinfo patch and
 installs the ROCKNIX MangoHud configuration as `/etc/MangoHud.conf`, both from

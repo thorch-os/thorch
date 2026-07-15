@@ -57,7 +57,11 @@ require_cmd awk bsdtar cat curl dd du file find mcopy mdir mkfs.vfat numfmt pyth
 require_rootfs_runner
 
 root="$(repo_root)"
-build_dir="${root}/${THORCH_BUILD_DIR}"
+if [[ "${THORCH_BUILD_DIR}" = /* ]]; then
+  build_dir="${THORCH_BUILD_DIR%/}"
+else
+  build_dir="${root}/${THORCH_BUILD_DIR}"
+fi
 cache_dir="${build_dir}/cache"
 rootfs_dir="${build_dir}/image-rootfs"
 boot_stage="${build_dir}/boot-stage"
@@ -316,6 +320,17 @@ cleanup_rootfs_for_image() {
   install -d -m 1777 "${rootfs_dir}/tmp" "${rootfs_dir}/var/tmp"
 }
 
+stage_qemu_for_rootfs() {
+  case "$(uname -m)" in
+    aarch64|arm64)
+      return 0
+      ;;
+  esac
+
+  [[ -x "${rootfs_dir}/usr/bin/qemu-aarch64-static" ]] ||
+    cp /usr/bin/qemu-aarch64-static "${rootfs_dir}/usr/bin/"
+}
+
 remove_stock_firmware() {
   run_rootfs "installed_stock=\$(pacman -Qq ${stock_kernel_firmware[*]} 2>/dev/null || true); [[ -z \"\${installed_stock}\" ]] || pacman -Rdd --noconfirm \${installed_stock}"
 }
@@ -512,7 +527,7 @@ if [[ "${reuse_rootfs}" -eq 0 ]]; then
   install -d "${rootfs_dir}"
   extract_alarm_rootfs_without_stock_kernel_firmware "${rootfs_tar}" "${rootfs_dir}"
   repair_alarm_usrmerge_links "${rootfs_dir}"
-  cp /usr/bin/qemu-aarch64-static "${rootfs_dir}/usr/bin/"
+  stage_qemu_for_rootfs
   configure_chroot_resolver "${rootfs_dir}"
   configure_alarm_pacman "${rootfs_dir}"
   mask_chroot_stock_kernel_hooks "${rootfs_dir}"
@@ -531,7 +546,7 @@ if [[ "${reuse_rootfs}" -eq 0 ]]; then
   remove_stock_firmware
   remove_orphaned_dependencies
 else
-  [[ -x "${rootfs_dir}/usr/bin/qemu-aarch64-static" ]] || cp /usr/bin/qemu-aarch64-static "${rootfs_dir}/usr/bin/"
+  stage_qemu_for_rootfs
   [[ -x "${rootfs_dir}/usr/bin/pacman" && -d "${rootfs_dir}/var/lib/pacman" ]] || die "cannot reuse missing rootfs: ${rootfs_dir}"
   repair_alarm_usrmerge_links "${rootfs_dir}"
   log "reusing populated rootfs ${rootfs_dir}"

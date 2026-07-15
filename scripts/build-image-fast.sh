@@ -43,7 +43,12 @@ done
 require_root
 
 root="$(repo_root)"
-rootfs_dir="${root}/${THORCH_BUILD_DIR}/image-rootfs"
+if [[ "${THORCH_BUILD_DIR}" = /* ]]; then
+  build_dir="${THORCH_BUILD_DIR%/}"
+else
+  build_dir="${root}/${THORCH_BUILD_DIR}"
+fi
+rootfs_dir="${build_dir}/image-rootfs"
 repo_dir="${root}/${THORCH_LOCAL_REPO_DIR}"
 
 rootfs_reusable() {
