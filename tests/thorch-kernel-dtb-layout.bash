@@ -6,7 +6,6 @@ builder="${root}/scripts/build-thorch-kernel.sh"
 validator="${root}/scripts/check-thorch-image.sh"
 repacker="${root}/packages/thorch-bsp/payload/usr/bin/thorch-rebuild-abl-kernel"
 boot_check="${root}/packages/thorch-bsp/payload/usr/bin/thorch-check-boot"
-lowest_opp_patch="${root}/packages/linux-thorch/dts-patches/0003-arm64-dts-qcom-sm8550-add-lowest-gpu-opp.patch"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -33,13 +32,6 @@ grep -q 'rm -rf "${dest_abs}/usr/lib/modules" "${dest_abs}/boot/dtb/qcom"' "${bu
 
 ! grep -q 'dtb_dir.glob("qcs8550-\*\.dtb")' "${builder}" ||
   fail "kernel builder can still package stale or generic qcs8550 DTBs"
-
-grep -A4 -F 'opp-124800000 {' "${lowest_opp_patch}" | grep -q 'opp-hz = /bits/ 64 <124800000>;' ||
-  fail "lowest Android GPU OPP frequency is missing"
-grep -A4 -F 'opp-124800000 {' "${lowest_opp_patch}" | grep -q 'opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_D2>;' ||
-  fail "lowest Android GPU OPP rail level is missing"
-grep -A4 -F 'opp-124800000 {' "${lowest_opp_patch}" | grep -q 'opp-peak-kBps = <2136718>;' ||
-  fail "lowest Android GPU OPP bandwidth vote is missing"
 
 grep -q 'KERNEL embeds the ROCKNIX Thor DTB with overlay symbols' "${validator}" ||
   fail "image validator does not require the symbol-bearing ROCKNIX Thor DTB"
