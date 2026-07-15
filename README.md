@@ -303,11 +303,12 @@ message means the boot command line is missing ROCKNIX's
 `allow_mismatched_32bit_el0` compatibility argument. Current images preserve it,
 and `make check` rejects images that do not.
 
-Thorch keeps the FAT boot filesystem labelled `ROCKNIX` for compatibility with
-the imported ROCKNIX boot image conventions, but the current evidence does not
-prove that Thor ABL chooses Linux media by that filesystem label. The practical
-boot contract is a FAT/ESP-style partition with a top-level `/KERNEL` Android
-boot image.
+Thorch matches the imported ROCKNIX qcom-abl disk contract: the FAT boot
+filesystem is labelled `ROCKNIX`, starts at the 16 MiB offset, and lives in a
+Microsoft Basic Data GPT partition named `system` with the legacy-boot
+attribute. Its top-level `/KERNEL` is an Android boot image. This metadata is
+intentional; a generic EFI System Partition does not reproduce the known-good
+ROCKNIX layout.
 
 If an internal Thorch install is present and ABL loads the internal `/KERNEL`
 before the SD card's `/KERNEL`, Thorch's initramfs now prefers an inserted
