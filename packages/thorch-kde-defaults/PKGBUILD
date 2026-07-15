@@ -2,12 +2,12 @@
 
 pkgname=thorch-kde-defaults
 pkgver=1
-pkgrel=12
+pkgrel=13
 pkgdesc='KDE Plasma Mobile/Desktop defaults for Thorch on AYN Thor'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-or-later)
-depends=(alsa-utils ark bluez bluez-utils bluedevil dolphin firefox gwenview kate kcalc kirigami konsole kscreen kwin libpulse noto-fonts-cjk okular perl pipewire plasma-desktop plasma-keyboard plasma-maliit-framework plasma-maliit-plugins plasma-mobile plasma-nm plasma-pa plasma-settings plasma-workspace plasma5support python qt6-declarative qt6-tools qt6-virtualkeyboard rtkit sddm spectacle systemd util-linux wireplumber xorg-xrandr)
+depends=(alsa-utils ark bluez bluez-utils bluedevil dolphin firefox gawk gwenview kate kcalc kirigami konsole kscreen kwin libpulse noto-fonts-cjk okular perl pipewire plasma-desktop plasma-keyboard plasma-maliit-framework plasma-maliit-plugins plasma-mobile plasma-nm plasma-pa plasma-settings plasma-workspace plasma5support python qt6-declarative qt6-tools qt6-virtualkeyboard rtkit sddm spectacle systemd util-linux wireplumber xorg-xrandr)
 optdepends=('vlc: media player')
 install=thorch-kde-defaults.install
 source=()

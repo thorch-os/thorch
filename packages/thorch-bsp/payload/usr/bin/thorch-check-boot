@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-boot_dir=/boot
+usage() {
+  echo "usage: thorch-check-boot [--boot-dir /boot] [--kernel PATH] [--root-uuid UUID]" >&2
+}
+
 require_value() {
   local opt="$1" value="${2:-}"
   [[ -n "${value}" ]] || {
-    echo "usage: thorch-check-boot [--boot-dir /boot]" >&2
+    usage
     echo "${opt} requires a value" >&2
     exit 2
   }
 }
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+boot_tool="${THORCH_BOOT_IMAGE_TOOL:-${script_dir}/../lib/thorch/boot_image.py}"
+boot_dir=/boot
+kernel_path=""
+root_uuid="${THORCH_BOOT_ROOT_UUID:-}"
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -18,21 +27,51 @@ while [[ "$#" -gt 0 ]]; do
       boot_dir="$2"
       shift 2
       ;;
+    --kernel)
+      require_value "$1" "${2:-}"
+      kernel_path="$2"
+      shift 2
+      ;;
+    --root-uuid)
+      require_value "$1" "${2:-}"
+      root_uuid="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "usage: thorch-check-boot [--boot-dir /boot]" >&2
+      usage
       exit 0
       ;;
     *)
+      usage
       echo "unknown argument: $1" >&2
       exit 2
       ;;
   esac
 done
 
+boot_dir="${boot_dir%/}"
+[[ -n "${boot_dir}" ]] || boot_dir=/
+kernel_path="${kernel_path:-${boot_dir}/KERNEL}"
+initramfs_path="${boot_dir}/initramfs-linux-thorch.img"
 failures=0
+
+if [[ -z "${root_uuid}" && "${boot_dir}" == "/boot" ]] && command -v findmnt >/dev/null 2>&1; then
+  root_uuid="$(findmnt -nro UUID / 2>/dev/null || true)"
+fi
+if [[ -z "${root_uuid}" && "${boot_dir}" == "/boot" ]]; then
+  cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+  if [[ "${cmdline}" =~ (^|[[:space:]])root=UUID=([^[:space:]]+)($|[[:space:]]) ]]; then
+    root_uuid="${BASH_REMATCH[2]}"
+  fi
+fi
+if [[ -z "${root_uuid}" ]]; then
+  printf 'FAIL: expected root UUID (pass --root-uuid for an offline boot directory)\n' >&2
+  failures=$((failures + 1))
+fi
+
 check_file() {
   local label="$1" path="$2"
-  if [[ -f "${path}" ]]; then
+  if [[ -s "${path}" ]]; then
     printf 'ok: %s\n' "${label}"
   else
     printf 'FAIL: %s (%s)\n' "${label}" "${path}" >&2
@@ -40,95 +79,23 @@ check_file() {
   fi
 }
 
-check_file "Thorch initramfs" "${boot_dir}/initramfs-linux-thorch.img"
-check_file "Android boot image KERNEL" "${boot_dir}/KERNEL"
+check_file "Thorch initramfs" "${initramfs_path}"
+check_file "Android boot image KERNEL" "${kernel_path}"
+check_file "canonical boot-image validator" "${boot_tool}"
 
-if [[ -f "${boot_dir}/KERNEL" ]] && command -v file >/dev/null 2>&1; then
-  file -b "${boot_dir}/KERNEL" | grep -q '^Android bootimg' || failures=$((failures + 1))
-fi
-
-if [[ -f "${boot_dir}/KERNEL" ]]; then
-  python3 - "${boot_dir}/KERNEL" <<'PY' || failures=$((failures + 1))
-import pathlib
-import struct
-import sys
-import zlib
-
-data = pathlib.Path(sys.argv[1]).read_bytes()
-if data[:8] != b"ANDROID!" or len(data) < 48:
-    raise SystemExit("KERNEL is not an Android boot image")
-
-(
-    kernel_size,
-    _kernel_addr,
-    ramdisk_size,
-    _ramdisk_addr,
-    second_size,
-    _second_addr,
-    _tags_addr,
-    page_size,
-    header_version,
-    _os_version,
-) = struct.unpack_from("<10I", data, 8)
-if header_version != 0 or page_size <= 0 or len(data) < page_size:
-    raise SystemExit("KERNEL has an unsupported Android boot header")
-
-def align(size, page):
-    return ((size + page - 1) // page) * page
-
-kernel_offset = page_size
-ramdisk_offset = kernel_offset + align(kernel_size, page_size)
-second_offset = ramdisk_offset + align(ramdisk_size, page_size)
-end_offset = second_offset + align(second_size, page_size)
-if len(data) < end_offset:
-    raise SystemExit("KERNEL is truncated")
-
-header = data[:page_size]
-missing = [
-    marker.decode("ascii")
-    for marker in (b"root=UUID=", b"fbcon=rotate:1", b"allow_mismatched_32bit_el0")
-    if marker not in header
-]
-
-kernel = data[kernel_offset:kernel_offset + kernel_size]
-try:
-    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
-    decompressor.decompress(kernel)
-    decompressor.flush()
-except zlib.error as exc:
-    raise SystemExit(f"KERNEL kernel payload is not valid gzip: {exc}")
-if not decompressor.eof:
-    raise SystemExit("KERNEL kernel payload is truncated")
-
-trailer = decompressor.unused_data
-dtbs = []
-pos = 0
-while pos < len(trailer):
-    if trailer[pos:pos + 4] != b"\xd0\r\xfe\xed" or len(trailer) < pos + 8:
-        raise SystemExit("KERNEL has a malformed appended DTB table")
-    size = struct.unpack_from(">I", trailer, pos + 4)[0]
-    if size < 8 or len(trailer) < pos + size:
-        raise SystemExit("KERNEL has a truncated appended DTB")
-    dtbs.append(trailer[pos:pos + size])
-    pos += size
-
-if not dtbs:
-    missing.append("appended DTBs")
-if any(b"__symbols__\x00" not in dtb for dtb in dtbs):
-    missing.append("ROCKNIX overlay symbols on every DTB")
-thor_dtbs = [
-    dtb for dtb in dtbs
-    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb
-]
-if len(thor_dtbs) != 1:
-    missing.append("embedded ROCKNIX Thor DTB with overlay symbols")
-if any(b"qcom,qcs8550-aim300-aiot\x00" in dtb for dtb in dtbs):
-    missing.append("generic AIM300 DTB must be absent")
-
-if missing:
-    print("KERNEL missing: " + ", ".join(missing), file=sys.stderr)
-    sys.exit(1)
-PY
+if [[ -f "${kernel_path}" && -f "${boot_tool}" && -n "${root_uuid}" ]]; then
+  if python3 "${boot_tool}" validate "${kernel_path}" \
+    --expect-root-uuid "${root_uuid}" \
+    --require-cmdline fbcon=rotate:1 \
+    --require-cmdline allow_mismatched_32bit_el0 \
+    --require-symbols \
+    --require-thor \
+    --forbid-aim300 \
+    --expect-ramdisk "${initramfs_path}"; then
+    printf 'ok: Android boot image invariants\n'
+  else
+    failures=$((failures + 1))
+  fi
 fi
 
 if [[ "${failures}" -ne 0 ]]; then

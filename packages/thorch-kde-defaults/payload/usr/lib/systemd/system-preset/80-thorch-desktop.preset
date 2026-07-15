@@ -1,0 +1,5 @@
+enable bluetooth.service
+enable NetworkManager.service
+enable sddm.service
+enable thorch-session-recovery.service
+enable thorch-touchscreen-setup.service

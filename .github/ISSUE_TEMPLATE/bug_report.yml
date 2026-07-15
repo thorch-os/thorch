@@ -1,0 +1,81 @@
+name: Bug report
+description: Report a reproducible Thorch software or image defect.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thorch is experimental hardware bring-up software. Keep recovery media available and remove credentials from logs.
+  - type: input
+    id: revision
+    attributes:
+      label: Thorch revision or image
+      description: Provide the Git commit, release/cohort identifier, or image filename.
+      placeholder: 9e3813f... or nightly-YYYYMMDD-...
+    validations:
+      required: true
+  - type: dropdown
+    id: install_location
+    attributes:
+      label: Install location
+      options:
+        - SD card
+        - Internal storage
+        - Build host only
+        - Other or unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: root_filesystem
+    attributes:
+      label: Root filesystem
+      options:
+        - ext4
+        - Btrfs
+        - Not applicable
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the complete error and when it occurred.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest repeatable sequence, starting state, and relevant configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Attach relevant logs, `make doctor` output, or a redacted debug report. Never include secrets.
+      render: text
+  - type: textarea
+    id: recovery
+    attributes:
+      label: Recovery result
+      description: Say whether the previous boot payload, SD recovery, or reinstall was needed and whether data was preserved.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed passwords, tokens, private keys, Wi-Fi credentials, and personal data from this report.
+          required: true
+        - label: I searched open and closed issues for the same failure.
+          required: true

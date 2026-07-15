@@ -1,0 +1,14 @@
+enable thorch-boot-confirm.service
+enable thorch-debug-report.service
+enable thorch-fancontrol.service
+enable thorch-hw-defaults.service
+enable thorch-inputd.service
+enable thorch-rgb.service
+enable thorch-rgb-battery.service
+enable thorch-rgb-poweroff.service
+disable systemd-networkd.service
+disable systemd-networkd-wait-online.service
+disable systemd-networkd.socket
+disable systemd-networkd-varlink.socket
+disable systemd-networkd-varlink-metrics.socket
+disable systemd-networkd-resolve-hook.socket

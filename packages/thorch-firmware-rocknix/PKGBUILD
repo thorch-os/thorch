@@ -2,13 +2,74 @@
 
 pkgname=thorch-firmware-rocknix
 pkgver=1
-pkgrel=6
+pkgrel=7
 pkgdesc='Public ROCKNIX SM8550 firmware and runtime artifacts packaged for Thorch'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(custom)
 depends=(expat gcc-libs glibc libdrm libx11 libxcb libxshmfence vulkan-icd-loader wayland zlib zstd)
-provides=(vulkan-driver)
+makedepends=(patchelf python)
+provides=(
+  vulkan-driver
+  linux-firmware
+  linux-firmware-amdgpu
+  linux-firmware-atheros
+  linux-firmware-broadcom
+  linux-firmware-cirrus
+  linux-firmware-intel
+  linux-firmware-liquidio
+  linux-firmware-marvell
+  linux-firmware-mediatek
+  linux-firmware-mellanox
+  linux-firmware-nfp
+  linux-firmware-nvidia
+  linux-firmware-other
+  linux-firmware-qcom
+  linux-firmware-qlogic
+  linux-firmware-radeon
+  linux-firmware-realtek
+  linux-firmware-whence
+)
+conflicts=(
+  linux-firmware
+  linux-firmware-amdgpu
+  linux-firmware-atheros
+  linux-firmware-broadcom
+  linux-firmware-cirrus
+  linux-firmware-intel
+  linux-firmware-liquidio
+  linux-firmware-marvell
+  linux-firmware-mediatek
+  linux-firmware-mellanox
+  linux-firmware-nfp
+  linux-firmware-nvidia
+  linux-firmware-other
+  linux-firmware-qcom
+  linux-firmware-qlogic
+  linux-firmware-radeon
+  linux-firmware-realtek
+  linux-firmware-whence
+)
+replaces=(
+  linux-firmware
+  linux-firmware-amdgpu
+  linux-firmware-atheros
+  linux-firmware-broadcom
+  linux-firmware-cirrus
+  linux-firmware-intel
+  linux-firmware-liquidio
+  linux-firmware-marvell
+  linux-firmware-mediatek
+  linux-firmware-mellanox
+  linux-firmware-nfp
+  linux-firmware-nvidia
+  linux-firmware-other
+  linux-firmware-qcom
+  linux-firmware-qlogic
+  linux-firmware-radeon
+  linux-firmware-realtek
+  linux-firmware-whence
+)
 options=(!strip)
 
 _firmware_dir="${THORCH_FIRMWARE_DIR:-${startdir}/../../vendor/rocknix-sm8550/firmware}"
@@ -68,14 +129,32 @@ EOF
   fi
 
   install -Dm755 "${_rocknix_kernel_dir}/usr/lib/libvulkan_freedreno.so" \
-    "${pkgdir}/usr/lib/libvulkan_freedreno.so"
+    "${pkgdir}/usr/lib/thorch/freedreno/libvulkan_freedreno.so"
   install -Dm755 "${_rocknix_kernel_dir}/usr/lib/libdisplay-info.so.0.2.0" \
-    "${pkgdir}/usr/lib/libdisplay-info.so.0.2.0"
-  ln -s libdisplay-info.so.0.2.0 "${pkgdir}/usr/lib/libdisplay-info.so.2"
+    "${pkgdir}/usr/lib/thorch/freedreno/libdisplay-info.so.0.2.0"
+  ln -s libdisplay-info.so.0.2.0 \
+    "${pkgdir}/usr/lib/thorch/freedreno/libdisplay-info.so.2"
+  patchelf --set-rpath '$ORIGIN' \
+    "${pkgdir}/usr/lib/thorch/freedreno/libvulkan_freedreno.so"
   install -Dm755 "${_rocknix_kernel_dir}/usr/share/fex-emu/libvulkan_freedreno.so" \
     "${pkgdir}/usr/share/fex-emu/libvulkan_freedreno.so"
-  install -Dm644 "${_rocknix_kernel_dir}/usr/share/vulkan/icd.d/freedreno_icd.json" \
-    "${pkgdir}/usr/share/vulkan/icd.d/freedreno_icd.json"
+  python - \
+    "${_rocknix_kernel_dir}/usr/share/vulkan/icd.d/freedreno_icd.json" \
+    "${pkgdir}/usr/share/vulkan/icd.d/thorch_freedreno_icd.json" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+destination = pathlib.Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+icd = data.get("ICD")
+if not isinstance(icd, dict) or not isinstance(icd.get("library_path"), str):
+    raise SystemExit(f"invalid Vulkan ICD manifest: {source}")
+icd["library_path"] = "/usr/lib/thorch/freedreno/libvulkan_freedreno.so"
+destination.parent.mkdir(parents=True, exist_ok=True)
+destination.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
 
   install -d "${pkgdir}/usr/share/licenses/${pkgname}"
   if [[ -f "${_firmware_dir}/THORCH_FIRMWARE_PROVENANCE" ]]; then

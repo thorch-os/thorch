@@ -1,0 +1,71 @@
+name: Hardware compatibility report
+description: Record a tested device configuration, including failures and recovery.
+title: "hardware: "
+labels:
+  - hardware
+body:
+  - type: input
+    id: revision
+    attributes:
+      label: Thorch revision or image
+      placeholder: Commit, tag, or exact image filename
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and hardware revision
+      placeholder: AYN Thor model, RAM/storage configuration, board revision if known
+    validations:
+      required: true
+  - type: dropdown
+    id: boot_media
+    attributes:
+      label: Boot/install media
+      options:
+        - SD card
+        - Internal storage
+        - Both tested
+    validations:
+      required: true
+  - type: dropdown
+    id: root_filesystem
+    attributes:
+      label: Root filesystem
+      options:
+        - ext4
+        - Btrfs
+        - Both tested
+    validations:
+      required: true
+  - type: textarea
+    id: matrix
+    attributes:
+      label: Results
+      description: Report cold boot, display/touch, controls, audio, Wi-Fi/Bluetooth, suspend/resume, charging, fan/RGB, and shutdown.
+      placeholder: |
+        Cold boot: pass/fail/not tested
+        Display and touch: pass/fail/not tested
+        Controls: pass/fail/not tested
+        Suspend/resume: pass/fail/not tested
+    validations:
+      required: true
+  - type: textarea
+    id: upgrade
+    attributes:
+      label: Upgrade and recovery evidence
+      description: If applicable, name the N and N+1 cohorts, boot validation result, and recovery path exercised.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics and media
+      description: Attach redacted logs, photos, or video that establish the result.
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Report checks
+      options:
+        - label: I identified every untested area rather than treating it as a pass.
+          required: true
+        - label: I removed credentials, serial numbers, and personal data.
+          required: true

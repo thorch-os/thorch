@@ -1,0 +1,13 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = linux-thorch
+Target = mkinitcpio
+Target = thorch-bsp
+
+[Action]
+Description = Retaining the current Thorch boot payload and kernel modules...
+When = PreTransaction
+Exec = /usr/lib/thorch/boot-transaction prepare
+AbortOnFail

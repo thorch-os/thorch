@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thorch-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    container:
+      # Official Arch base-devel image for amd64, resolved 2026-07-15.
+      image: archlinux:base-devel@sha256:d5ae80f3489764be5c8e27fe19b7ebfe876b35d7b42aaa5ab99aff2bf7438c34
+    defaults:
+      run:
+        shell: bash
+    env:
+      THORCH_CI_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+      THORCH_CI_REQUIRE_ROOTLESS: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Install canonical fast-check dependencies
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed \
+            actionlint \
+            android-tools \
+            desktop-file-utils \
+            dtc \
+            fakechroot \
+            git \
+            gnupg \
+            kirigami \
+            libarchive \
+            pacman-contrib \
+            plasma5support \
+            python \
+            qt6-declarative \
+            ruff \
+            rsync \
+            rust \
+            shellcheck \
+            shadow \
+            yamllint
+
+          useradd --create-home --uid 1001 --user-group thorch-ci
+          install -d -m 0700 -o thorch-ci -g thorch-ci /tmp/thorch-ci-runtime
+          chown -R thorch-ci:thorch-ci "${GITHUB_WORKSPACE}"
+
+      - name: Run rootless fast checks
+        run: |
+          set -euo pipefail
+          runuser -u thorch-ci -- \
+            env \
+              CI=true \
+              HOME=/home/thorch-ci \
+              PATH="/usr/lib/qt6/bin:${PATH}" \
+              QT_QPA_PLATFORM=offscreen \
+              THORCH_CI_BASE_REF="${THORCH_CI_BASE_REF}" \
+              THORCH_CI_REQUIRE_ROOTLESS="${THORCH_CI_REQUIRE_ROOTLESS}" \
+              XDG_RUNTIME_DIR=/tmp/thorch-ci-runtime \
+            bash --noprofile --norc -c '
+              set -euo pipefail
+              cd "$1"
+              git config --global --add safe.directory "$1"
+              make ci
+            ' bash "${GITHUB_WORKSPACE}"

@@ -1,6 +1,12 @@
-FROM archlinux:base-devel
+# Digest resolved by Builder Image run 29105361823. Renovate this deliberately;
+# do not silently consume a different base under the same moving tag.
+FROM archlinux:base-devel@sha256:b21289eb1954872de0dc9f88976627e38611b1817be75e50946c83ab7b9c474d
 
-RUN pacman -Syu --noconfirm --needed \
+# pacman's DownloadUser seccomp sandbox cannot initialize under some
+# linux/amd64-on-arm64 container emulators. This builder is already an isolated
+# disposable container, so disable that nested sandbox before synchronizing.
+RUN sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf \
+    && pacman -Syu --noconfirm --needed \
       aarch64-linux-gnu-gcc \
       android-tools \
       arch-install-scripts \
@@ -15,6 +21,7 @@ RUN pacman -Syu --noconfirm --needed \
       dosfstools \
       dtc \
       e2fsprogs \
+      fakechroot \
       file \
       flex \
       git \

@@ -1,0 +1,34 @@
+# Current maintainer ownership map. Replace an entry with a real organization
+# team as each area gains another maintainer; nonexistent teams are not used.
+* @jaewun
+
+# Repository, contributor workflow, and releases
+/.github/ @jaewun
+/Makefile @jaewun
+/Dockerfile @jaewun
+/scripts/ @jaewun
+/config/ @jaewun
+/manifests/ @jaewun
+/docs/architecture/ @jaewun
+
+# Boot chain and kernel
+/packages/linux-thorch/ @jaewun
+/packages/thorch-bsp/payload/usr/bin/thorch-check-boot @jaewun
+/packages/thorch-bsp/payload/usr/bin/thorch-rebuild-abl-kernel @jaewun
+/packages/thorch-bsp/payload/usr/lib/initcpio/ @jaewun
+
+# Installer, first boot, and storage
+/packages/thorch-installer/ @jaewun
+/packages/thorch-firstboot/ @jaewun
+
+# Board support, hardware controls, and input
+/packages/thorch-bsp/ @jaewun
+/packages/thorch-inputplumber/ @jaewun
+/packages/thorch-rocknix-quirks/ @jaewun
+/packages/thorch-firmware-rocknix/ @jaewun
+
+# Desktop and gaming integration
+/packages/thorch-kde-defaults/ @jaewun
+/packages/thorch-gaming-installers/ @jaewun
+/packages/thorch-gamescope/ @jaewun
+/packages/thorch-mangohud/ @jaewun

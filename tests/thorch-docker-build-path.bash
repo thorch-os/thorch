@@ -20,11 +20,14 @@ fail() {
 [[ -f "${builder_workflow}" ]] || fail "builder image workflow is missing"
 [[ -x "${ownership_script}" ]] || fail "container ownership repair script is missing or not executable"
 
-grep -q '^FROM archlinux:base-devel$' "${dockerfile}" ||
-  fail "builder image is not based on archlinux:base-devel"
+grep -Eq '^FROM archlinux:base-devel@sha256:[0-9a-f]{64}$' "${dockerfile}" ||
+  fail "builder image does not pin its archlinux:base-devel digest"
 
 grep -q 'qemu-user-static' "${dockerfile}" ||
   fail "builder image does not include qemu-user-static"
+
+grep -q 'DisableSandbox' "${dockerfile}" ||
+  fail "builder image does not support pacman under amd64-on-arm64 emulation"
 
 grep -q 'THORCH_DOCKER_IMAGE ?= ghcr.io/thorch-os/thorch-build:latest' "${makefile}" ||
   fail "Makefile does not define the default Thorch builder image"
@@ -77,6 +80,16 @@ fi
 
 grep -q 'docker/build-push-action' "${builder_workflow}" ||
   fail "builder workflow does not publish with docker/build-push-action"
+
+if grep -Eq 'uses: [^ ]+@v[0-9]+' "${builder_workflow}"; then
+  fail "builder workflow contains a floating major-version action"
+fi
+
+grep -q 'type=sha,format=long' "${builder_workflow}" ||
+  fail "builder workflow does not publish a full commit-SHA tag"
+
+grep -q 'steps.build.outputs.digest' "${builder_workflow}" ||
+  fail "builder workflow does not report its immutable digest"
 
 grep -q 'packages: write' "${builder_workflow}" ||
   fail "builder workflow cannot publish to GHCR"

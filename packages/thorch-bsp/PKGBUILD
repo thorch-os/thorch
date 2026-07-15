@@ -2,14 +2,19 @@
 
 pkgname=thorch-bsp
 pkgver=1
-pkgrel=24
+pkgrel=27
 pkgdesc='Thorch AYN Thor boot and board support package'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-only GPL-2.0-or-later BSD-3-Clause custom)
-depends=(android-tools bash coreutils dnsmasq dosfstools e2fsprogs file findutils grep gzip iproute2 iw kmod mkinitcpio mtools networkmanager openssh procps-ng python rfkill sudo systemd util-linux wireless-regdb zram-generator)
+depends=(android-tools bash coreutils diffutils dnsmasq dosfstools e2fsprogs file findutils grep gzip iproute2 iw kmod libarchive mkinitcpio mtools networkmanager openssh pacman procps-ng python rfkill sudo systemd util-linux wireless-regdb zram-generator)
 makedepends=(rust)
-backup=(etc/thorch/hardware.conf etc/thorch/inputd.conf)
+backup=(
+  etc/mkinitcpio.conf.d/90-thorch.conf
+  etc/sudoers.d/20-thorch-wheel
+  etc/thorch/hardware.conf
+  etc/thorch/inputd.conf
+)
 install=thorch-bsp.install
 source=()
 sha256sums=()
@@ -31,6 +36,7 @@ package() {
   cd "${startdir}/payload"
   cp -a . "${pkgdir}/"
   find "${pkgdir}" -type d -name __pycache__ -prune -exec rm -rf {} +
+  chmod 0440 "${pkgdir}/etc/sudoers.d/20-thorch-wheel"
 
   install -d "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550"
   ln -sf ../../AYN/Odin2/AYN-Odin2.conf \
@@ -54,6 +60,8 @@ package() {
 
   chmod 755 "${pkgdir}/usr/bin/thorch-rebuild-abl-kernel"
   chmod 755 "${pkgdir}/usr/bin/thorch-check-boot"
+  chmod 755 "${pkgdir}/usr/bin/thorch-boot-recover"
+  chmod 755 "${pkgdir}/usr/bin/thorch-update-bootstrap"
   chmod 755 "${pkgdir}/usr/bin/thorch-debug-report"
   chmod 755 "${pkgdir}/usr/bin/thorch-backlight"
   chmod 755 "${pkgdir}/usr/bin/thorch-hw-defaults"
@@ -66,6 +74,9 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-usb-gadget"
   chmod 755 "${pkgdir}/usr/bin/thorch-usb-network"
   chmod 755 "${pkgdir}/usr/lib/thorch/plasma-mobile-action-drawer-mode"
+  chmod 755 "${pkgdir}/usr/lib/thorch/boot-transaction"
+  chmod 755 "${pkgdir}/usr/lib/thorch/boot_image.py"
+  chmod 755 "${pkgdir}/usr/lib/thorch/create-bootstrap-ready-package"
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-firmware"
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-sd-prefer"
   chmod 755 "${pkgdir}/usr/lib/initcpio/hooks/thorch-sd-prefer"

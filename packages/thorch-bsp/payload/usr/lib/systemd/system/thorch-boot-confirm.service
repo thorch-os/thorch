@@ -1,0 +1,12 @@
+[Unit]
+Description=Confirm a successful Thorch boot transaction
+After=local-fs.target
+ConditionPathExists=/var/lib/thorch/boot-transaction/pending-reboot
+ConditionPathIsMountPoint=/boot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/thorch/boot-transaction confirm
+
+[Install]
+WantedBy=multi-user.target

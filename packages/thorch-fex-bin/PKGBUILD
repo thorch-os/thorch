@@ -2,7 +2,7 @@
 
 pkgname=thorch-fex-bin
 pkgver=2605
-pkgrel=3
+pkgrel=4
 pkgdesc='ROCKNIX-imported FEX binary runtime for Thorch on AArch64'
 arch=(aarch64)
 url='https://github.com/FEX-Emu/FEX'
@@ -27,6 +27,7 @@ depends=(
   qt6-declarative
   squashfs-tools
   squashfuse
+  systemd
   vulkan-icd-loader
   wayland
   zlib

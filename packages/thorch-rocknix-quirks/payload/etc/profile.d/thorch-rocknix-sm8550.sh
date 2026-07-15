@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # ROCKNIX-derived Qualcomm SM8550 handheld hints for Thorch.
 # These are Arch-safe exports adapted from ROCKNIX hardware quirks; the
 # ROCKNIX autostart scripts are staged under /usr/share/thorch/rocknix-quirks.

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+transaction="${THORCH_BOOT_TRANSACTION_COMMAND:-/usr/lib/thorch/boot-transaction}"
+creator="${THORCH_BOOT_MARKER_CREATOR:-/usr/lib/thorch/create-bootstrap-ready-package}"
+protocol="${THORCH_BOOT_PROTOCOL_FILE:-/usr/lib/thorch/boot-bootstrap-protocol}"
+[[ -r "${protocol}" ]] || {
+  echo "error: missing boot bootstrap protocol: ${protocol}" >&2
+  exit 1
+}
+# shellcheck source=../lib/thorch/boot-bootstrap-protocol
+source "${protocol}"
+"${transaction}" migrate
+if ! pacman -T "${THORCH_BOOTSTRAP_MARKER_REQUIREMENT}" >/dev/null 2>&1; then
+  [[ -x "${creator}" ]] || {
+    echo "error: missing local bootstrap marker creator: ${creator}" >&2
+    exit 1
+  }
+  work="$(mktemp -d)"
+  cleanup() {
+    rm -rf "${work}"
+  }
+  trap cleanup EXIT
+  marker="${work}/${THORCH_BOOTSTRAP_MARKER_PACKAGE}-${THORCH_BOOTSTRAP_MARKER_PKGVER}-${THORCH_BOOTSTRAP_MARKER_PKGREL}-any.pkg.tar"
+  pacman_conf="${work}/pacman.conf"
+  "${creator}" "${marker}"
+  cp /etc/pacman.conf "${pacman_conf}"
+  if grep -q '^LocalFileSigLevel[[:space:]]*=' "${pacman_conf}"; then
+    sed -i 's/^LocalFileSigLevel[[:space:]]*=.*/LocalFileSigLevel = Never/' "${pacman_conf}"
+  else
+    sed -i '/^\[options\]/a LocalFileSigLevel = Never' "${pacman_conf}"
+  fi
+  pacman --config "${pacman_conf}" --noconfirm -U "${marker}"
+fi
+pacman -T "${THORCH_BOOTSTRAP_MARKER_REQUIREMENT}" >/dev/null
+"${transaction}" activate
+cat <<'EOF'
+Thorch update bootstrap is ready.
+
+The legacy masks are removed, transactional hooks are installed, and a local
+readiness package now gates linux-thorch dependency resolution. A repository
+kernel/full-system upgrade may now run as a separate transaction.
+EOF

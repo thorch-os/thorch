@@ -33,11 +33,13 @@ tree remains installed in the root filesystem.
 `thorch-firmware-rocknix` packages the synced public ROCKNIX firmware tree into
 `/usr/lib/firmware`. It also installs the matching ROCKNIX `/SYSTEM`
 Turnip/Freedreno runtime imported with the kernel image: the native aarch64 host
-driver, `libdisplay-info.so.2` compatibility library, ROCKNIX FEX-side Freedreno
-helper, and host Vulkan ICD. The image build removes Arch's stock
-`linux-firmware*` packages and relies on this package for Thor firmware,
-including the Adreno firmware imported from the ROCKNIX `/SYSTEM` kernel
-overlay.
+driver and its matching `libdisplay-info.so.2` compatibility library under
+`/usr/lib/thorch/freedreno`, the ROCKNIX FEX-side Freedreno helper, and a
+uniquely named host Vulkan ICD. The private driver has an `$ORIGIN` runpath, so
+neither compatibility library overwrites Arch's system `libdisplay-info`. The
+package declares the stock `linux-firmware*` packages it provides, conflicts
+with, and replaces, so a normal pacman transaction can transfer ownership
+without `-Rdd` or `--overwrite`.
 
 `thorch-kde-defaults` installs the Plasma Desktop dependencies, SDDM defaults,
 KWin display and touch seeds, virtual keyboard settings, audio user units,
@@ -46,8 +48,12 @@ color scheme, desktop/mobile session switchers, Bluetooth support, Firefox, and
 the core KDE desktop applications. Plasma Mobile is installed for testing and
 SteamOS-mode handoff, but the image builder selects Plasma Desktop by default unless
 `THORCH_DEFAULT_SESSION` is changed. Session changes go through
-`thorch-sessionctl`, which stages SDDM autologin updates and prefers a clean
-reboot over restarting SDDM from inside a live Plasma session.
+`thorch-sessionctl`, which writes generated autologin state to the
+higher-priority, non-package-owned `/etc/sddm.conf.d/90-thorch-local.conf` and
+prefers a clean reboot over restarting SDDM from inside a live Plasma session.
+The package-owned `10-thorch.conf` contains only static theme/input policy. Its
+upgrade script migrates autologin values written by older releases before that
+static file is replaced.
 
 `thorch-firstboot` installs the fullscreen QML onboarding app, root helper,
 Polkit rule, autostart entry, and optional Wayland session entry. The helper
