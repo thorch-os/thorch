@@ -359,9 +359,9 @@ create_target_in_free_space_after_userdata() {
   before_nums="$(partition_numbers "${disk}")"
   parted -a optimal -s "${disk}" mkpart primary fat32 "${boot_start_mib}MiB" "${boot_end_mib}MiB"
   boot_num="$(new_partition_number_since "${disk}" "${before_nums}")"
-  parted -s "${disk}" name "${boot_num}" ROCKNIX
+  parted -s "${disk}" name "${boot_num}" system
   parted -s "${disk}" set "${boot_num}" msftdata on || true
-  parted -s "${disk}" set "${boot_num}" boot on || true
+  parted -s "${disk}" set "${boot_num}" legacy_boot on || true
 
   echo ":: thorch-install phase=create-root"
   before_nums="$(partition_numbers "${disk}")"
