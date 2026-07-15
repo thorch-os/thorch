@@ -2,7 +2,7 @@
 
 pkgname=linux-thorch
 pkgver=7.1.2
-pkgrel=8
+pkgrel=9
 pkgdesc='Thorch-packaged ROCKNIX Linux kernel artifacts for AYN Thor / Qualcomm SM8550'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'

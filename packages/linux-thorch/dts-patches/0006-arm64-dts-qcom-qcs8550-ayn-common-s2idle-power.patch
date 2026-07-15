@@ -1,0 +1,48 @@
+From: Luke Johnson <jaewun@me.com>
+Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn: add s2idle power states
+
+Add the board-level suspend constraints used by the Thorch-owned SM8550
+sleep stack. Power the gamepad MCU BOB rail off, switch the retained 1.8 V
+rail to LPM, and correct the PCIe WAKE# GPIO polarity so the WLAN endpoint
+can wake the controller without a permanently asserted wake signal.
+
+The matching qcom-rpmh regulator and regulator-core patches turn these
+regulator-state-mem constraints into RPMh SLEEP/WAKE TCS votes for s2idle.
+---
+ arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+--- a/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi
+@@ -597,6 +597,10 @@
+ 			regulator-min-microvolt = <2720000>;
+ 			regulator-max-microvolt = <3960000>;
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++
++			regulator-state-mem {
++				regulator-off-in-suspend;
++			};
+ 		};
+ 
+ 		vreg_l2b_3p0: ldo2 {
+@@ -704,6 +708,11 @@
+ 			regulator-allow-set-load;
+ 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
+ 						   RPMH_REGULATOR_MODE_HPM>;
++
++			regulator-state-mem {
++				regulator-on-in-suspend;
++				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++			};
+ 		};
+ 
+ 		vreg_l16b_2p8: ldo16 {
+@@ -1095,7 +1104,7 @@
+ };
+ 
+ &pcieport0 {
+-	wake-gpios = <&tlmm 96 GPIO_ACTIVE_HIGH>;
++	wake-gpios = <&tlmm 96 GPIO_ACTIVE_LOW>;
+ 	reset-gpios = <&tlmm 94 GPIO_ACTIVE_LOW>;
+ 
+ 	wifi@0 {
