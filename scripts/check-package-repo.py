@@ -48,6 +48,22 @@ def package_files(archive: Path) -> Iterable[str]:
         yield path
 
 
+def validate_package_ownership(archive: Path) -> None:
+    for line in bsdtar(archive, "--numeric-owner", "-tvf").splitlines():
+        fields = line.split(maxsplit=8)
+        if len(fields) < 9:
+            raise RepoError(
+                f"{archive.name}: cannot parse archive ownership: {line}"
+            )
+        uid, gid, path = fields[2], fields[3], fields[8]
+        if uid != "0" or gid != "0":
+            if fields[0].startswith("l"):
+                path = path.split(" -> ", 1)[0]
+            raise RepoError(
+                f"{archive.name}: {path} has non-root archive ownership {uid}:{gid}"
+            )
+
+
 def package_info(archive: Path) -> Dict[str, List[str]]:
     result = subprocess.run(
         ["bsdtar", "-xOqf", str(archive), ".PKGINFO"],
@@ -274,6 +290,8 @@ def main(argv: List[str]) -> int:
         if args.retained_root is not None or candidates:
             validate_replacements(archives + retained, candidates)
         if candidates:
+            for candidate in candidates:
+                validate_package_ownership(candidate)
             if args.binding is not None:
                 load_artifact_binding(
                     candidates[0],
@@ -286,6 +304,7 @@ def main(argv: List[str]) -> int:
             raise RepoError(f"no package archives in {repo}")
         for archive in archives:
             validate_regular_file(archive, "package archive")
+            validate_package_ownership(archive)
         if args.bindings_root is not None:
             validate_artifact_bindings(archives, args.bindings_root.absolute())
 

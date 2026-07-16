@@ -3,7 +3,7 @@
 pkgname=thorch-gamepadcalibration
 _commit=2077e7af7e9a8c1df54af6f1959cb92daea03207
 pkgver=2024.10.02
-pkgrel=2
+pkgrel=3
 pkgdesc='ROCKNIX GPcal and gamepad testing tools for Thorch'
 arch=(any)
 url='https://github.com/cdeletre/GPcal'
@@ -34,7 +34,7 @@ package() {
   cd "${srcdir}/GPcal-${_commit}"
 
   install -d "${pkgdir}/usr/share/gpcal" "${pkgdir}/usr/bin"
-  tar -xzf rocknix/gpcal-python-3.13.tgz -C "${pkgdir}/usr/share"
+  tar --no-same-owner -xzf rocknix/gpcal-python-3.13.tgz -C "${pkgdir}/usr/share"
 
   sed -i \
     -e 's|/sys/module/retroid/parameters|/sys/module/rsinput/parameters|g' \

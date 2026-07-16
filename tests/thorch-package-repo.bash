@@ -23,12 +23,34 @@ arch = any
 depend = ${dependency}
 EOF
   printf '%s\n' "${name}" > "${tree}/${path}"
-  bsdtar -cf "${fixture}/${name}-1-1-any.pkg.tar.xz" -C "${tree}" .PKGINFO "${path}"
+  bsdtar --uid 0 --gid 0 -cf "${fixture}/${name}-1-1-any.pkg.tar.xz" \
+    -C "${tree}" .PKGINFO "${path}"
 }
 
 make_package alpha usr/bin/alpha
 make_package beta usr/bin/beta
 python3 "${checker}" "${fixture}" --require alpha beta >/dev/null
+
+owned_tree="${fixture}/tree-owned"
+mkdir -p "${owned_tree}/usr/bin"
+cat > "${owned_tree}/.PKGINFO" <<'EOF'
+pkgname = owned
+pkgver = 1-1
+arch = any
+depend = bash
+EOF
+printf 'owned\n' > "${owned_tree}/usr/bin/owned"
+bsdtar --uid 501 --gid 20 -cf "${fixture}/owned-1-1-any.pkg.tar.xz" \
+  -C "${owned_tree}" .PKGINFO usr/bin/owned
+if python3 "${checker}" "${fixture}" \
+    >/dev/null 2>"${fixture}/archive-ownership-failure"; then
+  fail "repository validator accepted non-root package archive ownership"
+fi
+grep -q '.PKGINFO has non-root archive ownership 501:20' \
+  "${fixture}/archive-ownership-failure" ||
+  fail "archive ownership failure did not identify the affected path"
+rm -f "${fixture}/owned-1-1-any.pkg.tar.xz"
+
 ln -s "${fixture}/outside-package" \
   "${fixture}/symlink-1-1-any.pkg.tar.xz"
 if python3 "${checker}" "${fixture}" \
@@ -121,7 +143,7 @@ arch = any
 depend = bash
 EOF
 printf 'different bytes\n' > "${fixture}/candidate-tree/usr/bin/alpha"
-bsdtar -cf "${fixture}/candidates/alpha-different.pkg.tar.xz" \
+bsdtar --uid 0 --gid 0 -cf "${fixture}/candidates/alpha-different.pkg.tar.xz" \
   -C "${fixture}/candidate-tree" .PKGINFO usr/bin/alpha
 if python3 "${checker}" "${fixture}" \
     --candidate "${fixture}/candidates/alpha-different.pkg.tar.xz" \
@@ -131,7 +153,7 @@ fi
 grep -q 'bump epoch/pkgver/pkgrel' "${fixture}/replacement-failure" ||
   fail "same-version replacement error did not require an actionable version bump"
 sed -i 's/pkgver = 1-1/pkgver = 1-2/' "${fixture}/candidate-tree/.PKGINFO"
-bsdtar -cf "${fixture}/candidates/alpha-bumped.pkg.tar.xz" \
+bsdtar --uid 0 --gid 0 -cf "${fixture}/candidates/alpha-bumped.pkg.tar.xz" \
   -C "${fixture}/candidate-tree" .PKGINFO usr/bin/alpha
 python3 "${checker}" "${fixture}" \
   --candidate "${fixture}/candidates/alpha-bumped.pkg.tar.xz" >/dev/null ||
@@ -151,7 +173,7 @@ install -d "${fixture}/retained/cohort"
 cp "${fixture}/candidates/alpha-bumped.pkg.tar.xz" \
   "${fixture}/retained/cohort/alpha-1-2-any.pkg.tar.xz"
 printf 'different retained bytes\n' > "${fixture}/candidate-tree/usr/bin/alpha"
-bsdtar -cf "${fixture}/candidates/alpha-retained-conflict.pkg.tar.xz" \
+bsdtar --uid 0 --gid 0 -cf "${fixture}/candidates/alpha-retained-conflict.pkg.tar.xz" \
   -C "${fixture}/candidate-tree" .PKGINFO usr/bin/alpha
 if python3 "${checker}" "${fixture}" \
     --retained-root "${fixture}/retained" \
@@ -163,7 +185,7 @@ grep -q 'bump epoch/pkgver/pkgrel' "${fixture}/retained-failure" ||
   fail "retained same-version conflict did not require a version bump"
 
 sed -i 's/pkgver = 1-2/pkgver = 1-1/' "${fixture}/candidate-tree/.PKGINFO"
-bsdtar -cf "${fixture}/retained/cohort/alpha-current-conflict.pkg.tar.xz" \
+bsdtar --uid 0 --gid 0 -cf "${fixture}/retained/cohort/alpha-current-conflict.pkg.tar.xz" \
   -C "${fixture}/candidate-tree" .PKGINFO usr/bin/alpha
 if python3 "${checker}" "${fixture}" \
     --retained-root "${fixture}/retained" \
