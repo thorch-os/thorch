@@ -348,17 +348,44 @@ unmask_image_boot_transaction_hooks() {
   return "${status}"
 }
 
-install_image_packages() {
-  local package_args status=0
+verify_image_package_versions() {
+  local package expected installed
 
-  printf -v package_args '%q ' "${image_packages[@]}"
+  for package in "${image_packages[@]}"; do
+    expected="$(
+      run_rootfs "LC_ALL=C pacman --config /etc/pacman-thorch-build.conf -Si thorch/${package} | sed -n 's/^Version[[:space:]]*:[[:space:]]*//p' | head -n1" |
+        strip_control_output
+    )"
+    [[ -n "${expected}" ]] || die "local repository has no version for ${package}"
+    installed="$(run_rootfs_cmd /usr/bin/pacman -Q -- "${package}" | strip_control_output)"
+    [[ "${installed}" == "${package} ${expected}" ]] ||
+      die "installed ${installed:-missing ${package}}, expected local ${package} ${expected}"
+  done
+}
+
+install_image_packages() {
+  local package package_args status=0
+  local -a local_package_targets=()
+
+  for package in "${image_packages[@]}"; do
+    local_package_targets+=("thorch/${package}")
+  done
+  printf -v package_args '%q ' "${local_package_targets[@]}"
   # A reusable image root has no mounted /boot and is not its host's running
   # system. Suppress only Thorch's live-update hooks while pacman composes it;
   # the normal image path below generates and validates the payload explicitly.
   mask_image_boot_transaction_hooks
-  run_rootfs "pacman --config /etc/pacman-thorch-build.conf -Syu --noconfirm ${package_args}" || status=$?
+  # The pristine ALARM root contains a stock kernel and firmware. Remove them
+  # in a dependency-checked transaction so pacman does not stop for conflict
+  # prompts when installing their explicit Thorch replacements.
+  remove_chroot_packages_if_installed \
+    "${rootfs_dir}" "${rootfs_machine}" "${stock_kernel_firmware[@]}" || status=$?
+  if [[ "${status}" -eq 0 ]]; then
+    run_rootfs "pacman --config /etc/pacman-thorch-build.conf -Syu --noconfirm ${package_args}" || status=$?
+  fi
   unmask_image_boot_transaction_hooks || status=$?
   [[ "${status}" -eq 0 ]] || return "${status}"
+  verify_image_package_versions
 
   # Finish the legacy-mask migration only after pacman has released its lock.
   # The delivered image is then guarded for every future kernel transaction.
@@ -589,9 +616,18 @@ else
 fi
 unstage_image_repository
 
-unexpected_firmware="$(run_rootfs "pacman -Qq ${stock_kernel_firmware[*]} 2>/dev/null || true" | strip_control_output)"
-if [[ -n "${unexpected_firmware}" ]]; then
-  die "unexpected generic/GPU firmware packages installed: ${unexpected_firmware//$'\n'/ }"
+mapfile -t installed_package_names < <(run_rootfs "pacman -Qq" | strip_control_output)
+unexpected_stock_packages=()
+for stock_package in "${stock_kernel_firmware[@]}"; do
+  for installed_package in "${installed_package_names[@]}"; do
+    if [[ "${installed_package}" == "${stock_package}" ]]; then
+      unexpected_stock_packages+=("${stock_package}")
+      break
+    fi
+  done
+done
+if (( ${#unexpected_stock_packages[@]} > 0 )); then
+  die "unexpected stock kernel/firmware packages installed: ${unexpected_stock_packages[*]}"
 fi
 run_rootfs "test -f /usr/lib/firmware/qcom/a740_sqe.fw && test -f /usr/lib/firmware/qcom/gmu_gen70200.bin && test -f /usr/lib/firmware/qcom/sm8550/a740_zap.mbn" || \
   die "missing ROCKNIX Adreno firmware files"

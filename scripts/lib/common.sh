@@ -398,16 +398,20 @@ thorch_stock_firmware_packages() {
 }
 
 remove_chroot_packages_if_installed() {
-  local rootfs="$1" machine="$2" package
+  local rootfs="$1" machine="$2" package installed_package installed_output
   local -a installed=()
   shift 2
 
+  installed_output="$(
+    run_aarch64_rootfs_cmd "${rootfs}" "${machine}" /usr/bin/pacman -Qq
+  )"
   for package in "$@"; do
-    if run_aarch64_rootfs_cmd \
-      "${rootfs}" "${machine}" /usr/bin/pacman -Qq -- "${package}" \
-      >/dev/null 2>&1; then
-      installed+=("${package}")
-    fi
+    while IFS= read -r installed_package; do
+      if [[ "${installed_package}" == "${package}" ]]; then
+        installed+=("${package}")
+        break
+      fi
+    done <<< "${installed_output}"
   done
   (( ${#installed[@]} > 0 )) || return 0
 
