@@ -12,7 +12,7 @@ THORCH_SUDO := sudo --preserve-env=$(THORCH_SUDO_ENV)
 
 comma := ,
 THORCH_DOCKER_IMAGE ?= ghcr.io/thorch-os/thorch-build:latest
-THORCH_DOCKER_BASE_IMAGE ?= $(shell if uname -m | grep -Eq '^(arm64|aarch64)$$'; then echo menci/archlinuxarm:base-devel; else echo archlinux:base-devel; fi)
+THORCH_DOCKER_BASE_IMAGE ?= $(shell if uname -m | grep -Eq '^(arm64|aarch64)$$'; then echo menci/archlinuxarm:base-devel; else sed -n 's/^ARG THORCH_DOCKER_BASE_IMAGE=//p' Dockerfile; fi)
 THORCH_DOCKER_CMD ?= $(shell if command -v docker >/dev/null 2>&1; then echo docker; elif command -v podman >/dev/null 2>&1; then echo podman; fi)
 THORCH_DOCKER_WORKDIR ?= /work
 THORCH_DOCKER_RUN_ARGS ?=
