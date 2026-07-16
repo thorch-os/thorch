@@ -9,6 +9,8 @@ image_builder="${root}/scripts/build-image.sh"
 installer="${root}/packages/thorch-installer/payload/usr/bin/thorch-install-internal"
 expand_root="${root}/packages/thorch-installer/payload/usr/bin/thorch-expand-root"
 sd_hook="${root}/packages/thorch-bsp/payload/usr/lib/initcpio/hooks/thorch-sd-prefer"
+mkinitcpio_policy="${root}/packages/thorch-bsp/payload/etc/mkinitcpio.conf.d/90-thorch.conf"
+linux_pkgbuild="${root}/packages/linux-thorch/PKGBUILD"
 firstbootctl="${root}/packages/thorch-firstboot/payload/usr/bin/thorch-firstbootctl"
 nightly="${root}/.github/workflows/nightly.yml"
 build_docs="${root}/docs/build.md"
@@ -57,8 +59,11 @@ grep -q 'verify_btrfs_image_readable' "${image_builder}" ||
 grep -q 'thorch-rebuild-abl-kernel --root-uuid ${root_uuid} --rootfstype ${root_fstype}' "${image_builder}" ||
   fail "image builder does not pass rootfstype through to /KERNEL"
 
-grep -q 'ensure_mkinitcpio_module .* btrfs' "${image_builder}" ||
-  fail "image builder does not add btrfs to mkinitcpio modules"
+grep -Eq '^MODULES\+?=.*(^|[[:space:](])btrfs([[:space:])]|$)' "${mkinitcpio_policy}" ||
+  fail "package-owned mkinitcpio policy does not add the btrfs root module"
+
+! grep -q '^ALL_config=' "${linux_pkgbuild}" ||
+  fail "linux-thorch preset bypasses package-owned mkinitcpio drop-ins"
 
 grep -q 'supported_root_fstype()' "${installer}" ||
   fail "internal installer does not validate supported root filesystems"
@@ -68,6 +73,9 @@ grep -q 'mkfs.btrfs' "${installer}" ||
 
 grep -q 'rootfstype "${root_fstype}"' "${installer}" ||
   fail "internal installer does not rebuild /KERNEL with the selected rootfstype"
+
+grep -q 'installed root is missing package-owned Thorch mkinitcpio policy' "${installer}" ||
+  fail "internal installer does not require the packaged mkinitcpio policy"
 
 grep -q 'btrfs filesystem resize max /' "${expand_root}" ||
   fail "root expander does not grow btrfs roots online"

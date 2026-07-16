@@ -119,9 +119,12 @@ in the builder.
 The Docker wrapper mounts the repository at `/work`, runs the container
 privileged for loop-device/image operations, disables SELinux relabeling on the
 bind mount, and returns generated artifacts to the host user when the command
-exits. It preserves root ownership inside `build/image-rootfs` and
-`build/pkg-root`, because those chroot permissions become image metadata and
-are required for reliable rootfs reuse.
+exits. It preserves root ownership inside `build/image-rootfs`,
+`build/pkg-base-root`, and `build/pkg-root`, because those chroot permissions
+become image metadata and are required for reliable rootfs reuse. Package
+builds update one pristine base root, then clone it for every package. makepkg
+resolves each clone's dependencies from the PKGBUILD and the staged local repo;
+dependencies from one package build never leak into the next.
 
 On an `arm64` or `aarch64` host, `make docker-image-build` selects the native
 `menci/archlinuxarm:base-devel` base and builds kernels and Arch Linux ARM
@@ -221,13 +224,14 @@ refresh. If ROCKNIX-derived kernel artifacts changed, run
 Nightly GitHub Actions image builds are defined in
 `.github/workflows/nightly.yml` and documented in
 [`docs/nightly-actions.md`](nightly-actions.md). They run on GitHub-hosted
-Ubuntu, pull or build the Thorch Docker builder image, and invoke
+Ubuntu, pull the reviewed Thorch builder image by immutable digest, and invoke
 `make docker-nightly` with `THORCH_ROOTFS_RUNNER=chroot`.
 
-The default image package set is:
+The canonical package order and profile membership live in
+`manifests/packages.json`. Print the default image profile with:
 
 ```bash
-linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults thorch-firstboot thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration
+python3 scripts/package-manifest.py profile image --format space
 ```
 
 `thorch-kde-defaults` installs Firefox and the core KDE desktop applications:
@@ -283,7 +287,9 @@ describes their purpose without duplicating mutable source or kernel refs.
 - `ROCKNIX_KERNEL_SHA256_URL`: explicit checksum URL for the ROCKNIX image.
 - `ROCKNIX_KERNEL_CACHE_DIR`: download/decompression cache, default `build/cache/rocknix`.
 - `THORCH_USER`: default image user, default `thorch`.
-- `THORCH_PASSWORD`: password/PIN for the default user and root, default `1234`.
+- `THORCH_PASSWORD`: optional local bring-up password/PIN for the default user
+  and root. It is empty by default, leaving both accounts locked until
+  firstboot provisions the owner's chosen password.
 - `THORCH_IMAGE_SIZE`: raw image size, default `auto`; set a fixed size such as `16G` when preallocated free space is needed.
 - `THORCH_IMAGE_AUTO_HEADROOM`: extra rootfs space when `THORCH_IMAGE_SIZE=auto`, default `1G`.
 - `THORCH_ROOT_FSTYPE`: root filesystem type, default `ext4`; set to `btrfs` for a compressed btrfs root image.
@@ -291,7 +297,8 @@ describes their purpose without duplicating mutable source or kernel refs.
 - `THORCH_USER_CACHE_TMPFS_SIZE`: default user's `~/.cache` tmpfs size, default `512M`; set `0`, `off`, `none`, or `disabled` to turn it off.
 - `THORCH_BOOT_SIZE`: FAT boot partition size, default `512M`.
 - `THORCH_DEFAULT_SESSION`: `plasma-desktop` by default; use `plasma-mobile` to test the mobile shell.
-- `THORCH_IMAGE_PACKAGES`: local packages installed into the image.
+- `THORCH_IMAGE_PACKAGES`: optional complete override for the image profile
+  generated from `manifests/packages.json`.
 - `THORCH_BUILD_DIR`: build work directory, default `build`.
 - `THORCH_ROOTFS_RUNNER`: rootfs command runner, default `chroot`; can be set to `systemd-nspawn` for the old backend.
 - `THORCH_OUTPUT_DIR`: image/package output directory, default `output`.

@@ -29,6 +29,8 @@ Options:
   --cache-dir <dir>           Download/decompress cache. Default: build/cache/rocknix.
   --dest <dir>                Import destination. Default: vendor/rocknix-kernel.
   --runtime-dest <dir>        Runtime import destination. Default: vendor/rocknix-runtime.
+  --mount-probe-image <path>  Attach and mount a local partitioned image, emit
+                              diagnostics, then exit. Used by Linux CI.
   --skip-thorch-kernel-build  Keep the imported ROCKNIX kernel payload. This is
                               only for local diagnostics; Waydroid will fail.
   --keep-mounted              Leave the loop image mounted for debugging.
@@ -49,6 +51,7 @@ runtime_dest="${THORCH_ROCKNIX_RUNTIME_DIR}"
 keep_mounted=0
 allow_unverified="${ROCKNIX_KERNEL_ALLOW_UNVERIFIED:-0}"
 build_thorch_kernel="${THORCH_KERNEL_SOURCE_BUILD:-1}"
+mount_probe_image=""
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -96,6 +99,11 @@ while [[ "$#" -gt 0 ]]; do
       [[ -n "${runtime_dest}" ]] || die "--runtime-dest requires a value"
       shift 2
       ;;
+    --mount-probe-image)
+      mount_probe_image="${2:-}"
+      [[ -n "${mount_probe_image}" ]] || die "--mount-probe-image requires a value"
+      shift 2
+      ;;
     --skip-thorch-kernel-build)
       build_thorch_kernel=0
       shift
@@ -116,9 +124,19 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 require_root
-require_cmd curl gzip jq losetup mcopy mount python3 readlink sha256sum sfdisk umount unsquashfs
+require_cmd blkid curl file findmnt gzip jq losetup lsblk mcopy mknod mount python3 readlink sha256sum sfdisk stat umount unsquashfs
+
+if [[ -n "${mount_probe_image}" ]]; then
+  mount_probe_image="$(readlink -f "${mount_probe_image}")"
+  [[ -f "${mount_probe_image}" ]] || die "mount probe image is not a regular file: ${mount_probe_image}"
+  image_url="file://${mount_probe_image}"
+  sha256_url=""
+  allow_unverified=1
+fi
 
 root="$(repo_root)"
+boot_tool="${root}/packages/thorch-bsp/payload/usr/lib/thorch/boot_image.py"
+[[ -f "${boot_tool}" ]] || die "missing canonical boot image tool: ${boot_tool}"
 if [[ "${cache_dir}" == /* ]]; then
   cache_abs="$(abspath "${cache_dir}")"
 else
@@ -247,6 +265,7 @@ mounts=()
 work_tree=""
 userspace_boot_tree=""
 loop_device=""
+created_device_nodes=()
 cleanup() {
   if [[ "${keep_mounted}" -eq 1 ]]; then
     if [[ -n "${loop_device}" ]]; then
@@ -260,12 +279,34 @@ cleanup() {
   done
   [[ -n "${loop_device}" ]] && losetup -d "${loop_device}" >/dev/null 2>&1 || true
   [[ -n "${userspace_boot_tree}" ]] && rm -rf "${userspace_boot_tree}" >/dev/null 2>&1 || true
+  local device_node
+  for device_node in "${created_device_nodes[@]}"; do
+    rm -f "${device_node}" >/dev/null 2>&1 || true
+  done
   for mountpoint in "${mounts[@]}"; do
     rmdir "${mountpoint}" >/dev/null 2>&1 || true
   done
   [[ -n "${work_tree}" ]] && rm -rf "${work_tree}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+ensure_loop_partition_device_nodes() {
+  local name type major_minor major minor
+
+  while read -r name type major_minor; do
+    [[ "${type}" == "part" ]] || continue
+    [[ "${name}" == "${loop_device}"p* ]] || \
+      die "unexpected partition path reported for ${loop_device}: ${name}"
+    [[ -b "${name}" ]] && continue
+    major="${major_minor%%:*}"
+    minor="${major_minor#*:}"
+    [[ "${major}" =~ ^[0-9]+$ && "${minor}" =~ ^[0-9]+$ ]] || \
+      die "invalid major/minor for ${name}: ${major_minor}"
+    log "creating missing loop partition node path=${name} major-minor=${major_minor}"
+    mknod -m 0600 "${name}" b "${major}" "${minor}"
+    created_device_nodes+=("${name}")
+  done < <(lsblk -nrpo NAME,TYPE,MAJ:MIN "${loop_device}")
+}
 
 log "attaching ${image} read-only"
 loop_device="$(losetup --find --partscan --show --read-only "${image}")"
@@ -275,14 +316,35 @@ for _ in {1..20}; do
   [[ "${#partitions[@]}" -ge 2 ]] && break
   sleep 0.25
 done
-[[ "${#partitions[@]}" -ge 2 ]] || die "unable to find boot/root partitions in ${image}"
+if [[ "${#partitions[@]}" -lt 2 ]]; then
+  log "ROCKNIX block topology after partition discovery failure"
+  lsblk --output NAME,MAJ:MIN,TYPE,SIZE,RO,FSTYPE,LABEL,UUID,PARTTYPE,MOUNTPOINTS "${loop_device}" >&2 || \
+    lsblk -f "${loop_device}" >&2 || true
+  stat -Lc 'device-node path=%n type=%F mode=%A major-minor-hex=%t:%T inode=%i' "${loop_device}" >&2 || true
+  die "unable to find boot/root partitions in ${image}"
+fi
+ensure_loop_partition_device_nodes
 
-boot_part="${partitions[0]}"
+log "ROCKNIX block topology"
+lsblk --output NAME,MAJ:MIN,TYPE,SIZE,RO,FSTYPE,LABEL,UUID,PARTTYPE,MOUNTPOINTS "${loop_device}" >&2 || \
+  lsblk -f "${loop_device}" >&2 || true
+for part in "${loop_device}" "${partitions[@]}"; do
+  stat -Lc 'device-node path=%n type=%F mode=%A major-minor-hex=%t:%T inode=%i' "${part}" >&2 || true
+  log "blkid path=${part}"
+  blkid -o full "${part}" >&2 || true
+  log "filesystem probe path=${part}"
+  file -Ls "${part}" >&2 || true
+done
+
 for part in "${partitions[@]}"; do
   mountpoint="$(mktemp -d /tmp/thorch-rocknix-part.XXXXXX)"
-  if mount -o ro "${part}" "${mountpoint}" >/dev/null 2>&1; then
+  log "mount attempt source=${part} target=${mountpoint} options=ro"
+  if mount -v -o ro "${part}" "${mountpoint}"; then
     mounts+=("${mountpoint}")
+    mount_details="$(findmnt --noheadings --output SOURCE,FSTYPE,OPTIONS --target "${mountpoint}")"
+    log "mounted ${mount_details} target=${mountpoint}"
   else
+    warn "mount failed source=${part} target=${mountpoint} options=ro"
     rmdir "${mountpoint}" >/dev/null 2>&1 || true
   fi
 done
@@ -301,6 +363,11 @@ if [[ "${#mounts[@]}" -eq 0 ]]; then
     die "unable to extract ROCKNIX boot files from ${image}"
   fi
   mounts+=("${userspace_boot_tree}")
+fi
+
+if [[ -n "${mount_probe_image}" ]]; then
+  log "partitioned image mount probe passed: ${mount_probe_image}"
+  exit 0
 fi
 
 find_mounted_boot_dir() {
@@ -327,69 +394,10 @@ find_mounted_root_dir() {
 
 extract_android_boot_kernel() {
   local kernel_image="$1" image_out="$2"
-  python3 - "${kernel_image}" "${image_out}" <<'PY'
-import pathlib
-import struct
-import sys
-import zlib
-
-boot_path = pathlib.Path(sys.argv[1])
-image_out = pathlib.Path(sys.argv[2])
-data = boot_path.read_bytes()
-if data[:8] != b"ANDROID!":
-    raise SystemExit(f"{boot_path} is not an Android boot image")
-
-kernel_size = struct.unpack_from("<I", data, 8)[0]
-page_size = struct.unpack_from("<I", data, 36)[0]
-kernel_offset = page_size
-kernel = data[kernel_offset:kernel_offset + kernel_size]
-if len(kernel) != kernel_size:
-    raise SystemExit("truncated Android boot kernel payload")
-
-dtb_magic = b"\xd0\r\xfe\xed"
-try:
-    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
-    image = decompressor.decompress(kernel) + decompressor.flush()
-    trailer = decompressor.unused_data
-except zlib.error:
-    dtb_at = kernel.find(dtb_magic)
-    if dtb_at < 0:
-        raise
-    image = kernel[:dtb_at]
-    trailer = kernel[dtb_at:]
-
-dtbs = []
-pos = 0
-while True:
-    dtb_at = trailer.find(dtb_magic, pos)
-    if dtb_at < 0:
-        break
-    if len(trailer) < dtb_at + 8:
-        raise SystemExit("appended DTB is truncated")
-    dtb_size = struct.unpack_from(">I", trailer, dtb_at + 4)[0]
-    if dtb_size < 8 or len(trailer) < dtb_at + dtb_size:
-        raise SystemExit("appended DTB is truncated")
-    dtb = trailer[dtb_at:dtb_at + dtb_size]
-    dtbs.append(dtb)
-    pos = dtb_at + dtb_size
-
-if not dtbs:
-    raise SystemExit("Android boot kernel payload does not contain an appended DTB")
-
-matches = [
-    dtb for dtb in dtbs
-    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb
-]
-if not matches:
-    raise SystemExit(
-        "Android boot kernel payload does not contain an AYN Thor DTB; "
-        f"found {len(dtbs)} DTB(s)"
-    )
-if len(matches) > 1:
-    raise SystemExit("Android boot kernel payload contains multiple AYN Thor DTBs")
-image_out.parent.mkdir(parents=True, exist_ok=True)
-image_out.write_bytes(image)
-PY
+  python3 "${boot_tool}" extract-kernel \
+    "${kernel_image}" \
+    "${image_out}" \
+    --require-thor
 }
 
 normalize_immutable_rocknix_image() {

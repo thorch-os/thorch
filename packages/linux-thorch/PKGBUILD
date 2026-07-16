@@ -7,10 +7,11 @@ pkgdesc='Thorch-packaged ROCKNIX Linux kernel artifacts for AYN Thor / Qualcomm 
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-only)
-depends=(coreutils kmod mkinitcpio)
+depends=(coreutils kmod mkinitcpio 'thorch-boot-bootstrap-ready>=1-1' 'thorch-bsp>=1-27')
 makedepends=(python)
-provides=(linux)
-conflicts=(linux)
+provides=("linux=${pkgver}" "linux-aarch64=${pkgver}")
+conflicts=(linux linux-aarch64)
+replaces=(linux linux-aarch64)
 options=('!strip')
 
 _kernel_dir="${THORCH_ROCKNIX_KERNEL_DIR:-${startdir}/../../vendor/rocknix-kernel}"
@@ -19,49 +20,13 @@ verify_waydroid_kernel_config() {
   local image="$1"
 
   [[ "${THORCH_WAYDROID_KERNEL_REQUIRED:-1}" != "0" ]] || return 0
-
-  python3 - "${image}" "${startdir}/waydroid-kernel.config" <<'PY'
-import gzip
-import pathlib
-import sys
-
-image = pathlib.Path(sys.argv[1]).read_bytes()
-required_path = pathlib.Path(sys.argv[2])
-
-start = image.find(b"IKCFG_ST")
-end = image.find(b"IKCFG_ED", start)
-if start < 0 or end < 0:
-    raise SystemExit(f"{sys.argv[1]} does not embed a kernel config")
-
-blob = image[start + len(b"IKCFG_ST"):end].lstrip(b"\x00\n")
-try:
-    config_text = gzip.decompress(blob).decode("utf-8", "replace")
-except OSError as exc:
-    raise SystemExit(f"could not decompress embedded kernel config: {exc}")
-
-config = {}
-for line in config_text.splitlines():
-    if line.startswith("CONFIG_") and "=" in line:
-        key, value = line.split("=", 1)
-        config[key] = value
-
-missing = []
-for raw in required_path.read_text(encoding="utf-8").splitlines():
-    line = raw.split("#", 1)[0].strip()
-    if not line:
-        continue
-    key, value = line.split("=", 1)
-    if config.get(key) != value:
-        missing.append(f"{key}={value}")
-
-if missing:
-    raise SystemExit(
-        "linux-thorch is missing Waydroid kernel support:\n  "
-        + "\n  ".join(missing)
-        + "\nRebuild/import a kernel with Binder IPC and BinderFS enabled, "
-        "or set THORCH_WAYDROID_KERNEL_REQUIRED=0 for a local non-Waydroid experiment."
-    )
-PY
+  if ! /usr/lib/thorch/boot_image.py check-config \
+      "${image}" "${startdir}/waydroid-kernel.config"; then
+    printf '%s\n' \
+      'Rebuild/import a kernel with Binder IPC and BinderFS enabled, or set' \
+      'THORCH_WAYDROID_KERNEL_REQUIRED=0 for a local non-Waydroid experiment.' >&2
+    return 1
+  fi
 }
 
 verify_waydroid_module_tree() {
@@ -94,7 +59,7 @@ package() {
   local image="${_kernel_dir}/boot/Image"
   local kernel_boot="${_kernel_dir}/boot/KERNEL"
   local modules_root="${_kernel_dir}/usr/lib/modules"
-  local kernver
+  local kernver expected_kernver
 
   if [[ ! -f "${image}" || ! -f "${kernel_boot}" || ! -d "${modules_root}" ]]; then
     cat >&2 <<EOF
@@ -119,6 +84,12 @@ EOF
     echo "unable to determine kernel release from ${modules_root}" >&2
     exit 1
   }
+  expected_kernver="${pkgver}-thorch${pkgrel}"
+  [[ "${kernver}" == "${expected_kernver}" ]] || {
+    printf 'linux-thorch kernel release is %s, expected %s; rebuild the kernel after every package release bump\n' \
+      "${kernver}" "${expected_kernver}" >&2
+    exit 1
+  }
 
   install -Dm644 "${image}" "${pkgdir}/usr/lib/modules/${kernver}/Image"
 
@@ -133,7 +104,6 @@ EOF
   fi
 
   install -Dm644 /dev/stdin "${pkgdir}/etc/mkinitcpio.d/linux-thorch.preset" <<EOF
-ALL_config="/etc/mkinitcpio.conf"
 ALL_kver="/usr/lib/modules/${kernver}/Image"
 PRESETS=('default' 'fallback')
 default_image="/boot/initramfs-linux-thorch.img"

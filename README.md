@@ -32,9 +32,8 @@ the recovery and staging path.
 - InputPlumber-based gamepad mapping for the AYN/RSInput MCU path.
 - ROCKNIX-derived SM8550 handheld hints for audio, thermal, CPU/GPU frequency
   paths, modifier buttons, touchscreen, and MangoHud support.
-- USB RNDIS debug gadget with SSH on `10.66.0.1` when connected to a host.
-- Thor joystick RGB helper with battery-status, static color, off, and opt-in
-  ambient desktop color modes.
+- USB RNDIS debug gadget, with opt-in SSH on `10.66.0.1` after account setup.
+- Thor joystick RGB helper with battery-status, static color, and off modes.
 - ROCKNIX ABL-compatible FAT boot partition.
 - Top-level `/KERNEL` Android boot image repacked from the ROCKNIX boot-image
   template with Thorch's BinderFS-capable kernel, ROCKNIX handheld DTB set,
@@ -89,14 +88,6 @@ The internal installer formats selected Linux boot/root partitions. The explicit
 recreating it smaller, which wipes the Android instance stored there. Thorch
 does not flash or replace ABL, but block-device mistakes can still make a device
 painful to recover.
-
-## AI Disclosure
-
-This project uses aggressive AI assistance for research, patch archaeology,
-documentation, scripting, debugging, and general "what if we tried this?"
-engineering chaos. AI-generated changes still need human review, hardware
-testing, and attribution checks before they are treated as trustworthy. Assume
-the machines are helping loudly, not driving unsupervised.
 
 ## Quick Start
 
@@ -153,8 +144,10 @@ and `make packages` will run the ROCKNIX kernel/runtime sync when kernel or FEX
 artifacts are missing, and will run the public source sync when
 package patch/config inputs are missing.
 
-Build the image. The default password/PIN for the default user and root is
-`1234`; override `THORCH_PASSWORD` when you want a different one:
+Build the image. The default user and root accounts remain locked until
+firstboot applies the password chosen by the device owner. For a local-only
+bring-up image, an explicit `THORCH_PASSWORD` seeds both accounts; never use a
+shared value for a published image:
 
 ```bash
 make build
@@ -234,12 +227,14 @@ you need non-default options. See [docs/build.md](docs/build.md) and
 [docs/package-layout.md](docs/package-layout.md) for deeper build and package
 notes.
 
-The default image package set is:
-`linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults
-thorch-firstboot thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers
-thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud
-thorch-gamepadcalibration`. Override
-`THORCH_IMAGE_PACKAGES` when you need a custom image package set.
+The ordered default package set is defined once in
+[`manifests/packages.json`](manifests/packages.json). Inspect the image profile
+with `python3 scripts/package-manifest.py profile image --format space`.
+Override `THORCH_IMAGE_PACKAGES` when you need a custom image package set. See
+[`docs/package-maintenance.md`](docs/package-maintenance.md) for package input,
+version, and isolated-build rules. See
+[`docs/update-safety.md`](docs/update-safety.md) before testing package upgrades
+on an installed system.
 
 `thorch-firstboot` starts a fullscreen QML onboarding flow on first login for
 Wi-Fi, SD-vs-internal install intent, default mode, user/password setup, theme
@@ -249,8 +244,9 @@ page to mark firstboot complete and leave the setup flow if the user gets stuck
 or wants to configure things later.
 
 `thorch-inputplumber` installs InputPlumber's upstream rootfs contents and
-overlays only the Thor input maps. The image builder enables its service only
-when that package/unit is present, so custom package sets can omit it.
+overlays only the Thor input maps. Its package owns the service preset; image
+composition applies the presets supplied by the selected packages, so custom
+package sets can omit it without editing the image builder.
 
 After first boot from a larger SD card, the firstboot flow grows the booted root
 partition and its ext4 or Btrfs filesystem to fill the card unless you choose
@@ -268,9 +264,6 @@ Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.
 
 RGB controls are documented in [docs/rgb.md](docs/rgb.md), including static
 colors, battery-status mode, brightness, and temporary color application.
-Ambient RGB mirroring is installed but left disabled for experiments. Start it
-with `sudo systemctl start thorch-rgb-ambient.service`; enable it only after it
-behaves well on the target hardware.
 
 Fan curve tuning is documented in [docs/fancontrol.md](docs/fancontrol.md),
 including the built-in quiet/moderate/aggressive profiles and custom
@@ -278,14 +271,20 @@ temperature-to-PWM curves.
 
 ## First Boot Debug
 
-The image enables SSH and a USB Ethernet gadget for bring-up. Connect the Thor
-to a Linux host over USB-C, wait a few seconds after boot, then try:
+Published images do not enable SSH or contain a shared password. Complete
+firstboot so the selected account has its owner-chosen password, then opt in
+with the SSH quick setting or:
 
 ```bash
-ssh thorch@10.66.0.1
+sudo systemctl enable --now sshd.service
 ```
 
-The SSH password/PIN is the build-time `THORCH_PASSWORD`, defaulting to `1234`.
+Connect the Thor to a Linux host over USB-C and use the selected username:
+
+```bash
+ssh <username>@10.66.0.1
+```
+
 Each boot writes
 `/boot/thorch-debug-report.txt` so a failed Wi-Fi/touch test can be inspected by
 moving the SD card back to the build host.

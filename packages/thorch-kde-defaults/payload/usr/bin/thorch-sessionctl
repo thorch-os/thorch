@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-state_dir=/var/lib/thorch/session
+root_prefix="${THORCH_SESSIONCTL_ROOT:-}"
+if [[ -n "${root_prefix}" ]]; then
+  [[ "${root_prefix}" = /* && "${root_prefix}" != */../* && "${root_prefix}" != */.. ]] || {
+    echo "THORCH_SESSIONCTL_ROOT must be an absolute path without parent traversal" >&2
+    exit 2
+  }
+  root_prefix="${root_prefix%/}"
+fi
+
+state_dir="${root_prefix}/var/lib/thorch/session"
 state_file="${state_dir}/state"
 pending_file="${state_dir}/pending"
-conf=/etc/sddm.conf.d/10-thorch.conf
+conf="${root_prefix}/etc/sddm.conf.d/90-thorch-local.conf"
 
 usage() {
   cat >&2 <<'EOF'
@@ -21,7 +30,7 @@ EOF
 }
 
 require_root() {
-  [[ "${EUID}" -eq 0 ]] || {
+  [[ "${EUID}" -eq 0 || -n "${root_prefix}" ]] || {
     echo "thorch-sessionctl must run as root" >&2
     exit 1
   }
@@ -52,6 +61,17 @@ configured_user() {
   fi
 
   printf 'thorch\n'
+}
+
+passwd_entry() {
+  local lookup="$1"
+  if [[ -n "${root_prefix}" ]]; then
+    awk -F: -v lookup="${lookup}" \
+      '$1 == lookup || $3 == lookup { print; found = 1; exit } END { exit !found }' \
+      "${root_prefix}/etc/passwd"
+  else
+    getent passwd "${lookup}"
+  fi
 }
 
 mode_session() {
@@ -97,78 +117,14 @@ write_sddm_autologin() {
 
   install -d -m 0755 "$(dirname "${conf}")"
   tmp="$(mktemp "${conf}.XXXXXX")"
-
-  awk -v user="${user}" -v session="${session}" '
-    BEGIN {
-      in_autologin = 0
-      saw_autologin = 0
-      saw_user = 0
-      saw_session = 0
-      saw_relogin = 0
-    }
-    /^\[/ {
-      if (in_autologin) {
-        if (!saw_user) print "User=" user
-        if (!saw_session) print "Session=" session
-        if (!saw_relogin) print "Relogin=true"
-      }
-      in_autologin = ($0 == "[Autologin]")
-      if (in_autologin) {
-        saw_autologin = 1
-        saw_user = 0
-        saw_session = 0
-        saw_relogin = 0
-      }
-      print
-      next
-    }
-    in_autologin && /^User=/ {
-      print "User=" user
-      saw_user = 1
-      next
-    }
-    in_autologin && /^Session=/ {
-      print "Session=" session
-      saw_session = 1
-      next
-    }
-    in_autologin && /^Relogin=/ {
-      print "Relogin=true"
-      saw_relogin = 1
-      next
-    }
-    { print }
-    END {
-      if (in_autologin) {
-        if (!saw_user) print "User=" user
-        if (!saw_session) print "Session=" session
-        if (!saw_relogin) print "Relogin=true"
-      }
-      if (!saw_autologin) {
-        print ""
-        print "[Autologin]"
-        print "User=" user
-        print "Session=" session
-        print "Relogin=true"
-      }
-    }
-  ' "${conf}" > "${tmp}" 2>/dev/null || {
-    cat > "${tmp}" <<EOF
-[Theme]
-Current=breeze
-
-[General]
-InputMethod=qtvirtualkeyboard
-
+  cat > "${tmp}" <<EOF
 [Autologin]
 User=${user}
 Session=${session}
 Relogin=true
 EOF
-  }
-
-  install -m 0644 "${tmp}" "${conf}"
-  rm -f "${tmp}"
+  chmod 0644 "${tmp}"
+  mv -f "${tmp}" "${conf}"
 }
 
 run_steamos_mode_for_user() {
@@ -187,6 +143,10 @@ run_steamos_mode_for_user() {
 
 apply_mode_side_effects() {
   local mode="$1" user="$2"
+
+  # A prefixed root is used by the package integration tests. Never mutate
+  # services or user state outside that root in this mode.
+  [[ -z "${root_prefix}" ]] || return 0
 
   if mode_uses_mobile_drawer_override "${mode}"; then
     if [[ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ]]; then
@@ -294,11 +254,11 @@ set_mode() {
   done
 
   require_root
-  getent passwd "${user}" >/dev/null || {
+  passwd_entry "${user}" >/dev/null || {
     echo "unknown session user: ${user}" >&2
     exit 1
   }
-  if [[ ! -f "/usr/share/wayland-sessions/${session}" && ! -f "/usr/share/xsessions/${session}" ]]; then
+  if [[ ! -f "${root_prefix}/usr/share/wayland-sessions/${session}" && ! -f "${root_prefix}/usr/share/xsessions/${session}" ]]; then
     echo "${label} is not installed. Install the matching Plasma package first." >&2
     exit 1
   fi

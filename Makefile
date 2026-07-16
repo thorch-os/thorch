@@ -25,7 +25,7 @@ HOST_GID ?= $(shell id -g)
 
 docker-audit docker-check docker-test docker-test-rust: THORCH_DOCKER_FIX_OWNERSHIP=0
 
-.PHONY: help audit sync firmware kernel import-kernel packages packages-userspace build fast nightly test test-rust check write clean docker-image-build docker-image-pull docker-shell
+.PHONY: help doctor ci audit sync firmware kernel import-kernel packages packages-userspace build fast nightly test test-rust check write clean docker-image-build docker-image-pull docker-shell
 
 help:
 	@printf '%s\n' \
@@ -34,6 +34,8 @@ help:
 	  '  make docker-image-pull             Pull the Thorch Docker builder image' \
 	  '  make docker-<target>               Run any make target inside the Docker builder' \
 	  '  make docker-shell                  Open a shell inside the Docker builder' \
+	  '  make doctor                        Diagnose the contributor environment' \
+	  '  make ci                            Run the required rootless pull-request checks' \
 	  '  make sync                         Sync ROCKNIX sources and firmware' \
 	  '  make firmware                     Sync firmware only' \
 	  '  make kernel                       Sync ROCKNIX runtime, then source-build BinderFS Thor kernel' \
@@ -79,6 +81,12 @@ docker-shell:
 
 docker-%:
 	$(call thorch_docker_run,make $* IMAGE="$(IMAGE)" DEVICE="$(DEVICE)" ROCKNIX_REF="$(ROCKNIX_REF)" BOOT_DIR="$(BOOT_DIR)" ROOT_DIR="$(ROOT_DIR)" KERNEL_REF="$(KERNEL_REF)")
+
+doctor:
+	./scripts/doctor.sh
+
+ci:
+	./scripts/ci.sh
 
 audit:
 	./scripts/audit-release.sh

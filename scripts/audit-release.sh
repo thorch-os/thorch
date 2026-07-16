@@ -173,6 +173,16 @@ PY
   esac
 done < <(source_files)
 
+note "checking package transaction safeguards"
+if grep -Eq -- '--nodeps([=[:space:]]|$)|\.thorch-build-pacman-deps' \
+    "${root}/scripts/build-packages.sh"; then
+  fail_audit "package builds bypass declared dependency checks"
+fi
+if grep -Eq -- '(^|[[:space:]])-Rdd([[:space:]]|$)|--overwrite([=[:space:]]|$)|pacman[[:space:]]+-U([[:space:]]|$)' \
+    "${root}/scripts/build-packages.sh" "${root}/scripts/build-image.sh"; then
+  fail_audit "image or package builds bypass repository transactions"
+fi
+
 note "checking desktop entries"
 if command -v desktop-file-validate >/dev/null 2>&1; then
   while IFS= read -r file; do

@@ -2,7 +2,7 @@
 
 pkgname=thorch-inputplumber
 pkgver=0.76.1
-pkgrel=2
+pkgrel=3
 pkgdesc='Input router and remapper for AYN Odin 2'
 arch=(aarch64)
 url='https://github.com/ShadowBlip/InputPlumber'

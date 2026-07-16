@@ -10,5 +10,6 @@ root filesystem contents, `/etc/shadow`, or generated images. Share the minimal
 script, package, log excerpt, and reproduction steps needed to understand the
 issue.
 
-Release builds must set `THORCH_PASSWORD` explicitly and should use pinned
-ROCKNIX commits plus recorded provenance.
+Release builds must leave `THORCH_PASSWORD` empty so initial accounts remain
+locked until firstboot. Never publish a shared build-time credential. Use
+pinned ROCKNIX commits plus recorded provenance.

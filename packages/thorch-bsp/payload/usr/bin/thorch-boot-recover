@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+transaction="${THORCH_BOOT_TRANSACTION_COMMAND:-/usr/lib/thorch/boot-transaction}"
+case "${1:-status}" in
+  status)
+    exec "${transaction}" status
+    ;;
+  restore)
+    exec "${transaction}" restore
+    ;;
+  *)
+    echo "usage: thorch-boot-recover [status|restore]" >&2
+    exit 2
+    ;;
+esac

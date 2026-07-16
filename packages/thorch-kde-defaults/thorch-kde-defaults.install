@@ -1,16 +1,25 @@
-enable_bluetooth() {
+apply_bluetooth_default() {
+  [ -z "${install_root:-}" ] || return 0
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    systemctl enable --now bluetooth.service >/dev/null 2>&1 || true
+    systemctl preset bluetooth.service >/dev/null 2>&1 || true
+    systemctl start bluetooth.service >/dev/null 2>&1 || true
   fi
 }
 
+install_root="${THORCH_INSTALL_ROOT:-}"
+sddm_default="${install_root}/etc/sddm.conf.d/10-thorch.conf"
+sddm_local="${install_root}/etc/sddm.conf.d/90-thorch-local.conf"
+migration_dir="${install_root}/var/lib/thorch/session"
+migration_file="${migration_dir}/sddm-autologin.migrate"
+
 stop_legacy_touch_mapper() {
+  [ -z "${install_root}" ] || return 0
   command -v pkill >/dev/null 2>&1 || return 0
   pkill -f '(^|[[:space:]])/usr/bin/thorch-kwin-touch-map --watch([[:space:]]|$)' >/dev/null 2>&1 || true
 }
 
 remove_legacy_touch_mapper_autostart() {
-  local home_root="${THORCH_HOME_ROOT:-/home}"
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
   local autostart
 
   for autostart in "${home_root}"/*/.config/autostart/thorch-kwin-touch-map.desktop; do
@@ -22,7 +31,7 @@ remove_legacy_touch_mapper_autostart() {
 }
 
 remove_legacy_touch_input_overrides() {
-  local home_root="${THORCH_HOME_ROOT:-/home}"
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
   local config temporary
 
   for config in "${home_root}"/*/.config/kcminputrc; do
@@ -81,15 +90,59 @@ remove_legacy_touch_input_overrides() {
   done
 }
 
+capture_legacy_sddm_autologin() {
+  local user session
+
+  [[ ! -e "${sddm_local}" && -f "${sddm_default}" ]] || return 0
+  user="$(awk -F= '/^User=/ {print $2; exit}' "${sddm_default}")"
+  session="$(awk -F= '/^Session=/ {print $2; exit}' "${sddm_default}")"
+  [[ -n "${user}" && -n "${session}" ]] || return 0
+
+  install -d -m 0755 "${migration_dir}"
+  {
+    printf 'user=%s\n' "${user}"
+    printf 'session=%s\n' "${session}"
+  } > "${migration_file}"
+  chmod 0600 "${migration_file}"
+}
+
+restore_legacy_sddm_autologin() {
+  local user session tmp
+
+  [[ -f "${migration_file}" ]] || return 0
+  if [[ ! -e "${sddm_local}" ]]; then
+    user="$(awk -F= '/^user=/ {print $2; exit}' "${migration_file}")"
+    session="$(awk -F= '/^session=/ {print $2; exit}' "${migration_file}")"
+    if [[ -n "${user}" && -n "${session}" ]]; then
+      install -d -m 0755 "$(dirname "${sddm_local}")"
+      tmp="$(mktemp "${sddm_local}.XXXXXX")"
+      {
+        printf '[Autologin]\n'
+        printf 'User=%s\n' "${user}"
+        printf 'Session=%s\n' "${session}"
+        printf 'Relogin=true\n'
+      } > "${tmp}"
+      chmod 0644 "${tmp}"
+      mv -f "${tmp}" "${sddm_local}"
+    fi
+  fi
+  rm -f "${migration_file}"
+}
+
 post_install() {
-  enable_bluetooth
+  apply_bluetooth_default
   stop_legacy_touch_mapper
   remove_legacy_touch_mapper_autostart
   remove_legacy_touch_input_overrides
 }
 
+pre_upgrade() {
+  capture_legacy_sddm_autologin
+}
+
 post_upgrade() {
-  enable_bluetooth
+  restore_legacy_sddm_autologin
+  apply_bluetooth_default
   stop_legacy_touch_mapper
   remove_legacy_touch_mapper_autostart
   remove_legacy_touch_input_overrides

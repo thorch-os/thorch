@@ -58,7 +58,15 @@ cat > "${work}/aim300.dts" <<'DTS'
 DTS
 dtc -q -@ -I dts -O dtb -o "${work}/aim300.dtb" "${work}/aim300.dts"
 
-printf 'synthetic arm64 kernel payload\n' > "${work}/Image"
+python3 - "${work}/Image" <<'PY'
+import pathlib
+import sys
+
+image = bytearray(128)
+image[:21] = b"synthetic-arm64-image"
+image[56:60] = b"ARM\x64"
+pathlib.Path(sys.argv[1]).write_bytes(image)
+PY
 printf 'synthetic initramfs\n' > "${work}/initramfs"
 gzip -n -c "${work}/Image" > "${work}/Image.gz"
 
@@ -73,7 +81,11 @@ cp "${work}/initramfs" "${work}/good/initramfs-linux-thorch.img"
   --root-uuid "${uuid}" \
   --rootfstype btrfs \
   --source-kernel "${work}/source-KERNEL" >/dev/null
-"${boot_check}" --boot-dir "${work}/good" >/dev/null
+"${boot_check}" --boot-dir "${work}/good" --root-uuid "${uuid}" >/dev/null
+if "${boot_check}" --boot-dir "${work}/good" \
+    --root-uuid 99999999-8888-7777-6666-555555555555 >/dev/null 2>&1; then
+  fail "boot checker accepted a KERNEL for a different root filesystem UUID"
+fi
 strings -n 8 "${work}/good/KERNEL" | grep -q 'allow_mismatched_32bit_el0' ||
   fail "repacked KERNEL omits ROCKNIX asymmetric CPU compatibility"
 
@@ -84,7 +96,7 @@ expect_rejected() {
   install -d "${boot_dir}"
   cp "${work}/initramfs" "${boot_dir}/initramfs-linux-thorch.img"
   cp "${source}" "${boot_dir}/KERNEL"
-  if "${boot_check}" --boot-dir "${boot_dir}" >/dev/null 2>&1; then
+  if "${boot_check}" --boot-dir "${boot_dir}" --root-uuid "${uuid}" >/dev/null 2>&1; then
     fail "boot checker accepted ${label} payload"
   fi
   if "${repacker}" \

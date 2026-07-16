@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+protocol="${THORCH_BOOT_PROTOCOL_FILE:-${script_dir}/boot-bootstrap-protocol}"
+[[ -r "${protocol}" ]] || {
+  echo "error: missing boot bootstrap protocol: ${protocol}" >&2
+  exit 1
+}
+# shellcheck source=boot-bootstrap-protocol
+source "${protocol}"
+
+output="${1:-}"
+[[ -n "${output}" ]] || {
+  echo "usage: create-bootstrap-ready-package OUTPUT.pkg.tar" >&2
+  exit 2
+}
+command -v bsdtar >/dev/null 2>&1 || {
+  echo "error: bsdtar is required to create the local bootstrap marker" >&2
+  exit 1
+}
+
+work="$(mktemp -d)"
+cleanup() {
+  rm -rf "${work}"
+}
+trap cleanup EXIT
+
+install -d "${work}/usr/share/thorch" "$(dirname "${output}")"
+printf 'bootstrap_version=%s\n' "${THORCH_BOOTSTRAP_MARKER_PKGVER}" > \
+  "${work}/usr/share/thorch/boot-bootstrap-ready"
+cat > "${work}/.PKGINFO" <<EOF
+pkgname = ${THORCH_BOOTSTRAP_MARKER_PACKAGE}
+pkgbase = ${THORCH_BOOTSTRAP_MARKER_PACKAGE}
+pkgver = ${THORCH_BOOTSTRAP_MARKER_PKGVER}-${THORCH_BOOTSTRAP_MARKER_PKGREL}
+pkgdesc = Local proof that legacy Thorch boot hooks were activated before kernel updates
+url = https://github.com/thorch-os/thorch
+builddate = 0
+packager = Thorch bootstrap
+size = 20
+arch = any
+license = GPL-2.0-only
+depend = ${THORCH_BOOTSTRAP_BSP_REQUIREMENT}
+EOF
+
+temporary="${output}.tmp.$$"
+rm -f "${temporary}"
+(
+  cd "${work}"
+  bsdtar --format=gnutar --uid 0 --gid 0 --uname root --gname root \
+    -cf "${temporary}" .PKGINFO usr
+)
+mv -f "${temporary}" "${output}"

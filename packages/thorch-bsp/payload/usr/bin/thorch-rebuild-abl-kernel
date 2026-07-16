@@ -3,11 +3,21 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: thorch-rebuild-abl-kernel [--boot-dir /boot] [--root-uuid UUID] [--rootfstype ext4|btrfs] [--source-kernel KERNEL]
+usage: thorch-rebuild-abl-kernel [options]
+
+Options:
+  --boot-dir DIR          boot filesystem mount (default: /boot)
+  --root-uuid UUID        root filesystem UUID; inferred from /proc/cmdline
+  --rootfstype TYPE       ext4 or btrfs (default: ext4)
+  --source-kernel PATH    imported ROCKNIX Android boot template
+  --initramfs PATH        initramfs to embed (default: BOOT_DIR/initramfs-linux-thorch.img)
+  --output PATH           destination (default: BOOT_DIR/KERNEL)
+  --no-retain-previous    do not preserve an existing live KERNEL
 
 Rebuilds the Android-style /KERNEL boot image expected by the Thor ABL Linux
-path. This preserves the imported ROCKNIX boot-image kernel blob exactly,
-replacing only the ramdisk and Thorch root command line. It does not flash ABL.
+path. The candidate is built and validated on the destination filesystem,
+flushed, and renamed into place. When replacing BOOT_DIR/KERNEL, the previous
+payload is durably retained as BOOT_DIR/KERNEL.previous. This does not flash ABL.
 EOF
 }
 
@@ -20,10 +30,24 @@ require_value() {
   }
 }
 
+fail() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+boot_tool="${THORCH_BOOT_IMAGE_TOOL:-${script_dir}/../lib/thorch/boot_image.py}"
 boot_dir=/boot
 root_uuid=""
 rootfstype=ext4
 source_kernel=""
+initrd_image=""
+output=""
+retain_previous=1
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -47,6 +71,20 @@ while [[ "$#" -gt 0 ]]; do
       source_kernel="$2"
       shift 2
       ;;
+    --initramfs)
+      require_value "$1" "${2:-}"
+      initrd_image="$2"
+      shift 2
+      ;;
+    --output)
+      require_value "$1" "${2:-}"
+      output="$2"
+      shift 2
+      ;;
+    --no-retain-previous)
+      retain_previous=0
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -59,24 +97,13 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-fail() {
-  echo "error: $*" >&2
-  exit 1
-}
-
-need() {
-  command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"
-}
-
 need mkbootimg
 need python3
+[[ -f "${boot_tool}" ]] || fail "missing canonical boot-image tool: ${boot_tool}"
 
 case "${rootfstype}" in
-  ext4|btrfs)
-    ;;
-  *)
-    fail "unsupported rootfstype: ${rootfstype}; use ext4 or btrfs"
-    ;;
+  ext4|btrfs) ;;
+  *) fail "unsupported rootfstype: ${rootfstype}; use ext4 or btrfs" ;;
 esac
 
 if [[ -z "${root_uuid}" ]]; then
@@ -88,16 +115,18 @@ if [[ -z "${root_uuid}" ]]; then
   fi
 fi
 
-initrd_image="${boot_dir}/initramfs-linux-thorch.img"
-
+boot_dir="${boot_dir%/}"
+[[ -n "${boot_dir}" ]] || boot_dir=/
+initrd_image="${initrd_image:-${boot_dir}/initramfs-linux-thorch.img}"
+output="${output:-${boot_dir}/KERNEL}"
 [[ -f "${initrd_image}" ]] || fail "missing initramfs: ${initrd_image}"
+install -d "$(dirname "${output}")"
 
 if [[ -z "${source_kernel}" ]]; then
-  boot_dir_trimmed="${boot_dir%/}"
-  if [[ "${boot_dir_trimmed}" == "/boot" ]]; then
-    source_kernel="/usr/share/thorch/rocknix/KERNEL"
-  elif [[ "${boot_dir_trimmed}" == */boot ]]; then
-    source_kernel="${boot_dir_trimmed%/boot}/usr/share/thorch/rocknix/KERNEL"
+  if [[ "${boot_dir}" == "/boot" ]]; then
+    source_kernel=/usr/share/thorch/rocknix/KERNEL
+  elif [[ "${boot_dir}" == */boot ]]; then
+    source_kernel="${boot_dir%/boot}/usr/share/thorch/rocknix/KERNEL"
   else
     source_kernel="${boot_dir}/KERNEL.rocknix"
   fi
@@ -105,12 +134,13 @@ fi
 [[ -f "${source_kernel}" ]] || fail "missing imported ROCKNIX boot image: ${source_kernel}"
 
 tmpdir="$(mktemp -d)"
+stage="$(mktemp "$(dirname "${output}")/.KERNEL.new.XXXXXX")"
+rm -f "${stage}"
 cleanup() {
   rm -rf "${tmpdir}"
+  rm -f "${stage}"
 }
 trap cleanup EXIT
-
-cmdline="panic=30 audit=0 quiet rw rootwait rootdelay=15 allow_mismatched_32bit_el0 fw_devlink.strict=1 pcie_ports=compat irqaffinity=0-2 cgroup.memory=nokmem,nosocket nosoftlockup usbcore.interrupt_interval_override=045e:028e:2 mem_sleep_default=s2idle ufshcd_core.uic_cmd_timeout=3000 console=tty0 console=ttyMSM0,115200n8 fbcon=rotate:1 root=UUID=${root_uuid} rootfstype=${rootfstype}"
 
 mkdir -p "${tmpdir}/py/gki"
 touch "${tmpdir}/py/gki/__init__.py"
@@ -119,106 +149,11 @@ def generate_gki_certificate(*args, **kwargs):
     return None
 PY
 
-python3 - "${source_kernel}" "${tmpdir}" <<'PY'
-import pathlib
-import struct
-import sys
-import zlib
-
-source = pathlib.Path(sys.argv[1])
-outdir = pathlib.Path(sys.argv[2])
-data = source.read_bytes()
-
-if data[:8] != b"ANDROID!":
-    raise SystemExit(f"{source} is not an Android boot image")
-
-(
-    kernel_size,
-    kernel_addr,
-    ramdisk_size,
-    ramdisk_addr,
-    second_size,
-    second_addr,
-    tags_addr,
-    page_size,
-    header_version,
-    _os_version,
-) = struct.unpack_from("<10I", data, 8)
-
-if header_version != 0:
-    raise SystemExit(f"unsupported Android boot image header version: {header_version}")
-if page_size <= 0:
-    raise SystemExit("invalid Android boot image page size")
-
-def align(size, page):
-    return ((size + page - 1) // page) * page
-
-kernel_offset = page_size
-ramdisk_offset = kernel_offset + align(kernel_size, page_size)
-second_offset = ramdisk_offset + align(ramdisk_size, page_size)
-end_offset = second_offset + align(second_size, page_size)
-
-if len(data) < end_offset:
-    raise SystemExit("truncated Android boot image")
-
-kernel = data[kernel_offset:kernel_offset + kernel_size]
-second = data[second_offset:second_offset + second_size] if second_size else b""
-
-try:
-    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
-    decompressor.decompress(kernel)
-    decompressor.flush()
-except zlib.error as exc:
-    raise SystemExit(f"source boot-image kernel is not a valid gzip payload: {exc}")
-if not decompressor.eof:
-    raise SystemExit("source boot-image kernel has a truncated gzip payload")
-
-trailer = decompressor.unused_data
-dtbs = []
-pos = 0
-while pos < len(trailer):
-    if trailer[pos:pos + 4] != b"\xd0\r\xfe\xed" or len(trailer) < pos + 8:
-        raise SystemExit("source boot-image kernel has a malformed appended DTB table")
-    size = struct.unpack_from(">I", trailer, pos + 4)[0]
-    if size < 8 or len(trailer) < pos + size:
-        raise SystemExit("source boot-image kernel has a truncated appended DTB")
-    dtbs.append(trailer[pos:pos + size])
-    pos += size
-
-if not dtbs:
-    raise SystemExit("source boot-image kernel does not contain appended DTBs")
-if any(b"__symbols__\x00" not in dtb for dtb in dtbs):
-    raise SystemExit("source boot-image kernel contains a DTB without ROCKNIX overlay symbols")
-thor_dtbs = [
-    dtb for dtb in dtbs
-    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb
-]
-if len(thor_dtbs) != 1:
-    raise SystemExit(f"source boot-image kernel contains {len(thor_dtbs)} ROCKNIX Thor DTBs, expected 1")
-if any(b"qcom,qcs8550-aim300-aiot\x00" in dtb for dtb in dtbs):
-    raise SystemExit("source boot-image kernel contains the generic AIM300 DTB")
-
-(outdir / "kernel").write_bytes(kernel)
-if second:
-    (outdir / "second").write_bytes(second)
-
-(outdir / "bootimg.env").write_text(
-    "\n".join(
-        [
-            f"KERNEL_ADDR=0x{kernel_addr:x}",
-            f"RAMDISK_ADDR=0x{ramdisk_addr:x}",
-            f"SECOND_ADDR=0x{second_addr:x}",
-            f"TAGS_ADDR=0x{tags_addr:x}",
-            f"PAGE_SIZE={page_size}",
-            f"HAS_SECOND={1 if second else 0}",
-            "",
-        ]
-    )
-)
-PY
+python3 "${boot_tool}" prepare-repack "${source_kernel}" "${tmpdir}"
 
 # shellcheck disable=SC1091
 . "${tmpdir}/bootimg.env"
+cmdline="panic=30 audit=0 quiet rw rootwait rootdelay=15 allow_mismatched_32bit_el0 fw_devlink.strict=1 pcie_ports=compat irqaffinity=0-2 cgroup.memory=nokmem,nosocket nosoftlockup usbcore.interrupt_interval_override=045e:028e:2 mem_sleep_default=s2idle ufshcd_core.uic_cmd_timeout=3000 console=tty0 console=ttyMSM0,115200n8 fbcon=rotate:1 root=UUID=${root_uuid} rootfstype=${rootfstype}"
 mkbootimg_args=(
   --kernel "${tmpdir}/kernel"
   --ramdisk "${initrd_image}"
@@ -233,6 +168,53 @@ mkbootimg_args=(
 if [[ "${HAS_SECOND}" == "1" ]]; then
   mkbootimg_args+=(--second "${tmpdir}/second")
 fi
-PYTHONPATH="${tmpdir}/py${PYTHONPATH:+:${PYTHONPATH}}" mkbootimg "${mkbootimg_args[@]}" -o "${boot_dir}/KERNEL"
+PYTHONPATH="${tmpdir}/py${PYTHONPATH:+:${PYTHONPATH}}" \
+  mkbootimg "${mkbootimg_args[@]}" -o "${stage}"
 
-echo "repacked ${boot_dir}/KERNEL from ${source_kernel} for root UUID ${root_uuid}"
+python3 "${boot_tool}" validate "${stage}" \
+  --expect-root-uuid "${root_uuid}" \
+  --require-cmdline fbcon=rotate:1 \
+  --require-cmdline allow_mismatched_32bit_el0 \
+  --require-symbols \
+  --require-thor \
+  --forbid-aim300 \
+  --expect-ramdisk "${initrd_image}"
+
+python3 - "${stage}" "${output}" "${boot_dir}/KERNEL" "${boot_dir}/KERNEL.previous" "${retain_previous}" <<'PY'
+import os
+import pathlib
+import shutil
+import sys
+import tempfile
+
+stage = pathlib.Path(sys.argv[1])
+output = pathlib.Path(sys.argv[2])
+live = pathlib.Path(sys.argv[3])
+previous = pathlib.Path(sys.argv[4])
+retain_previous = sys.argv[5] == "1"
+
+with stage.open("rb") as candidate:
+    os.fsync(candidate.fileno())
+
+if retain_previous and output == live and live.is_file():
+    previous.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=".KERNEL.previous.", dir=previous.parent)
+    temporary = pathlib.Path(temporary_name)
+    try:
+        with os.fdopen(fd, "wb") as destination, live.open("rb") as source:
+            shutil.copyfileobj(source, destination)
+            destination.flush()
+            os.fsync(destination.fileno())
+        os.replace(temporary, previous)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+os.replace(stage, output)
+directory_fd = os.open(output.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+try:
+    os.fsync(directory_fd)
+finally:
+    os.close(directory_fd)
+PY
+
+echo "repacked ${output} from ${source_kernel} for root UUID ${root_uuid}"

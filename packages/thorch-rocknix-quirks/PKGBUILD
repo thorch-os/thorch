@@ -2,7 +2,7 @@
 
 pkgname=thorch-rocknix-quirks
 pkgver=1
-pkgrel=5
+pkgrel=6
 pkgdesc='ROCKNIX-derived SM8550 handheld quirks adapted for Thorch'
 arch=(any)
 url='https://github.com/ROCKNIX/distribution'

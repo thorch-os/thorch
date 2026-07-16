@@ -14,6 +14,9 @@ fail() {
 
 runner="$(command -v qmlscene6 || true)"
 if [[ -z "${runner}" ]]; then
+  if [[ "${THORCH_REQUIRE_QML_SMOKE:-0}" == "1" ]]; then
+    fail "qmlscene6 is required by the CI QML smoke test"
+  fi
   printf 'skip: qmlscene6 not available\n'
   exit 0
 fi
@@ -23,11 +26,18 @@ cat > "${probe_qml}" <<'EOF'
 import QtQuick
 
 Item {
-    Component.onCompleted: Qt.quit()
+    Timer {
+        interval: 1
+        running: true
+        onTriggered: Qt.quit()
+    }
 }
 EOF
 
 if ! QT_QPA_PLATFORM=offscreen timeout 5 "${runner}" "${probe_qml}" >/dev/null 2>&1; then
+  if [[ "${THORCH_REQUIRE_QML_SMOKE:-0}" == "1" ]]; then
+    fail "qmlscene6 cannot run offscreen QML in the CI environment"
+  fi
   printf 'skip: qmlscene6 cannot run offscreen QML in this environment\n'
   exit 0
 fi

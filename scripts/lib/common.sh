@@ -348,14 +348,19 @@ configure_alarm_pacman() {
 
   install -d "${rootfs}/etc/pacman.d"
   : > "${rootfs}/etc/pacman.d/mirrorlist"
-  for mirror in ${ALARM_MIRRORS:-${ALARM_MIRROR:-http://mirror.archlinuxarm.org}}; do
+  for mirror in ${ALARM_MIRRORS:-${ALARM_MIRROR:-https://ca.us.mirror.archlinuxarm.org}}; do
     printf 'Server = %s/$arch/$repo\n' "${mirror%/}" >> "${rootfs}/etc/pacman.d/mirrorlist"
   done
+}
 
-  if ! grep -q '^DisableSandbox' "${rootfs}/etc/pacman.conf"; then
-    sed -i '/^\[options\]/a DisableSandbox' "${rootfs}/etc/pacman.conf"
+configure_pacman_for_emulated_build() {
+  local config="$1"
+
+  [[ -f "${config}" ]] || die "missing pacman configuration: ${config}"
+  if ! grep -q '^DisableSandbox$' "${config}"; then
+    sed -i '/^\[options\]/a DisableSandbox' "${config}"
   fi
-  sed -i 's/^CheckSpace/#CheckSpace/' "${rootfs}/etc/pacman.conf"
+  sed -i 's/^CheckSpace$/#CheckSpace/' "${config}"
 }
 
 configure_chroot_resolver() {
@@ -378,27 +383,14 @@ mask_chroot_stock_kernel_hooks() {
   ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/90-mkinitcpio-install.hook"
 }
 
-extract_alarm_rootfs_without_stock_kernel_firmware() {
+extract_alarm_rootfs() {
   local rootfs_tar="$1"
   local dest="$2"
 
-  bsdtar -xpf "${rootfs_tar}" -C "${dest}" \
-    --exclude './boot/*' \
-    --exclude 'boot/*' \
-    --exclude './etc/mkinitcpio.d/linux-aarch64.preset' \
-    --exclude 'etc/mkinitcpio.d/linux-aarch64.preset' \
-    --exclude './usr/lib/firmware/*' \
-    --exclude 'usr/lib/firmware/*' \
-    --exclude './usr/lib/modules/*' \
-    --exclude 'usr/lib/modules/*' \
-    --exclude './usr/share/licenses/linux-aarch64*' \
-    --exclude 'usr/share/licenses/linux-aarch64*' \
-    --exclude './usr/share/licenses/linux-firmware*' \
-    --exclude 'usr/share/licenses/linux-firmware*' \
-    --exclude './var/lib/pacman/local/linux-aarch64-*' \
-    --exclude 'var/lib/pacman/local/linux-aarch64-*' \
-    --exclude './var/lib/pacman/local/linux-firmware*' \
-    --exclude 'var/lib/pacman/local/linux-firmware*'
+  # Keep the rootfs package database and owned files coherent. Thorch's kernel
+  # and firmware packages replace the stock packages through normal pacman
+  # provides/conflicts/replaces metadata during the image transaction.
+  bsdtar -xpf "${rootfs_tar}" -C "${dest}"
 }
 
 repair_alarm_usrmerge_links() {

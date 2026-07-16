@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security report
+    url: https://github.com/thorch-os/thorch/security/advisories/new
+    about: Report vulnerabilities and credential exposure privately to the maintainers.
+  - name: Contributor setup guide
+    url: https://github.com/thorch-os/thorch/blob/main/CONTRIBUTING.md
+    about: Check supported hosts, required tools, and validation commands before filing setup problems.
