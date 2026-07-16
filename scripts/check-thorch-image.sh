@@ -88,11 +88,6 @@ for value in (
   boot_offset=$((boot_start * sector_size))
   root_offset=$((root_start * sector_size))
   boot_ref="${image}@@${boot_offset}"
-  root_uuid="$(blkid -p -o value -s UUID --offset "${root_offset}" "${image}" 2>/dev/null || true)"
-  if [[ -z "${root_uuid}" ]]; then
-    echo "unable to read root filesystem UUID from image" >&2
-    return 1
-  fi
   tmpdir="$(mktemp -d)"
   tmpdirs+=("${tmpdir}")
   failures=0
@@ -131,6 +126,11 @@ for value in (
   check "Android boot image /KERNEL exists at FAT root" has_fat_path /KERNEL
 
   if has_fat_path /KERNEL; then
+    root_uuid="$(blkid -p -o value -s UUID --offset "${root_offset}" "${image}" 2>/dev/null || true)"
+    if [[ -z "${root_uuid}" ]]; then
+      echo "unable to read root filesystem UUID from image" >&2
+      return 1
+    fi
     mcopy -o -i "${boot_ref}" ::/KERNEL "${tmpdir}/KERNEL" >/dev/null
     kernel_file_type="$(file -b "${tmpdir}/KERNEL")"
 
