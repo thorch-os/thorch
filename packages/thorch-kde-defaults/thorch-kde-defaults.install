@@ -4,10 +4,93 @@ enable_bluetooth() {
   fi
 }
 
+stop_legacy_touch_mapper() {
+  command -v pkill >/dev/null 2>&1 || return 0
+  pkill -f '(^|[[:space:]])/usr/bin/thorch-kwin-touch-map --watch([[:space:]]|$)' >/dev/null 2>&1 || true
+}
+
+remove_legacy_touch_mapper_autostart() {
+  local home_root="${THORCH_HOME_ROOT:-/home}"
+  local autostart
+
+  for autostart in "${home_root}"/*/.config/autostart/thorch-kwin-touch-map.desktop; do
+    [ -f "${autostart}" ] || continue
+    if grep -Fqx 'Exec=/usr/bin/thorch-kwin-touch-map --watch' "${autostart}"; then
+      rm -f -- "${autostart}"
+    fi
+  done
+}
+
+remove_legacy_touch_input_overrides() {
+  local home_root="${THORCH_HOME_ROOT:-/home}"
+  local config temporary
+
+  for config in "${home_root}"/*/.config/kcminputrc; do
+    [ -f "${config}" ] || continue
+    temporary="$(mktemp "${config}.thorch.XXXXXX")" || continue
+
+    awk '
+      function flush_group(    is_thorch_touchscreen, i, line, normalized) {
+        is_thorch_touchscreen = section ~ /^\[Libinput\]\[/ && \
+          section ~ /\[(top_touchscreen|bottom_touchscreen)\]$/
+        if (section ~ /^\[Libinput\]\[/) {
+          for (i = 1; i <= line_count; i++) {
+            if (lines[i] ~ /^OutputName=DSI-[12]$/) {
+              is_thorch_touchscreen = 1
+            }
+          }
+        }
+
+        for (i = 1; i <= line_count; i++) {
+          line = lines[i]
+          normalized = line
+          gsub(/[[:space:]]/, "", normalized)
+
+          if (is_thorch_touchscreen &&
+              normalized == "CalibrationMatrix=1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1") {
+            continue
+          }
+          if (is_thorch_touchscreen && (normalized == "Orientation=1" || normalized == "Rotation=0")) {
+            continue
+          }
+          print line
+        }
+
+        delete lines
+        line_count = 0
+      }
+
+      /^\[/ {
+        flush_group()
+        section = $0
+      }
+
+      { lines[++line_count] = $0 }
+
+      END { flush_group() }
+    ' "${config}" >"${temporary}"
+
+    if cmp -s -- "${config}" "${temporary}"; then
+      rm -f -- "${temporary}"
+      continue
+    fi
+
+    chmod --reference="${config}" "${temporary}"
+    chown --reference="${config}" "${temporary}"
+    mv -f -- "${temporary}" "${config}"
+  done
+}
+
 post_install() {
   enable_bluetooth
+  stop_legacy_touch_mapper
+  remove_legacy_touch_mapper_autostart
+  remove_legacy_touch_input_overrides
 }
 
 post_upgrade() {
   enable_bluetooth
+  stop_legacy_touch_mapper
+  remove_legacy_touch_mapper_autostart
+  remove_legacy_touch_input_overrides
 }

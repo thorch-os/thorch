@@ -12,8 +12,8 @@ if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
   exit 0
 fi
 
-bottom_touch_path="${THORCH_BOTTOM_TOUCH_PATH:-/dev/input/by-path/platform-a90000.i2c-event}"
-top_touch_path="${THORCH_TOP_TOUCH_PATH:-/dev/input/by-path/platform-98c000.i2c-event}"
+top_touch_path="${THORCH_TOP_TOUCH_PATH:-/dev/input/by-path/platform-a90000.i2c-event}"
+bottom_touch_path="${THORCH_BOTTOM_TOUCH_PATH:-/dev/input/by-path/platform-98c000.i2c-event}"
 dbus_timeout="${THORCH_TOUCH_MAP_DBUS_TIMEOUT:-2s}"
 ready_attempts="${THORCH_TOUCH_MAP_READY_ATTEMPTS:-10}"
 lock_file="${THORCH_TOUCH_MAP_LOCK_FILE:-${XDG_RUNTIME_DIR}/thorch-kwin-touch-map.lock}"
@@ -26,8 +26,8 @@ flock -n 9 || exit 0
 
 apply_mapping_once() {
   # KWin keys these identical controllers by event node, so map by stable bus path.
-  set_output_name "${bottom_touch_path}" DSI-2
-  set_output_name "${top_touch_path}" DSI-1
+  set_output_name "${top_touch_path}" DSI-2
+  set_output_name "${bottom_touch_path}" DSI-1
 }
 
 dbus_get_property() {
@@ -64,10 +64,6 @@ set_output_name() {
 
   object="/org/kde/KWin/InputDevice/${event}"
   set_property_if_needed "${object}" outputName "${output}" || return 0
-  set_property_if_needed "${object}" calibrationMatrix \
-    "1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1" || return 0
-  set_property_if_needed "${object}" rotation 0 || return 0
-  set_property_if_needed "${object}" orientationDBus 1 || return 0
 }
 
 kwin_ready() {
