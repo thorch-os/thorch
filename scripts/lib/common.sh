@@ -380,7 +380,9 @@ mask_chroot_stock_kernel_hooks() {
 
   install -d "${rootfs}/etc/pacman.d/hooks"
   ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/60-mkinitcpio-remove.hook"
+  ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/60-thorch-boot-transaction-prepare.hook"
   ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/90-mkinitcpio-install.hook"
+  ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/95-thorch-boot-transaction-commit.hook"
 }
 
 extract_alarm_rootfs() {

@@ -32,6 +32,21 @@ grep -q 'unmount_path_if_mounted "${rootfs}/proc"' "${common}" ||
 grep -q 'cleanup_build_mounts_on_exit' "${image_builder}" ||
   fail "image builder does not clean temporary mounts on exit"
 
+hook_fixture="$(mktemp -d)"
+# shellcheck source=../scripts/lib/common.sh
+source "${common}"
+mask_chroot_stock_kernel_hooks "${hook_fixture}"
+for hook in \
+  60-mkinitcpio-remove.hook \
+  60-thorch-boot-transaction-prepare.hook \
+  90-mkinitcpio-install.hook \
+  95-thorch-boot-transaction-commit.hook; do
+  target="${hook_fixture}/etc/pacman.d/hooks/${hook}"
+  [[ -L "${target}" && "$(readlink "${target}")" == /dev/null ]] ||
+    fail "package root did not mask kernel hook ${hook}"
+done
+rm -rf "${hook_fixture}"
+
 if (( EUID == 0 )); then
   mount_fixture="$(mktemp -d)"
   cleanup_mount_fixture() {
