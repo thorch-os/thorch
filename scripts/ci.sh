@@ -20,6 +20,7 @@ list_tools() {
   cat <<'EOF'
 actionlint
 bash
+blkid
 bsdtar
 cargo
 clippy-driver
@@ -27,11 +28,15 @@ desktop-file-validate
 dtc
 fakechroot
 fakeroot
+file
 git
 gpg
 gpgv
 make
 makepkg
+mcopy
+mdir
+mkfs.vfat
 mkbootimg
 pacman
 python3
@@ -43,6 +48,8 @@ rsync
 rustc
 rustfmt
 shellcheck
+sfdisk
+strings
 timeout
 repo-add
 vercmp

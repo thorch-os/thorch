@@ -39,12 +39,14 @@ jobs:
             actionlint \
             android-tools \
             desktop-file-utils \
+            dosfstools \
             dtc \
             fakechroot \
             git \
             gnupg \
             kirigami \
             libarchive \
+            mtools \
             pacman-contrib \
             plasma5support \
             python \
