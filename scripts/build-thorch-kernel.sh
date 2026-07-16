@@ -57,13 +57,13 @@ root="$(repo_root)"
 boot_tool="${root}/packages/thorch-bsp/payload/usr/lib/thorch/boot_image.py"
 [[ -f "${boot_tool}" ]] || die "missing canonical boot-image tool: ${boot_tool}"
 linux_pkgbuild="${root}/packages/linux-thorch/PKGBUILD"
-linux_pkgrel="$(sed -n 's/^pkgrel=//p' "${linux_pkgbuild}" | head -n1)"
-[[ "${linux_pkgrel}" =~ ^[1-9][0-9]*$ ]] || \
-  die "unable to derive linux-thorch pkgrel from ${linux_pkgbuild}"
-kernel_localversion="-thorch${linux_pkgrel}"
+expected_kernel_release="$(linux_thorch_expected_kernel_release "${linux_pkgbuild}")"
 source_repo="${THORCH_KERNEL_REPO:-https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git}"
 source_ref="${THORCH_KERNEL_REF:-v7.1.2}"
 source_version="${source_ref#v}"
+[[ "${expected_kernel_release}" == "${source_version}"-thorch* ]] || \
+  die "linux-thorch expects ${expected_kernel_release}, but THORCH_KERNEL_REF resolves to ${source_version}"
+kernel_localversion="${expected_kernel_release#"${source_version}"}"
 source_major="${source_version%%.*}"
 tarball_url="${THORCH_KERNEL_TARBALL_URL:-https://www.kernel.org/pub/linux/kernel/v${source_major}.x/linux-${source_version}.tar.xz}"
 tarball_sha256="${THORCH_KERNEL_TARBALL_SHA256:-}"
@@ -419,6 +419,8 @@ log "building Thor kernel, ${#dtb_targets[@]} ROCKNIX SM8550 DTBs, and modules"
 make "${make_args[@]}" -j"${jobs}" DTC_FLAGS=-@ Image "${dtb_targets[@]}" modules
 kernver="$(make "${make_args[@]}" -s kernelrelease)"
 [[ -n "${kernver}" ]] || die "unable to determine built kernel release"
+[[ "${kernver}" == "${expected_kernel_release}" ]] || \
+  die "built kernel release is ${kernver}, expected ${expected_kernel_release}"
 
 image="${build_abs}/arch/arm64/boot/Image"
 [[ -f "${image}" ]] || die "kernel build did not produce ${image}"

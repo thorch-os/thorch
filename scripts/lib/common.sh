@@ -420,6 +420,7 @@ repair_alarm_usrmerge_links() {
 
 validate_rocknix_kernel_provenance() {
   local kernel_dir="$1"
+  local expected_kernel_release="${2:-$(linux_thorch_expected_kernel_release)}"
   local provenance="${kernel_dir}/PROVENANCE"
   local expected_kernel_ref="${THORCH_KERNEL_REF:-}"
   local firmware provenance_ref="" provenance_release="" module_releases
@@ -439,6 +440,9 @@ validate_rocknix_kernel_provenance() {
 
   module_releases="$(find "${kernel_dir}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd, -)"
   [[ -n "${module_releases}" ]] || die "ROCKNIX kernel artifacts are missing /usr/lib/modules; run make kernel"
+  if [[ "${module_releases}" != "${expected_kernel_release}" ]]; then
+    die "ROCKNIX kernel modules are ${module_releases}, but linux-thorch requires ${expected_kernel_release}; run make kernel"
+  fi
   if [[ -n "${provenance_release}" ]] &&
     ! tr ',' '\n' <<<"${module_releases}" | grep -Fxq -- "${provenance_release}"; then
     die "ROCKNIX kernel modules are ${module_releases}, but provenance records ${provenance_release}; run make kernel"
@@ -451,6 +455,34 @@ validate_rocknix_kernel_provenance() {
     [[ -f "${kernel_dir}/usr/lib/firmware/${firmware}" ]] || \
       die "ROCKNIX kernel artifacts are missing firmware ${firmware}; re-import from a ROCKNIX image with /SYSTEM"
   done
+}
+
+linux_thorch_expected_kernel_release() {
+  local pkgbuild="${1:-$(repo_root)/packages/linux-thorch/PKGBUILD}"
+  local pkgver pkgrel
+
+  [[ -f "${pkgbuild}" ]] || die "missing linux-thorch PKGBUILD: ${pkgbuild}"
+  pkgver="$(sed -n 's/^pkgver=//p' "${pkgbuild}" | head -n1)"
+  pkgrel="$(sed -n 's/^pkgrel=//p' "${pkgbuild}" | head -n1)"
+  [[ "${pkgver}" =~ ^[0-9][0-9A-Za-z._+-]*$ ]] || \
+    die "unable to derive linux-thorch pkgver from ${pkgbuild}"
+  [[ "${pkgrel}" =~ ^[1-9][0-9]*$ ]] || \
+    die "unable to derive linux-thorch pkgrel from ${pkgbuild}"
+  printf '%s-thorch%s\n' "${pkgver}" "${pkgrel}"
+}
+
+rocknix_kernel_artifacts_current() {
+  local kernel_dir="$1"
+  local expected_kernel_release="${2:-$(linux_thorch_expected_kernel_release)}"
+  local provenance_release module_releases
+
+  [[ -f "${kernel_dir}/boot/Image" ]] || return 1
+  [[ -f "${kernel_dir}/boot/KERNEL" ]] || return 1
+  [[ -f "${kernel_dir}/PROVENANCE" ]] || return 1
+  provenance_release="$(awk -F= '$1 == "THORCH_KERNEL_RELEASE" {print substr($0, index($0, "=") + 1); exit}' "${kernel_dir}/PROVENANCE" 2>/dev/null || true)"
+  [[ "${provenance_release}" == "${expected_kernel_release}" ]] || return 1
+  module_releases="$(find "${kernel_dir}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd, -)"
+  [[ "${module_releases}" == "${expected_kernel_release}" ]]
 }
 
 validate_rocknix_runtime_provenance() {

@@ -215,8 +215,7 @@ thorch_user_q="$(printf '%q' "${THORCH_USER}")"
 
 rocknix_kernel_artifacts_ready() {
   local kernel_dir="${root}/${THORCH_ROCKNIX_KERNEL_DIR}"
-  [[ -f "${kernel_dir}/boot/Image" ]] &&
-    [[ -f "${kernel_dir}/boot/KERNEL" ]] &&
+  rocknix_kernel_artifacts_current "${kernel_dir}" &&
     [[ -f "${kernel_dir}/usr/lib/firmware/qcom/a740_sqe.fw" ]] &&
     [[ -f "${kernel_dir}/usr/lib/firmware/qcom/gmu_gen70200.bin" ]] &&
     [[ -f "${kernel_dir}/usr/lib/firmware/qcom/sm8550/a740_zap.mbn" ]]
