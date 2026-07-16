@@ -11,13 +11,15 @@ fail() {
 }
 
 defaults="$(
-  env -u THORCH_PASSWORD -u ALARM_MIRRORS -u ALARM_MIRROR THORCH_KERNEL_JOBS=1 \
-    bash -c 'source "$1"; printf "password=%s\nmirrors=%s\nmirror=%s\n" "$THORCH_PASSWORD" "$ALARM_MIRRORS" "$ALARM_MIRROR"' \
+  env -u THORCH_PASSWORD -u THORCH_ENABLE_SSH -u ALARM_MIRRORS -u ALARM_MIRROR THORCH_KERNEL_JOBS=1 \
+    bash -c 'source "$1"; printf "password=%s\nssh=%s\nmirrors=%s\nmirror=%s\n" "$THORCH_PASSWORD" "$THORCH_ENABLE_SSH" "$ALARM_MIRRORS" "$ALARM_MIRROR"' \
     bash "${config}"
 )"
 
 grep -qx 'password=' <<< "${defaults}" ||
   fail "default image password is not empty"
+grep -qx 'ssh=0' <<< "${defaults}" ||
+  fail "default image enables SSH"
 
 mirrors="$(sed -n 's/^mirrors=//p' <<< "${defaults}")"
 [[ -n "${mirrors}" ]] || fail "default ALARM mirror list is empty"
@@ -37,6 +39,10 @@ grep -q 'run_rootfs_cmd /usr/bin/usermod --lock root' "${builder}" ||
   fail "image builder does not lock root when no password is supplied"
 grep -q 'systemctl --root "${rootfs_dir}" disable sshd.service' "${builder}" ||
   fail "image builder does not explicitly disable SSH"
+grep -q 'systemctl --root "${rootfs_dir}" enable sshd.service' "${builder}" ||
+  fail "image builder does not support explicit local SSH enablement"
+grep -q 'THORCH_ENABLE_SSH requires a non-empty THORCH_PASSWORD' "${builder}" ||
+  fail "image builder permits SSH without an explicit password"
 
 service_block="$(sed -n '/^rootfs_services=(/,/^)/p' "${builder}")"
 ! grep -q 'sshd.service' <<< "${service_block}" ||

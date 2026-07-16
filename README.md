@@ -153,6 +153,13 @@ shared value for a published image:
 make build
 ```
 
+For a local image that must accept remote verification immediately, opt in to
+SSH together with that password:
+
+```bash
+THORCH_PASSWORD='<local-test-password>' THORCH_ENABLE_SSH=1 make build
+```
+
 Ext4 is the conservative root default. To build the compressed Btrfs image used
 for current SD-card testing:
 

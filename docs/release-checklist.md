@@ -33,9 +33,9 @@ Use this before publishing the repository or building public images.
 
 ## Public Image Builds
 
-- Confirm `THORCH_PASSWORD` is empty, both initial accounts are locked, and
-  `sshd.service` is disabled in every public image. Never publish a shared
-  build-time credential.
+- Confirm `THORCH_PASSWORD` is empty, `THORCH_ENABLE_SSH=0`, both initial
+  accounts are locked, and `sshd.service` is disabled in every public image.
+  Never publish a shared build-time credential.
 - Record the intended `THORCH_ROOT_FSTYPE`, Btrfs mount options when applicable,
   image headroom, and cache tmpfs size. Exercise both ext4 and Btrfs before
   changing the default.

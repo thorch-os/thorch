@@ -162,6 +162,20 @@ cache_tmpfs_enabled() {
   return 0
 }
 
+ssh_enabled() {
+  case "${THORCH_ENABLE_SSH}" in
+    1|on|On|ON|true|True|TRUE|yes|Yes|YES|enabled|Enabled|ENABLED)
+      return 0
+      ;;
+    0|off|Off|OFF|false|False|FALSE|no|No|NO|disabled|Disabled|DISABLED)
+      return 1
+      ;;
+    *)
+      die "invalid THORCH_ENABLE_SSH: ${THORCH_ENABLE_SSH}; use 0 or 1"
+      ;;
+  esac
+}
+
 configure_root_filesystem() {
   case "${root_fstype}" in
     ext4)
@@ -186,6 +200,9 @@ configure_root_filesystem() {
 
 [[ "${THORCH_USER}" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || die "invalid THORCH_USER: ${THORCH_USER}"
 [[ "${THORCH_PASSWORD}" != *$'\n'* ]] || die "THORCH_PASSWORD must not contain newlines"
+if ssh_enabled && [[ -z "${THORCH_PASSWORD}" ]]; then
+  die "THORCH_ENABLE_SSH requires a non-empty THORCH_PASSWORD"
+fi
 [[ "${#image_packages[@]}" -gt 0 ]] || die "image package profile must contain at least one package"
 configure_root_filesystem
 if cache_tmpfs_enabled; then
@@ -654,9 +671,14 @@ run_rootfs "thorch-check-boot --root-uuid ${root_uuid}"
 # here composes those policies without duplicating the service inventory.
 systemctl --root "${rootfs_dir}" preset-all >/dev/null
 systemctl --root "${rootfs_dir}" --global preset-all >/dev/null
-# SSH is opt-in after firstboot has provisioned the chosen account password.
-# This also removes any enablement inherited from an upstream rootfs preset.
-systemctl --root "${rootfs_dir}" disable sshd.service >/dev/null 2>&1 || true
+# Public images keep SSH disabled. Local bring-up builds may opt in only after
+# explicitly provisioning a password above.
+if ssh_enabled; then
+  systemctl --root "${rootfs_dir}" enable sshd.service >/dev/null
+else
+  # Also remove any enablement inherited from an upstream rootfs preset.
+  systemctl --root "${rootfs_dir}" disable sshd.service >/dev/null 2>&1 || true
+fi
 cleanup_rootfs_for_image
 
 log "creating boot filesystem image"

@@ -290,6 +290,8 @@ describes their purpose without duplicating mutable source or kernel refs.
 - `THORCH_PASSWORD`: optional local bring-up password/PIN for the default user
   and root. It is empty by default, leaving both accounts locked until
   firstboot provisions the owner's chosen password.
+- `THORCH_ENABLE_SSH`: local bring-up switch, default `0`. Set it to `1` only
+  together with a non-empty `THORCH_PASSWORD`; public images must leave it off.
 - `THORCH_IMAGE_SIZE`: raw image size, default `auto`; set a fixed size such as `16G` when preallocated free space is needed.
 - `THORCH_IMAGE_AUTO_HEADROOM`: extra rootfs space when `THORCH_IMAGE_SIZE=auto`, default `1G`.
 - `THORCH_ROOT_FSTYPE`: root filesystem type, default `ext4`; set to `btrfs` for a compressed btrfs root image.
