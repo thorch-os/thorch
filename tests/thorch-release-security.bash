@@ -39,8 +39,8 @@ grep -q 'run_rootfs_cmd /usr/bin/usermod --lock root' "${builder}" ||
   fail "image builder does not lock root when no password is supplied"
 grep -q 'systemctl --root "${rootfs_dir}" disable sshd.service' "${builder}" ||
   fail "image builder does not explicitly disable SSH"
-grep -q 'systemctl --root "${rootfs_dir}" enable sshd.service' "${builder}" ||
-  fail "image builder does not support explicit local SSH enablement"
+grep -q "printf 'enable sshd.service" "${builder}" ||
+  fail "image builder does not support explicit local SSH enablement through presets"
 grep -q 'THORCH_ENABLE_SSH requires a non-empty THORCH_PASSWORD' "${builder}" ||
   fail "image builder permits SSH without an explicit password"
 

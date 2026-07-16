@@ -669,13 +669,18 @@ rm -f "${rootfs_dir}/boot/Image"
 run_rootfs "thorch-check-boot --root-uuid ${root_uuid}"
 # Product service defaults live with their owning packages. Applying presets
 # here composes those policies without duplicating the service inventory.
+ssh_build_preset="${rootfs_dir}/etc/systemd/system-preset/00-thorch-build-ssh.preset"
+rm -f "${ssh_build_preset}"
+if ssh_enabled; then
+  install -d "$(dirname "${ssh_build_preset}")"
+  printf 'enable sshd.service\n' > "${ssh_build_preset}"
+fi
 systemctl --root "${rootfs_dir}" preset-all >/dev/null
 systemctl --root "${rootfs_dir}" --global preset-all >/dev/null
+rm -f "${ssh_build_preset}"
 # Public images keep SSH disabled. Local bring-up builds may opt in only after
 # explicitly provisioning a password above.
-if ssh_enabled; then
-  systemctl --root "${rootfs_dir}" enable sshd.service >/dev/null
-else
+if ! ssh_enabled; then
   # Also remove any enablement inherited from an upstream rootfs preset.
   systemctl --root "${rootfs_dir}" disable sshd.service >/dev/null 2>&1 || true
 fi
