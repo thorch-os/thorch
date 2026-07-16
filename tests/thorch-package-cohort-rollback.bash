@@ -80,7 +80,7 @@ write_config n
 run_pacman -Sy "${package}" >/dev/null
 assert_version 1.0
 write_config n1
-run_pacman -Syu >/dev/null
+run_pacman -Syyu >/dev/null
 assert_version 2.0
 write_config n
 run_pacman -Syyuu >/dev/null
