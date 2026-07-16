@@ -47,6 +47,34 @@ for hook in \
 done
 rm -rf "${hook_fixture}"
 
+fake_query_count=0
+fake_removal_seen=0
+run_aarch64_rootfs_cmd() {
+  if [[ "$4" == -Qq ]]; then
+    fake_query_count=$((fake_query_count + 1))
+    case "$6" in
+      linux-firmware|linux-firmware-qcom) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+
+  [[ "$*" == "/fake/root fake-machine /usr/bin/pacman -R --noconfirm -- linux-firmware linux-firmware-qcom" ]] ||
+    fail "chroot package removal did not contain exactly the installed packages"
+  fake_removal_seen=1
+}
+remove_chroot_packages_if_installed \
+  /fake/root fake-machine \
+  linux-firmware linux-firmware-amdgpu linux-firmware-qcom
+[[ "${fake_query_count}" -eq 3 && "${fake_removal_seen}" -eq 1 ]] ||
+  fail "chroot package removal did not query and remove installed packages"
+
+fake_query_count=0
+fake_removal_seen=0
+remove_chroot_packages_if_installed \
+  /fake/root fake-machine linux-firmware-amdgpu
+[[ "${fake_query_count}" -eq 1 && "${fake_removal_seen}" -eq 0 ]] ||
+  fail "chroot package removal did not leave an already-clean root unchanged"
+
 if (( EUID == 0 )); then
   mount_fixture="$(mktemp -d)"
   cleanup_mount_fixture() {

@@ -4,6 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 linux_pkgbuild="${root}/packages/linux-thorch/PKGBUILD"
 firmware_pkgbuild="${root}/packages/thorch-firmware-rocknix/PKGBUILD"
+common="${root}/scripts/lib/common.sh"
 bsp_pkgbuild="${root}/packages/thorch-bsp/PKGBUILD"
 marker_pkgbuild="${root}/packages/thorch-boot-bootstrap-ready/PKGBUILD"
 bootstrap_protocol="${root}/packages/thorch-bsp/payload/usr/lib/thorch/boot-bootstrap-protocol"
@@ -15,6 +16,8 @@ fail() {
 
 # shellcheck source=/dev/null
 source "${bootstrap_protocol}"
+# shellcheck source=../scripts/lib/common.sh
+source "${common}"
 
 linux_metadata="$(
   bash -c 'source "$1"; declare -p depends makedepends provides conflicts replaces' \
@@ -76,6 +79,12 @@ stock_firmware=(
   linux-firmware-realtek
   linux-firmware-whence
 )
+build_stock_firmware=()
+while IFS= read -r package; do
+  build_stock_firmware+=("${package}")
+done < <(thorch_stock_firmware_packages)
+[[ "$(printf '%s\n' "${stock_firmware[@]}")" == "$(printf '%s\n' "${build_stock_firmware[@]}")" ]] ||
+  fail "package build stock firmware list differs from the replacement metadata"
 for package in "${stock_firmware[@]}"; do
   for field in provides conflicts replaces; do
     field_value="$(bash -c 'source "$1"; declare -p "$2"' _ "${firmware_pkgbuild}" "${field}")"

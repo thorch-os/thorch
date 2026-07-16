@@ -375,6 +375,47 @@ configure_chroot_resolver() {
   cp -L "${source}" "${rootfs}/etc/resolv.conf"
 }
 
+thorch_stock_firmware_packages() {
+  printf '%s\n' \
+    linux-firmware \
+    linux-firmware-amdgpu \
+    linux-firmware-atheros \
+    linux-firmware-broadcom \
+    linux-firmware-cirrus \
+    linux-firmware-intel \
+    linux-firmware-liquidio \
+    linux-firmware-marvell \
+    linux-firmware-mediatek \
+    linux-firmware-mellanox \
+    linux-firmware-nfp \
+    linux-firmware-nvidia \
+    linux-firmware-other \
+    linux-firmware-qcom \
+    linux-firmware-qlogic \
+    linux-firmware-radeon \
+    linux-firmware-realtek \
+    linux-firmware-whence
+}
+
+remove_chroot_packages_if_installed() {
+  local rootfs="$1" machine="$2" package
+  local -a installed=()
+  shift 2
+
+  for package in "$@"; do
+    if run_aarch64_rootfs_cmd \
+      "${rootfs}" "${machine}" /usr/bin/pacman -Qq -- "${package}" \
+      >/dev/null 2>&1; then
+      installed+=("${package}")
+    fi
+  done
+  (( ${#installed[@]} > 0 )) || return 0
+
+  log "removing packages from ephemeral chroot: ${installed[*]}"
+  run_aarch64_rootfs_cmd \
+    "${rootfs}" "${machine}" /usr/bin/pacman -R --noconfirm -- "${installed[@]}"
+}
+
 mask_chroot_stock_kernel_hooks() {
   local rootfs="$1"
 

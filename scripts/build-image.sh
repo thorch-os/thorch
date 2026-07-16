@@ -91,23 +91,9 @@ root_fstype="${THORCH_ROOT_FSTYPE,,}"
 root_mount_options=
 root_fstab_pass=
 root_img=
-stock_kernel_firmware=(
-  linux-aarch64
-  linux-firmware
-  linux-firmware-amdgpu
-  linux-firmware-atheros
-  linux-firmware-broadcom
-  linux-firmware-cirrus
-  linux-firmware-intel
-  linux-firmware-mediatek
-  linux-firmware-nvidia
-  linux-firmware-other
-  linux-firmware-qcom
-  linux-firmware-qlogic
-  linux-firmware-radeon
-  linux-firmware-realtek
-  linux-firmware-whence
-)
+stock_kernel_firmware=(linux-aarch64)
+mapfile -t stock_firmware_packages < <(thorch_stock_firmware_packages)
+stock_kernel_firmware+=("${stock_firmware_packages[@]}")
 
 build_mount_dirs=(
   "${build_dir}/btrfs-resize-root"

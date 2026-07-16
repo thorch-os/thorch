@@ -688,6 +688,12 @@ log "preparing pristine aarch64 package base root"
 run_base_chroot "pacman-key --init >/dev/null 2>&1 || true"
 run_base_chroot "pacman-key --populate archlinuxarm >/dev/null 2>&1 || true"
 run_base_chroot "pacman -Syu --noconfirm --needed base-devel python sudo"
+# Package roots never boot. Remove firmware that the Thorch replacement package
+# conflicts with so makepkg can install it as a dependency without an
+# interactive pacman replacement prompt.
+mapfile -t stock_firmware_packages < <(thorch_stock_firmware_packages)
+remove_chroot_packages_if_installed \
+  "${base_root}" "${base_machine_name}" "${stock_firmware_packages[@]}"
 run_base_chroot "gpgconf --kill all >/dev/null 2>&1 || pkill gpg-agent >/dev/null 2>&1 || true"
 run_base_chroot "id builder >/dev/null 2>&1 || useradd -m builder"
 run_base_chroot "install -d -o builder -g builder /nix /home/builder"
