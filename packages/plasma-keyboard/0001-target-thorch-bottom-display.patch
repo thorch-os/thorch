@@ -1,0 +1,42 @@
+diff --git a/src/main.cpp b/src/main.cpp
+index 02c1a1f..9ff534b 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -23,9 +23,12 @@
+ #include <QGuiApplication>
+ #include <QQmlApplicationEngine>
+ #include <QQuickWindow>
++#include <QScreen>
+ #include <QWindow>
+ #include <qpa/qwindowsysteminterface.h>
+
++#include <algorithm>
++
+ int main(int argc, char **argv)
+ {
+     qputenv("QT_IM_MODULE", QByteArray("qtvirtualkeyboard"));
+@@ -85,6 +88,24 @@ int main(int argc, char **argv)
+
+     QObject::connect(&view, &QQmlApplicationEngine::objectCreated, &application, [](QObject *object) {
+         auto window = qobject_cast<QWindow *>(object);
++        if (!window) {
++            return;
++        }
++
++        const QString requestedOutput = qEnvironmentVariable("PLASMA_KEYBOARD_OUTPUT");
++        if (!requestedOutput.isEmpty()) {
++            const auto screens = QGuiApplication::screens();
++            const auto screen = std::find_if(screens.cbegin(), screens.cend(), [&requestedOutput](const QScreen *candidate) {
++                return candidate->name() == requestedOutput;
++            });
++            if (screen != screens.cend()) {
++                window->setScreen(*screen);
++                qCInfo(PlasmaKeyboard) << "Using requested output" << requestedOutput;
++            } else {
++                qCWarning(PlasmaKeyboard) << "Requested output is unavailable:" << requestedOutput;
++            }
++        }
++
+         const bool initSuccessful = initInputPanelIntegration(window, InputPanelRole::Keyboard);
+
+         if (!initSuccessful) {

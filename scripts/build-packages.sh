@@ -103,7 +103,7 @@ if mountpoint -q "${build_root}/proc"; then
     die "unable to unmount stale package chroot proc filesystem: ${build_root}/proc"
 fi
 
-packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix thorch-kde-defaults thorch-firstboot thorch-installer thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration)
+packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix kwin plasma-keyboard thorch-kde-defaults thorch-firstboot thorch-installer thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration)
 if [[ "${skip_kernel}" -eq 0 ]]; then
   packages=(linux-thorch "${packages[@]}")
 fi

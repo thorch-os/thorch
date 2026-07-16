@@ -1,0 +1,10 @@
+cmake
+extra-cmake-modules
+kdoctools
+krunner
+kwin
+libcap
+plasma-wayland-protocols
+vulkan-headers
+wayland-protocols
+xorg-xwayland

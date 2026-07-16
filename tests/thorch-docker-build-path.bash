@@ -81,6 +81,9 @@ grep -A5 '^root="$(repo_root)"' "${fast_image_builder}" | grep -q '\[\[ "${THORC
 grep -E '^packages=\(.*thorch-firstboot' "${package_builder}" >/dev/null ||
   fail "default package build omits thorch-firstboot required by THORCH_IMAGE_PACKAGES"
 
+grep -E '^packages=\(.*kwin.*plasma-keyboard.*thorch-kde-defaults' "${package_builder}" >/dev/null ||
+  fail "default package build does not build KWin and the Thorch Plasma keyboard before KDE defaults"
+
 grep -A40 '^run_plain_chroot_cmd() {' "${common_helpers}" | grep -q '"$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64"' ||
   fail "plain chroot runner does not recognize both native ARM architecture names"
 

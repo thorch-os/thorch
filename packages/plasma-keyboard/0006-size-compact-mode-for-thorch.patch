@@ -1,0 +1,15 @@
+diff --git a/src/styles/breeze/style.qml b/src/styles/breeze/style.qml
+index 5258156..03b73f2 100644
+--- a/src/styles/breeze/style.qml
++++ b/src/styles/breeze/style.qml
+@@ -61,8 +61,8 @@ KeyboardStyle {
+             return fillScreenWidth;
+         }
+
+-        const targetAspectRatio = 3.0; // Target width = 3 * height
+-        return Math.min(fillScreenWidth, targetAspectRatio);
++        // Keep the compact panel visibly detached even on Thor's near-square lower display.
++        return fillScreenWidth * 0.8;
+     }
+
+     // Calculate width based on the height so that the keyboard height is always targetKeyboardHeight

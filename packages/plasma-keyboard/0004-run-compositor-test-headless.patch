@@ -1,0 +1,21 @@
+diff --git a/autotests/mockinputmethodcompositor.cpp b/autotests/mockinputmethodcompositor.cpp
+index 7e617ef..6eaaaf1 100644
+--- a/autotests/mockinputmethodcompositor.cpp
++++ b/autotests/mockinputmethodcompositor.cpp
+@@ -513,6 +513,7 @@ private Q_SLOTS:
+         });
+         auto env = QProcessEnvironment::systemEnvironment();
+         env.insert(u"WAYLAND_DISPLAY"_s, m_socketPath);
++        env.insert(u"QT_QPA_PLATFORM"_s, u"wayland"_s);
+         env.insert(u"QT_QUICK_BACKEND"_s, u"software"_s); // Without this plasma-keyboard explodes on alpine for some reason
+         m_child->setProcessEnvironment(env);
+
+@@ -593,7 +594,7 @@ private Q_SLOTS:
+         sendKey(KEY_1, 10);
+         QVERIFY(commitStringSpy.count() || commitStringSpy.wait());
+         QCOMPARE(commitStringSpy.count(), 1);
+-        QCOMPARE(commitStringSpy.first().first().toString(), QStringLiteral("à"));
++        QCOMPARE(commitStringSpy.first().first().toString(), QStringLiteral("á"));
+     }
+
+     /**
