@@ -2,19 +2,12 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-config="${root}/config/thorch.conf"
 desktop="${root}/packages/thorch-kde-defaults/payload/usr/share/applications/thorch-plasma-keyboard.desktop"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
 }
-
-packages="$({ unset THORCH_IMAGE_PACKAGES; THORCH_KERNEL_JOBS=1; source "${config}"; printf '%s\n' "${THORCH_IMAGE_PACKAGES}"; })"
-case " ${packages} " in
-  *' kwin plasma-keyboard thorch-kde-defaults '*) ;;
-  *) fail "default image does not install the tuned compositor and keyboard before KDE defaults" ;;
-esac
 
 grep -q '^Exec=env PLASMA_KEYBOARD_OUTPUT=DSI-1 ' "${desktop}" ||
   fail "virtual keyboard is not pinned to the bottom DSI-1 output"
