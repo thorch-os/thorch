@@ -97,7 +97,7 @@ done
 
 if [[ "${#packages_to_refresh[@]}" -gt 0 ]]; then
   image_packages_csv="$(IFS=,; printf '%s' "${packages_to_refresh[*]}")"
-  "${script_dir}/build-packages.sh" --skip-fresh --trust-existing --packages "${image_packages_csv}"
+  "${script_dir}/build-packages.sh" --skip-fresh --packages "${image_packages_csv}"
 else
   log "no local packages selected for refresh"
 fi
