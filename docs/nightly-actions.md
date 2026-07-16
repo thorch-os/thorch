@@ -34,17 +34,8 @@ toolchain. Package and image rootfs commands use
 The nightly job grants its `GITHUB_TOKEN` `packages: read`; the builder job has
 `packages: write`. The `thorch-build` package must also be linked to this
 repository and list it under the package's **Manage Actions access** settings.
-The workflow emits that exact check if its authenticated pull is denied.
-
-An earlier anonymous and nightly pull was denied, but that result alone did not
-identify whether package visibility, linkage, Actions access, or the missing
-workflow permission was responsible. The workflow change corrects the missing
-`packages: read` permission. A package administrator must inspect the remaining
-GHCR settings rather than infer them from the denial. If anonymous contributor
-pulls are intended, the administrator can make the package public; GitHub warns
-that this visibility change cannot be reversed. Until that setting is verified,
-contributors can either authenticate with package read access or build the
-pinned Dockerfile locally.
+If a pull is denied, verify package visibility, repository linkage, and Actions
+access in GitHub before changing the workflow.
 
 ## Runner Shape
 
@@ -64,12 +55,8 @@ Docker-on-SELinux failure mode. Repository Actions workflow permissions must
 allow `contents: write` so `GITHUB_TOKEN` can create prereleases and
 `packages: read` so it can fetch the builder.
 
-`make test` includes a real Linux integration fixture that creates a small GPT
-image with FAT and ext4 partitions, attaches it through a loop device, and runs
-the same read-only mount path as the ROCKNIX import. It also probes an
-unformatted image and requires the actual `mount(8)` error to remain visible.
-The nightly sets `THORCH_REQUIRE_MOUNT_INTEGRATION=1` inside its privileged
-builder so an unsupported or skipped fixture fails the job.
+The nightly requires the privileged mount integration test; an unsupported or
+skipped result fails the job.
 
 The nightly target runs:
 

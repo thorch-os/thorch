@@ -30,11 +30,8 @@ jobs:
       THORCH_CI_REQUIRE_ROOTLESS: 1
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-
+      # The Arch container does not include Git. Install it before checkout so
+      # actions/checkout creates a real repository instead of a REST archive.
       - name: Install canonical fast-check dependencies
         run: |
           set -euo pipefail
@@ -59,6 +56,14 @@ jobs:
             shadow \
             yamllint
 
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Prepare rootless workspace
+        run: |
+          set -euo pipefail
           useradd --create-home --uid 1001 --user-group thorch-ci
           install -d -m 0700 -o thorch-ci -g thorch-ci /tmp/thorch-ci-runtime
           chown -R thorch-ci:thorch-ci "${GITHUB_WORKSPACE}"
@@ -66,6 +71,8 @@ jobs:
       - name: Run rootless fast checks
         run: |
           set -euo pipefail
+          # The single-quoted program is evaluated by the inner Bash process.
+          # shellcheck disable=SC2016
           runuser -u thorch-ci -- \
             env \
               CI=true \

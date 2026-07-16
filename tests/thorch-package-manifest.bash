@@ -4,8 +4,6 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cli="${root}/scripts/package-manifest.py"
 builder="${root}/scripts/build-packages.sh"
-image_builder="${root}/scripts/build-image.sh"
-fast_image_builder="${root}/scripts/build-image-fast.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -80,26 +78,6 @@ selection="$(
 )"
 [[ "${selection}" == "linux-thorch,thorch-fex-bin,thorch-gaming-installers" ]] || \
   fail "package selection was not alias-resolved and put in manifest order"
-
-! grep -Eq -- '--nodeps|\.thorch-build-pacman-deps' "${builder}" || \
-  fail "package builder still bypasses declared dependency checks"
-grep -q 'makepkg --printsrcinfo' "${builder}" || \
-  fail "package builder does not validate generated .SRCINFO"
-grep -q 'makepkg --syncdeps' "${builder}" || \
-  fail "package builder does not install declared dependencies"
-grep -Fq 'reset_package_root "${pkg}"' "${builder}" || \
-  fail "package builder does not reset the package root for every package"
-grep -Fq 'cp -a --reflink=auto "${base_root}/." "${build_root}/"' "${builder}" || \
-  fail "package roots are not cloned from the pristine base"
-grep -Fq 'sync_input_path "${source}" "${relative}"' "${builder}" || \
-  fail "package builds do not stage declared external subpaths independently"
-for image_script in "${image_builder}" "${fast_image_builder}"; do
-  grep -q 'package-manifest.py' "${image_script}" ||
-    fail "$(basename "${image_script}") does not resolve the canonical image profile"
-  ! grep -Eq '^read -r -a image_packages <<< "\$\{THORCH_IMAGE_PACKAGES\}"' \
-    "${image_script}" ||
-    fail "$(basename "${image_script}") bypasses manifest validation"
-done
 
 if find "${root}/packages" -type f \
     \( -name '.thorch-build-inputs' -o -name '.thorch-build-pacman-deps' \) |

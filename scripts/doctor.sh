@@ -141,7 +141,7 @@ if (( failures == 0 )); then
 else
   printf '  Environment is not ready for make ci (%d problem(s)).\n' "${failures}"
   if [[ "${host_os}/${host_arch}" == "Linux/x86_64" || "${host_os}/${host_arch}" == "Linux/amd64" ]]; then
-    printf '  Install the canonical packages documented in DEVELOPMENT.md, then rerun make doctor.\n'
+    printf '  Install the missing tools listed above (see scripts/ci.sh --list-tools), then rerun make doctor.\n'
   else
     printf '  Use Linux x86_64 or open a pull request and use the pinned rootless CI job.\n'
   fi

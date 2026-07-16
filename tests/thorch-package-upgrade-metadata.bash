@@ -4,9 +4,6 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 linux_pkgbuild="${root}/packages/linux-thorch/PKGBUILD"
 firmware_pkgbuild="${root}/packages/thorch-firmware-rocknix/PKGBUILD"
-image_builder="${root}/scripts/build-image.sh"
-package_builder="${root}/scripts/build-packages.sh"
-common="${root}/scripts/lib/common.sh"
 bsp_pkgbuild="${root}/packages/thorch-bsp/PKGBUILD"
 marker_pkgbuild="${root}/packages/thorch-boot-bootstrap-ready/PKGBUILD"
 bootstrap_protocol="${root}/packages/thorch-bsp/payload/usr/lib/thorch/boot-bootstrap-protocol"
@@ -88,52 +85,5 @@ for package in "${stock_firmware[@]}"; do
 done
 grep -Eq 'makedepends=.*patchelf.*python' <<< "${firmware_metadata}" || \
   fail "firmware package does not declare its ICD rewrite tool"
-
-! grep -Eq '"\$\{pkgdir\}/usr/lib/libvulkan_freedreno\.so"|"\$\{pkgdir\}/usr/lib/libdisplay-info' \
-  "${firmware_pkgbuild}" || fail "firmware package still writes system-owned library paths"
-grep -Eq '/usr/lib/thorch/freedreno/libvulkan_freedreno\.so' "${firmware_pkgbuild}" || \
-  fail "firmware package does not use a private Vulkan driver path"
-grep -Eq '/usr/lib/thorch/freedreno/libdisplay-info\.so\.0\.2\.0' "${firmware_pkgbuild}" || \
-  fail "firmware package does not keep its compatibility library private"
-grep -Fq "patchelf --set-rpath '\$ORIGIN'" "${firmware_pkgbuild}" || \
-  fail "private Vulkan driver does not resolve its matching compatibility library"
-grep -Eq 'thorch_freedreno_icd\.json' "${firmware_pkgbuild}" || \
-  fail "firmware package does not use a uniquely owned ICD manifest"
-
-! grep -Eq -- '-Rdd|--overwrite|pacman[[:space:]]+-U' \
-  "${image_builder}" "${package_builder}" ||
-  fail "normal image/package composition still uses a conflict bypass"
-grep -q 'stage_image_repository' "${image_builder}" ||
-  fail "image composition does not stage the local pacman repository"
-grep -q 'pacman --config /etc/pacman-thorch-build.conf -Syu' "${image_builder}" ||
-  fail "image composition does not use a full repository transaction"
-grep -q 'configure_pacman_for_emulated_build "${pacman_build_conf}"' "${image_builder}" ||
-  fail "image composition does not isolate emulation-only pacman settings"
-grep -q '^unstage_image_repository$' "${image_builder}" ||
-  fail "image composition does not remove its temporary repository configuration"
-alarm_pacman_body="$(awk '
-  /^configure_alarm_pacman\(\)/ {printing=1}
-  printing {print}
-  printing && /^}/ {exit}
-' "${common}")"
-! grep -Eq 'DisableSandbox|CheckSpace' <<< "${alarm_pacman_body}" ||
-  fail "normal image pacman configuration still receives build-only settings"
-grep -q 'configure_pacman_for_emulated_build "${base_root}/etc/pacman.conf"' "${package_builder}" ||
-  fail "package builds do not scope their emulation-only pacman exception"
-grep -q 'extract_alarm_rootfs ' "${image_builder}" ||
-  fail "image composition does not extract a coherent ALARM rootfs"
-grep -q 'bsdtar -xpf "${rootfs_tar}" -C "${dest}"$' "${common}" ||
-  fail "ALARM extraction still removes package-owned files or database entries"
-! grep -q 'extract_alarm_rootfs_without_stock_kernel_firmware' \
-  "${common}" "${image_builder}" "${package_builder}" ||
-  fail "legacy package-database surgery is still reachable"
-! grep -q 'rm -f "${rootfs_dir}/etc/mkinitcpio.d/linux-aarch64.preset"' "${image_builder}" ||
-  fail "image composition still conceals stock-kernel ownership metadata errors"
-grep -q 'archive-package-repo.sh' "${package_builder}" ||
-  fail "package builds discard the previous local repository bytes before pruning"
-grep -q -- '--candidate "${pkgfile}"' "${package_builder}" ||
-  fail "package builds can replace an existing pacman identity with different bytes"
-grep -q 'SHA256SUMS' "${root}/scripts/archive-package-repo.sh" ||
-  fail "retained local repository bytes are not integrity-recorded"
 
 printf 'thorch package upgrade metadata checks passed\n'

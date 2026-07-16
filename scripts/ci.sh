@@ -155,6 +155,7 @@ if (( ${#yaml_files[@]} > 0 )); then
     -d '{extends: default, rules: {comments: {min-spaces-from-content: 1}, document-start: disable, line-length: {max: 200}, truthy: disable}}' \
     "${yaml_files[@]}"
 fi
+scripts/configure-github-repository.sh --validate >/dev/null
 
 note "package manifest and PKGBUILD metadata"
 if [[ -f scripts/package-manifest.py ]]; then

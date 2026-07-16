@@ -12,12 +12,10 @@ from typing import Any, Dict, Iterable, List
 
 
 PACKAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9@._+-]*$")
-OWNER_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 INPUT_RE = re.compile(
     r"^(?:[A-Z][A-Z0-9_]*)(?:/[A-Za-z0-9@%_.,+:/=-]+)*$"
 )
 PROFILE_NAMES = {"build", "image", "release"}
-TEST_TIERS = {"unit", "integration", "image", "hardware"}
 BUILD_INPUT_VARIABLES = {
     "THORCH_FIRMWARE_DIR",
     "THORCH_ROCKNIX_DIR",
@@ -171,8 +169,6 @@ def validate_manifest(data: Dict[str, Any], repo: Path, check_tree: bool = True)
             "name",
             "path",
             "profiles",
-            "owner",
-            "test_tier",
             "build_inputs",
             "version_inputs",
         }
@@ -201,13 +197,6 @@ def validate_manifest(data: Dict[str, Any], repo: Path, check_tree: bool = True)
             raise ManifestError(f"{name}: unknown profiles: {', '.join(sorted(unknown_profiles))}")
         if "build" not in profiles:
             raise ManifestError(f"{name}: every package must be in the build profile")
-
-        owner = _expect_string(raw, "owner", name)
-        if not OWNER_RE.fullmatch(owner):
-            raise ManifestError(f"{name}: invalid owner: {owner}")
-        test_tier = _expect_string(raw, "test_tier", name)
-        if test_tier not in TEST_TIERS:
-            raise ManifestError(f"{name}: unknown test_tier: {test_tier}")
 
         build_inputs = _expect_string_list(raw, "build_inputs", name)
         for build_input in build_inputs:

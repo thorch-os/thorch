@@ -89,14 +89,6 @@ recreating it smaller, which wipes the Android instance stored there. Thorch
 does not flash or replace ABL, but block-device mistakes can still make a device
 painful to recover.
 
-## AI Disclosure
-
-This project uses aggressive AI assistance for research, patch archaeology,
-documentation, scripting, debugging, and general "what if we tried this?"
-engineering chaos. AI-generated changes still need human review, hardware
-testing, and attribution checks before they are treated as trustworthy. Assume
-the machines are helping loudly, not driving unsupervised.
-
 ## Quick Start
 
 These commands are for workshop/test devices only. Read the scripts and the
@@ -240,7 +232,9 @@ The ordered default package set is defined once in
 with `python3 scripts/package-manifest.py profile image --format space`.
 Override `THORCH_IMAGE_PACKAGES` when you need a custom image package set. See
 [`docs/package-maintenance.md`](docs/package-maintenance.md) for package input,
-version, and isolated-build rules.
+version, and isolated-build rules. See
+[`docs/update-safety.md`](docs/update-safety.md) before testing package upgrades
+on an installed system.
 
 `thorch-firstboot` starts a fullscreen QML onboarding flow on first login for
 Wi-Fi, SD-vs-internal install intent, default mode, user/password setup, theme

@@ -34,8 +34,6 @@ cat > "${fixture}/manifests/packages.json" <<'JSON'
       "name": "demo",
       "path": "packages/demo",
       "profiles": ["build", "image"],
-      "owner": "test",
-      "test_tier": "unit",
       "build_inputs": [],
       "version_inputs": ["policy/demo.conf"]
     }
