@@ -12,46 +12,78 @@ if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
   exit 0
 fi
 
+bottom_touch_path="${THORCH_BOTTOM_TOUCH_PATH:-/dev/input/by-path/platform-a90000.i2c-event}"
+top_touch_path="${THORCH_TOP_TOUCH_PATH:-/dev/input/by-path/platform-98c000.i2c-event}"
+dbus_timeout="${THORCH_TOUCH_MAP_DBUS_TIMEOUT:-2s}"
+ready_attempts="${THORCH_TOUCH_MAP_READY_ATTEMPTS:-10}"
+lock_file="${THORCH_TOUCH_MAP_LOCK_FILE:-${XDG_RUNTIME_DIR}/thorch-kwin-touch-map.lock}"
+kwin_is_ready=0
+
+# thorch-display-setup and the legacy standalone autostart can overlap during
+# login. Only one mapper may touch KWin's input configuration at a time.
+exec 9>"${lock_file}"
+flock -n 9 || exit 0
+
 apply_mapping_once() {
   # KWin keys these identical controllers by event node, so map by stable bus path.
-  set_output_name /dev/input/by-path/platform-a90000.i2c-event DSI-2
-  set_output_name /dev/input/by-path/platform-98c000.i2c-event DSI-1
+  set_output_name "${bottom_touch_path}" DSI-2
+  set_output_name "${top_touch_path}" DSI-1
+}
+
+dbus_get_property() {
+  local object="$1"
+  local property="$2"
+
+  timeout "${dbus_timeout}" qdbus6 org.kde.KWin "${object}" \
+    org.freedesktop.DBus.Properties.Get org.kde.KWin.InputDevice "${property}"
+}
+
+set_property_if_needed() {
+  local object="$1"
+  local property="$2"
+  local expected="$3"
+  local current
+
+  # Do not enqueue a write when KWin is unavailable or already blocked.
+  current="$(dbus_get_property "${object}" "${property}" 2>/dev/null)" || return 1
+  [[ "${current}" == "${expected}" ]] && return 0
+
+  timeout "${dbus_timeout}" qdbus6 org.kde.KWin "${object}" \
+    org.freedesktop.DBus.Properties.Set org.kde.KWin.InputDevice \
+    "${property}" "${expected}" >/dev/null 2>&1
 }
 
 set_output_name() {
   local by_path="$1"
   local output="$2"
-  local event
+  local event object
 
   event="$(readlink -f "${by_path}" 2>/dev/null || true)"
   event="${event##*/}"
   [[ "${event}" == event* ]] || return 0
 
-  qdbus6 org.kde.KWin "/org/kde/KWin/InputDevice/${event}" \
-    org.freedesktop.DBus.Properties.Set org.kde.KWin.InputDevice outputName "${output}" || true
-  qdbus6 org.kde.KWin "/org/kde/KWin/InputDevice/${event}" \
-    org.freedesktop.DBus.Properties.Set org.kde.KWin.InputDevice calibrationMatrix "1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1" || true
-  qdbus6 org.kde.KWin "/org/kde/KWin/InputDevice/${event}" \
-    org.freedesktop.DBus.Properties.Set org.kde.KWin.InputDevice rotation 0 || true
-  qdbus6 org.kde.KWin "/org/kde/KWin/InputDevice/${event}" \
-    org.freedesktop.DBus.Properties.Set org.kde.KWin.InputDevice orientationDBus 1 || true
+  object="/org/kde/KWin/InputDevice/${event}"
+  set_property_if_needed "${object}" outputName "${output}" || return 0
+  set_property_if_needed "${object}" calibrationMatrix \
+    "1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1" || return 0
+  set_property_if_needed "${object}" rotation 0 || return 0
+  set_property_if_needed "${object}" orientationDBus 1 || return 0
 }
 
 kwin_ready() {
-  qdbus6 org.kde.KWin /org/kde/KWin/InputDevice org.kde.KWin.InputDeviceManager.ListTouch \
-    >/dev/null 2>&1
+  timeout "${dbus_timeout}" qdbus6 org.kde.KWin /org/kde/KWin/InputDevice \
+    org.kde.KWin.InputDeviceManager.ListTouch >/dev/null 2>&1
 }
 
-for _ in $(seq 1 40); do
-  kwin_ready && break
+for _ in $(seq 1 "${ready_attempts}"); do
+  if kwin_ready; then
+    kwin_is_ready=1
+    break
+  fi
   sleep 1
 done
+[[ "${kwin_is_ready}" -eq 1 ]] || exit 0
 
-if [[ "${1:-}" == "--watch" ]]; then
-  while true; do
-    apply_mapping_once
-    sleep "${THORCH_TOUCH_MAP_INTERVAL:-2}"
-  done
-else
-  apply_mapping_once
-fi
+# `--watch` was used by older images. Treat it as a bounded one-shot so those
+# existing autostarts stop hammering KWin every two seconds after an upgrade.
+apply_mapping_once
