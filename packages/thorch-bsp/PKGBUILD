@@ -2,7 +2,7 @@
 
 pkgname=thorch-bsp
 pkgver=1
-pkgrel=27
+pkgrel=31
 pkgdesc='Thorch AYN Thor boot and board support package'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
@@ -36,6 +36,7 @@ package() {
   cd "${startdir}/payload"
   cp -a . "${pkgdir}/"
   find "${pkgdir}" -type d -name __pycache__ -prune -exec rm -rf {} +
+  chmod 0750 "${pkgdir}/etc/sudoers.d"
   chmod 0440 "${pkgdir}/etc/sudoers.d/20-thorch-wheel"
 
   install -d "${pkgdir}/usr/share/alsa/ucm2/conf.d/sm8550"
@@ -80,8 +81,4 @@ package() {
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-firmware"
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-sd-prefer"
   chmod 755 "${pkgdir}/usr/lib/initcpio/hooks/thorch-sd-prefer"
-  chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-rgb"
-  chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-sleep-powersave"
-  chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-powerkey-wake-guard"
-  chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-usb-role-suspend"
 }

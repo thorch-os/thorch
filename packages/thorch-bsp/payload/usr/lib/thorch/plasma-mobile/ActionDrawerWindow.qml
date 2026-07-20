@@ -24,29 +24,21 @@ Window {
         return screens.length > 0 ? screens[0] : null;
     }
 
+    property var controlScreen: thorchControlScreen()
     property alias actionDrawer: drawer
     property alias state: drawer.state
 
     title: "Thorch Action Drawer"
-    screen: thorchControlScreen()
+    screen: controlScreen
     width: screen ? screen.width : 620
     height: screen ? screen.height : 540
     color: "transparent"
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-    visible: true
-
-    Component.onCompleted: preloadTimer.start()
-
-    Timer {
-        id: preloadTimer
-        interval: 1
-        onTriggered: {
-            window.visible = Qt.binding(() => drawer.intendedToBeVisible);
-        }
-    }
+    visible: drawer.intendedToBeVisible
 
     onVisibleChanged: {
         if (visible) {
+            controlScreen = thorchControlScreen();
             window.raise();
         }
     }

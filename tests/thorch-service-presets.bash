@@ -8,6 +8,7 @@ bsp_install="${root}/packages/thorch-bsp/thorch-bsp.install"
 bsp_pkgbuild="${root}/packages/thorch-bsp/PKGBUILD"
 bsp_sudoers="${root}/packages/thorch-bsp/payload/etc/sudoers.d/20-thorch-wheel"
 bsp_mkinitcpio="${root}/packages/thorch-bsp/payload/etc/mkinitcpio.conf.d/90-thorch.conf"
+gaming_pkgbuild="${root}/packages/thorch-gaming-installers/PKGBUILD"
 desktop_preset="${root}/packages/thorch-kde-defaults/payload/usr/lib/systemd/system-preset/80-thorch-desktop.preset"
 user_preset="${root}/packages/thorch-kde-defaults/payload/usr/lib/systemd/user-preset/80-thorch-desktop.preset"
 input_preset="${root}/packages/thorch-inputplumber/payload/usr/lib/systemd/system-preset/80-thorch-input.preset"
@@ -54,6 +55,10 @@ grep -q '%wheel ALL=(ALL:ALL) ALL' "${bsp_sudoers}" ||
   fail "BSP does not own the wheel sudo policy"
 grep -q 'etc/sudoers.d/20-thorch-wheel' "${bsp_pkgbuild}" ||
   fail "administrator sudo policy is not declared as package backup configuration"
+grep -Fq 'chmod 0750 "${pkgdir}/etc/sudoers.d"' "${bsp_pkgbuild}" ||
+  fail "BSP package does not preserve the protected sudoers directory mode"
+grep -Fq 'chmod 750 "${pkgdir}/etc/sudoers.d"' "${gaming_pkgbuild}" ||
+  fail "gaming package does not preserve the protected sudoers directory mode"
 grep -q '^migrate_legacy_sudoers()' "${bsp_install}" ||
   fail "BSP does not migrate the formerly image-owned sudo policy"
 grep -q 'etc/mkinitcpio.conf.d/90-thorch.conf' "${bsp_pkgbuild}" ||
@@ -76,6 +81,21 @@ THORCH_INSTALL_ROOT="${sudo_migration}" bash -c \
   'source "$1"; migrate_legacy_sudoers' _ "${bsp_install}" 2>/dev/null
 grep -q 'NOPASSWD' "${sudo_migration}/etc/sudoers.d/10-thorch-wheel" ||
   fail "modified administrator sudo policy was not preserved"
+
+sleep_hook_migration="${sudo_migration}/usr/lib/systemd/system-sleep"
+install -d "${sleep_hook_migration}"
+for hook in \
+  thorch-powerkey-wake-guard \
+  thorch-rgb \
+  thorch-sleep-powersave \
+  thorch-usb-role-suspend; do
+  : >"${sleep_hook_migration}/${hook}"
+done
+THORCH_INSTALL_ROOT="${sudo_migration}" bash -c \
+  'source "$1"; remove_legacy_sleep_hooks' _ "${bsp_install}"
+if compgen -G "${sleep_hook_migration}/thorch-*" >/dev/null; then
+  fail "legacy pre-suspend hooks were not removed"
+fi
 
 grep -q 'systemctl --root "${rootfs_dir}" preset-all' "${image_builder}" ||
   fail "image composition does not apply packaged system presets"
