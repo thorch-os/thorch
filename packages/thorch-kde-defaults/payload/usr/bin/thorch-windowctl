@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: thorch-windowctl move-active-top|move-active-bottom|swap-active" >&2
+  exit 2
+}
+
+command_name="${1:-}"
+case "${command_name}" in
+  move-active-top|move-active-bottom|swap-active) ;;
+  *) usage ;;
+esac
+
+uid="$(id -u)"
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+top_output="${THORCH_TOP_OUTPUT:-DSI-2}"
+bottom_output="${THORCH_BOTTOM_OUTPUT:-DSI-1}"
+script_id="thorch-windowctl-action"
+script_path="${runtime_dir}/thorch-windowctl-action.js"
+
+export XDG_RUNTIME_DIR="${runtime_dir}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
+
+python_command="${THORCH_PYTHON:-}"
+if [[ -z "${python_command}" ]]; then
+  python_command="$(command -v python3 || command -v python || true)"
+fi
+[[ -n "${python_command}" ]] || {
+  echo "Python is required to encode the KWin action safely." >&2
+  exit 1
+}
+
+json_string() {
+  "${python_command}" -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
+}
+
+install -d -m 0700 "${runtime_dir}"
+
+command_json="$(json_string "${command_name}")"
+top_output_json="$(json_string "${top_output}")"
+bottom_output_json="$(json_string "${bottom_output}")"
+
+cat >"${script_path}" <<EOF
+"use strict";
+
+const commandName = ${command_json};
+const topOutputName = ${top_output_json};
+const bottomOutputName = ${bottom_output_json};
+
+function textValue(value) {
+    if (value === undefined || value === null) {
+        return "";
+    }
+    try {
+        return value.toString();
+    } catch (error) {
+        return "";
+    }
+}
+
+function outputName(output) {
+    return textValue(output && output.name);
+}
+
+function namedOutput(name) {
+    const outputs = workspace.screens || [];
+    for (const output of outputs) {
+        if (outputName(output) === name) {
+            return output;
+        }
+    }
+    return null;
+}
+
+function isThorchUtilitySurface(window) {
+    const identity = [
+        window && window.resourceClass,
+        window && window.resourceName,
+        window && window.windowClass,
+        window && window.desktopFileName,
+        window && window.caption,
+        window && window.captionNormal
+    ].map(textValue).join(" ").toLowerCase();
+
+    return identity.indexOf("thorch companion") !== -1 ||
+        identity.indexOf("org.thorch.companionpanel") !== -1 ||
+        identity.indexOf("thorch action drawer") !== -1;
+}
+
+function isMovableWindow(window) {
+    return window &&
+        (window.normalWindow || window.dialog) &&
+        !isThorchUtilitySurface(window);
+}
+
+function activeMovableWindow() {
+    if (isMovableWindow(workspace.activeWindow)) {
+        return workspace.activeWindow;
+    }
+
+    const windows = workspace.stackingOrder || workspace.windowList();
+    for (let index = windows.length - 1; index >= 0; --index) {
+        if (isMovableWindow(windows[index])) {
+            return windows[index];
+        }
+    }
+    return null;
+}
+
+function destinationFor(window) {
+    if (commandName === "move-active-top") {
+        return namedOutput(topOutputName);
+    }
+    if (commandName === "move-active-bottom") {
+        return namedOutput(bottomOutputName);
+    }
+
+    const currentOutputName = outputName(window.output);
+    if (currentOutputName === topOutputName) {
+        return namedOutput(bottomOutputName);
+    }
+    if (currentOutputName === bottomOutputName) {
+        return namedOutput(topOutputName);
+    }
+
+    console.warn("thorch-windowctl: active window is not on a known Thorch output");
+    return null;
+}
+
+const window = activeMovableWindow();
+if (!window) {
+    console.warn("thorch-windowctl: no active movable window found");
+} else {
+    const destination = destinationFor(window);
+    if (!destination) {
+        console.warn("thorch-windowctl: destination output is unavailable");
+    } else if (window.output !== destination) {
+        const wasFullScreen = !!window.fullScreen;
+        try {
+            window.fullScreen = false;
+            workspace.sendClientToScreen(window, destination);
+            window.fullScreen = wasFullScreen;
+        } catch (error) {
+            console.warn("thorch-windowctl: could not move the active window: " + error);
+            try {
+                window.fullScreen = wasFullScreen;
+            } catch (restoreError) {
+            }
+        }
+    }
+}
+EOF
+
+if [[ "${THORCH_WINDOWCTL_GENERATE_ONLY:-0}" == 1 ]]; then
+  printf '%s\n' "${script_path}"
+  exit 0
+fi
+
+command -v qdbus6 >/dev/null 2>&1 || {
+  echo "qdbus6 is missing; cannot ask KWin to move the active window." >&2
+  exit 1
+}
+[[ -S "${runtime_dir}/bus" ]] || {
+  echo "KWin session bus is unavailable at ${runtime_dir}/bus." >&2
+  exit 1
+}
+
+timeout 5s qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "${script_id}" >/dev/null 2>&1 || true
+loaded="$(timeout 5s qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${script_path}" "${script_id}")" || {
+  echo "KWin rejected the Thorch window action script." >&2
+  exit 1
+}
+[[ "${loaded}" != "-1" && "${loaded}" != "false" ]] || {
+  echo "KWin could not load the Thorch window action script." >&2
+  exit 1
+}
+timeout 5s qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null
+
+# Script file loading is asynchronous in KWin. Keep this one-shot instance
+# alive after start(); the next action unloads the same fixed ID before loading
+# its replacement, so at most one idle action script exists.
+
+case "${command_name}" in
+  move-active-top) echo "Moving the active window to ${top_output}." ;;
+  move-active-bottom) echo "Moving the active window to ${bottom_output}." ;;
+  swap-active) echo "Moving the active window to the other display." ;;
+esac

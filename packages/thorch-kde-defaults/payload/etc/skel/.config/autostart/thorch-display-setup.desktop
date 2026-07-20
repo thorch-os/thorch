@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Thorch Display Setup
-Exec=/usr/bin/thorch-display-setup
+Exec=/usr/bin/thorch-display-setup --initial
 OnlyShowIn=KDE;
 NoDisplay=true
 X-KDE-autostart-phase=1

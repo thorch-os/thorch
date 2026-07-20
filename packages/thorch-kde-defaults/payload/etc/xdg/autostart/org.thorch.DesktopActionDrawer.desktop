@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Thorch Desktop Action Drawer
+Comment=Use Plasma Mobile's slide-down action drawer in Plasma Desktop
+Exec=/usr/lib/thorch-desktop-action-drawer
+OnlyShowIn=KDE;
+NoDisplay=true
+Terminal=false
+X-KDE-autostart-phase=2

@@ -1,8 +1,0 @@
-[AC][SuspendSession]
-idleTime=0
-
-[Battery][SuspendSession]
-idleTime=0
-
-[LowBattery][SuspendSession]
-idleTime=0

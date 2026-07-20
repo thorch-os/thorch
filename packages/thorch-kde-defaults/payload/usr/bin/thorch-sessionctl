@@ -105,9 +105,9 @@ mode_uses_steam() {
   esac
 }
 
-mode_uses_mobile_drawer_override() {
+mode_uses_custom_action_drawer() {
   case "$1" in
-    steamos|steamos-mobile) return 0 ;;
+    desktop|mobile|steamos|steamos-mobile|steamos-desktop) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -148,7 +148,7 @@ apply_mode_side_effects() {
   # services or user state outside that root in this mode.
   [[ -z "${root_prefix}" ]] || return 0
 
-  if mode_uses_mobile_drawer_override "${mode}"; then
+  if mode_uses_custom_action_drawer "${mode}"; then
     if [[ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ]]; then
       /usr/lib/thorch/plasma-mobile-action-drawer-mode enable || true
     fi

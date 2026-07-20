@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "KPackage/GenericQML",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Thorch contributors"
+            }
+        ],
+        "Description": "Move the active window to the top display",
+        "Icon": "go-up",
+        "Id": "org.thorch.quicksetting.moveActiveTop",
+        "License": "GPL-2.0-or-later",
+        "Name": "Active to Top",
+        "Website": "https://github.com/thorch-os/thorch"
+    }
+}

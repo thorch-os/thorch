@@ -1,0 +1,22 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Thorch contributors"
+            }
+        ],
+        "Description": "Configure performance, cooling, and lighting for AYN Thor",
+        "FormFactors": [
+            "desktop",
+            "handset",
+            "tablet"
+        ],
+        "Icon": "preferences-system",
+        "License": "GPL-2.0-or-later",
+        "Name": "Thorch Hardware",
+        "Website": "https://github.com/thorch-os/thorch"
+    },
+    "X-KDE-Keywords": "thorch,thor,hardware,cpu,gpu,governor,fan,cooling,rgb,lighting",
+    "X-KDE-System-Settings-Parent-Category": "hardware",
+    "X-KDE-Weight": 10
+}

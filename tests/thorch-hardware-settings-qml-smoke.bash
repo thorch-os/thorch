@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 script="${root}/packages/thorch-kde-defaults/payload/usr/bin/thorch-hardware-settings"
-app_dir="${root}/packages/thorch-kde-defaults/payload/usr/lib/thorch/hardware-settings"
+kcm_qml="${root}/packages/thorch-kde-defaults/kcm/ui/main.qml"
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
@@ -11,6 +11,24 @@ fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
 }
+
+mkdir -p "${tmp}/bin"
+log="${tmp}/helper.log"
+stderr_log="${tmp}/stderr.log"
+
+cat > "${tmp}/bin/systemsettings" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" > "${THORCH_TEST_LAUNCH_LOG:?}"
+EOF
+chmod 755 "${tmp}/bin/systemsettings"
+
+THORCH_TEST_LAUNCH_LOG="${tmp}/launcher.log" \
+PATH="${tmp}/bin:${PATH}" \
+  bash "${script}"
+
+grep -qx 'kcm_thorch_hardware' "${tmp}/launcher.log" \
+  || fail "hardware settings launcher did not open the System Settings KCM"
 
 runner="$(command -v qmlscene6 || true)"
 if [[ -z "${runner}" ]]; then
@@ -20,31 +38,6 @@ if [[ -z "${runner}" ]]; then
   printf 'skip: qmlscene6 not available\n'
   exit 0
 fi
-
-probe_qml="${tmp}/probe.qml"
-cat > "${probe_qml}" <<'EOF'
-import QtQuick
-
-Item {
-    Timer {
-        interval: 1
-        running: true
-        onTriggered: Qt.quit()
-    }
-}
-EOF
-
-if ! QT_QPA_PLATFORM=offscreen timeout 5 "${runner}" "${probe_qml}" >/dev/null 2>&1; then
-  if [[ "${THORCH_REQUIRE_QML_SMOKE:-0}" == "1" ]]; then
-    fail "qmlscene6 cannot run offscreen QML in the CI environment"
-  fi
-  printf 'skip: qmlscene6 cannot run offscreen QML in this environment\n'
-  exit 0
-fi
-
-mkdir -p "${tmp}/bin"
-log="${tmp}/helper.log"
-stderr_log="${tmp}/stderr.log"
 
 cat > "${tmp}/bin/thorch-hardwarectl" <<'EOF'
 #!/usr/bin/env bash
@@ -64,18 +57,18 @@ esac
 EOF
 chmod 755 "${tmp}/bin/thorch-hardwarectl"
 
+set +e
 QT_QPA_PLATFORM=offscreen \
 PATH="${tmp}/bin:${PATH}" \
 THORCH_TEST_LOG="${log}" \
-THORCH_HARDWARE_SETTINGS_APPDIR="${app_dir}" \
-THORCH_HARDWARE_SETTINGS_RUNNER="${runner}" \
-  timeout 10 bash "${script}" --quit-after-ms=1200 > /dev/null 2> "${stderr_log}" || {
-    if [[ ! -s "${stderr_log}" ]]; then
-      printf 'no stderr captured from hardware settings wrapper\n' >&2
-    fi
-    cat "${stderr_log}" >&2
-    fail "hardware settings QML wrapper did not exit cleanly"
-  }
+  timeout 3 "${runner}" "${kcm_qml}" > /dev/null 2> "${stderr_log}"
+qml_status=$?
+set -e
+
+if [[ "${qml_status}" -ne 0 && "${qml_status}" -ne 124 ]]; then
+  cat "${stderr_log}" >&2
+  fail "hardware settings KCM QML did not load"
+fi
 
 grep -qx 'status-json' "${log}" || fail "hardware settings UI did not query status-json"
 

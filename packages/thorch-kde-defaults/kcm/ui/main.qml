@@ -2,25 +2,28 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.kcmutils as KCM
 import org.kde.plasma.plasma5support 2.0 as P5Support
 
-import "../components" as Components
+import "components" as Components
 
-Kirigami.ScrollablePage {
+KCM.SimpleKCM {
     id: page
 
-    title: qsTr("Thor Hardware")
+    title: qsTr("Thorch Hardware")
 
     property bool loading: true
     property bool actionRunning: false
     property bool preservePendingOnRefresh: false
+    property string appliedSectionOnRefresh: ""
     property string actionError: ""
     property string statusError: ""
     property string pendingAction: ""
+    property string pendingActionSection: ""
 
     property string cpuBoost: "1"
     property string cpuGovernor: "performance"
-    property string gpuGovernor: "performance"
+    property string gpuGovernor: "msm-adreno-tz"
     property string fanProfile: "moderate"
     property string fanSensorMode: "max"
     property string rgbMode: "battery"
@@ -31,7 +34,7 @@ Kirigami.ScrollablePage {
 
     property string pendingCpuBoost: "1"
     property string pendingCpuGovernor: "performance"
-    property string pendingGpuGovernor: "performance"
+    property string pendingGpuGovernor: "msm-adreno-tz"
     property string pendingFanProfile: "moderate"
     property string pendingFanSensorMode: "max"
     property string pendingRgbMode: "battery"
@@ -80,12 +83,18 @@ Kirigami.ScrollablePage {
         rgbStaticG = payload.rgb_static_g
         rgbStaticB = payload.rgb_static_b
 
-        if (!preservePendingOnRefresh) {
+        if (!preservePendingOnRefresh || appliedSectionOnRefresh === "cpu") {
             pendingCpuBoost = cpuBoost
+        }
+        if (!preservePendingOnRefresh || appliedSectionOnRefresh === "governors") {
             pendingCpuGovernor = cpuGovernor
             pendingGpuGovernor = gpuGovernor
+        }
+        if (!preservePendingOnRefresh || appliedSectionOnRefresh === "cooling") {
             pendingFanProfile = fanProfile === "auto" ? "moderate" : fanProfile
             pendingFanSensorMode = fanSensorMode
+        }
+        if (!preservePendingOnRefresh || appliedSectionOnRefresh === "lighting") {
             pendingRgbMode = rgbMode
             pendingRgbBrightness = rgbBrightness
             pendingRgbStaticR = rgbStaticR
@@ -94,36 +103,42 @@ Kirigami.ScrollablePage {
         }
 
         preservePendingOnRefresh = false
+        appliedSectionOnRefresh = ""
     }
 
-    function refreshStatus(preservePending) {
+    function refreshStatus(preservePending, appliedSection) {
         preservePendingOnRefresh = preservePending === true
+        appliedSectionOnRefresh = preservePendingOnRefresh ? (appliedSection || "") : ""
         if (loading) {
             statusError = ""
         }
         statusSource.connectSource(statusCommand)
     }
 
-    function runAction(command, actionName) {
+    function runAction(command, actionName, actionSection) {
         actionError = ""
         actionRunning = true
         pendingAction = actionName
+        pendingActionSection = actionSection
         actionSource.connectSource(command)
     }
 
     function saveCpu() {
         runAction(controlCommand + " set cpu-boost " + (pendingCpuBoost === "1" ? "on" : "off"),
-                  qsTr("CPU boost"))
+                  qsTr("CPU boost"),
+                  "cpu")
     }
 
     function saveGovernors() {
         runAction(controlCommand + " set governors " + pendingCpuGovernor + " " + pendingGpuGovernor,
-                  qsTr("governors"))
+                  qsTr("governors"),
+                  "governors")
     }
 
     function saveCooling() {
         runAction(controlCommand + " set fan-state " + pendingFanProfile + " " + pendingFanSensorMode,
-                  qsTr("cooling"))
+                  qsTr("cooling"),
+                  "cooling")
     }
 
     function saveLighting() {
@@ -133,7 +148,8 @@ Kirigami.ScrollablePage {
                   + pendingRgbStaticR + " "
                   + pendingRgbStaticG + " "
                   + pendingRgbStaticB,
-                  qsTr("lighting"))
+                  qsTr("lighting"),
+                  "lighting")
     }
 
     function revertCpu() {
@@ -198,7 +214,7 @@ Kirigami.ScrollablePage {
                 page.actionError = ""
             }
 
-            page.refreshStatus(exitCode !== 0)
+            page.refreshStatus(true, exitCode === 0 ? page.pendingActionSection : "")
         }
     }
 
@@ -343,6 +359,14 @@ Kirigami.ScrollablePage {
                     description: qsTr("Max clocks")
                     optionValue: "performance"
                     text: qsTr("Performance")
+                    onClicked: page.pendingGpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingGpuGovernor
+                    description: qsTr("Adreno adaptive")
+                    optionValue: "msm-adreno-tz"
+                    text: qsTr("Adreno TZ")
                     onClicked: page.pendingGpuGovernor = optionValue
                 }
 

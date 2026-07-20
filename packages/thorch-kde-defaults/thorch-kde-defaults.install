@@ -12,10 +12,46 @@ sddm_local="${install_root}/etc/sddm.conf.d/90-thorch-local.conf"
 migration_dir="${install_root}/var/lib/thorch/session"
 migration_file="${migration_dir}/sddm-autologin.migrate"
 
+preserve_file_metadata() {
+  local source="$1" destination="$2" mode owner
+
+  if ! chmod --reference="${source}" "${destination}" 2>/dev/null; then
+    mode="$(stat -f '%Lp' "${source}" 2>/dev/null || stat -c '%a' "${source}")"
+    chmod "${mode}" "${destination}"
+  fi
+  if ! chown --reference="${source}" "${destination}" 2>/dev/null; then
+    owner="$(stat -f '%u:%g' "${source}" 2>/dev/null || stat -c '%u:%g' "${source}")"
+    chown "${owner}" "${destination}" 2>/dev/null || true
+  fi
+}
+
 stop_legacy_touch_mapper() {
   [ -z "${install_root}" ] || return 0
   command -v pkill >/dev/null 2>&1 || return 0
   pkill -f '(^|[[:space:]])/usr/bin/thorch-kwin-touch-map --watch([[:space:]]|$)' >/dev/null 2>&1 || true
+}
+
+stop_legacy_companion_panel() {
+  [ -z "${install_root}" ] || return 0
+  command -v pkill >/dev/null 2>&1 || return 0
+  pkill -f '(^|/)thorch-companion-panel([[:space:]]|$)' >/dev/null 2>&1 || true
+}
+
+remove_legacy_companion_autostart() {
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
+  local autostart
+
+  for autostart in "${home_root}"/*/.config/autostart/org.thorch.CompanionPanel.desktop; do
+    [ -f "${autostart}" ] || continue
+    grep -Fqx 'Exec=/usr/lib/thorch-companion-panel' "${autostart}" || continue
+    rm -f -- "${autostart}"
+  done
+}
+
+enable_custom_action_drawer() {
+  [ -z "${install_root}" ] || return 0
+  [ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ] || return 0
+  /usr/lib/thorch/plasma-mobile-action-drawer-mode enable >/dev/null 2>&1 || true
 }
 
 remove_legacy_touch_mapper_autostart() {
@@ -25,6 +61,26 @@ remove_legacy_touch_mapper_autostart() {
   for autostart in "${home_root}"/*/.config/autostart/thorch-kwin-touch-map.desktop; do
     [ -f "${autostart}" ] || continue
     if grep -Fqx 'Exec=/usr/bin/thorch-kwin-touch-map --watch' "${autostart}"; then
+      rm -f -- "${autostart}"
+    fi
+  done
+}
+
+remove_legacy_display_setup_autostart() {
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
+  local autostart legacy_entry
+
+  legacy_entry='[Desktop Entry]
+Type=Application
+Name=Thorch Display Setup
+Exec=/usr/bin/thorch-display-setup
+OnlyShowIn=KDE;
+NoDisplay=true
+X-KDE-autostart-phase=1'
+
+  for autostart in "${home_root}"/*/.config/autostart/thorch-display-setup.desktop; do
+    [ -f "${autostart}" ] || continue
+    if [ "$(cat "${autostart}")" = "${legacy_entry}" ]; then
       rm -f -- "${autostart}"
     fi
   done
@@ -84,9 +140,331 @@ remove_legacy_touch_input_overrides() {
       continue
     fi
 
-    chmod --reference="${config}" "${temporary}"
-    chown --reference="${config}" "${temporary}"
+    preserve_file_metadata "${config}" "${temporary}"
     mv -f -- "${temporary}" "${config}"
+  done
+}
+
+remove_retired_quick_settings() {
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
+  local blacklist config temporary
+
+  blacklist='org.kde.plasma.quicksetting.mobiledata,org.kde.plasma.quicksetting.flashlight,org.kde.plasma.quicksetting.hotspot,org.kde.plasma.quicksetting.record,org.kde.plasma.quicksetting.keyboardtoggle,org.kde.plasma.quicksetting.autohidepanels,org.kde.plasma.quicksetting.docked,org.kde.plasma.quicksetting.kscreenosd,org.kde.plasma.quicksetting.waydroid,org.thorch.quicksetting.usbGadget,org.thorch.quicksetting.moveWindowsBottom,org.thorch.quicksetting.moveWindowsTop,org.thorch.quicksetting.moveSteamTop,org.thorch.quicksetting.openSteam,org.thorch.quicksetting.closeSteam'
+
+  for config in "${home_root}"/*/.config/plasmamobilerc; do
+    [ -f "${config}" ] || continue
+    temporary="$(mktemp "${config}.thorch.XXXXXX")" || continue
+
+    awk -v blacklist="${blacklist}" '
+      function trim(value) {
+        sub(/^[[:space:]]+/, "", value)
+        sub(/[[:space:]]+$/, "", value)
+        return value
+      }
+
+      function is_blocked(value) {
+        return index("," blacklist ",", "," value ",") > 0
+      }
+
+      function filter_enabled(value,    count, i, item, output) {
+        count = split(value, parts, ",")
+        for (i = 1; i <= count; ++i) {
+          item = trim(parts[i])
+          if (item == "" || is_blocked(item) || index("," output ",", "," item ",") > 0) {
+            continue
+          }
+          output = output (output == "" ? "" : ",") item
+        }
+        return output
+      }
+
+      function merge_disabled(value,    count, i, item, output, blocked_count) {
+        count = split(value, parts, ",")
+        for (i = 1; i <= count; ++i) {
+          item = trim(parts[i])
+          if (item == "" || index("," output ",", "," item ",") > 0) {
+            continue
+          }
+          output = output (output == "" ? "" : ",") item
+        }
+
+        blocked_count = split(blacklist, parts, ",")
+        for (i = 1; i <= blocked_count; ++i) {
+          item = trim(parts[i])
+          if (item == "" || index("," output ",", "," item ",") > 0) {
+            continue
+          }
+          output = output (output == "" ? "" : ",") item
+        }
+        return output
+      }
+
+      function finish_quick_settings_group() {
+        if (in_quick_settings && !disabled_seen) {
+          print "disabledQuickSettings=" blacklist
+          disabled_seen = 1
+        }
+      }
+
+      /^\[/ {
+        finish_quick_settings_group()
+        in_quick_settings = ($0 == "[QuickSettings]")
+        if (in_quick_settings) {
+          quick_settings_seen = 1
+        }
+        print
+        next
+      }
+
+      in_quick_settings && /^enabledQuickSettings=/ {
+        separator = index($0, "=")
+        print "enabledQuickSettings=" filter_enabled(substr($0, separator + 1))
+        next
+      }
+
+      in_quick_settings && /^disabledQuickSettings=/ {
+        separator = index($0, "=")
+        print "disabledQuickSettings=" merge_disabled(substr($0, separator + 1))
+        disabled_seen = 1
+        next
+      }
+
+      { print }
+
+      END {
+        finish_quick_settings_group()
+        if (!quick_settings_seen) {
+          if (NR > 0) {
+            print ""
+          }
+          print "[QuickSettings]"
+          print "disabledQuickSettings=" blacklist
+        }
+      }
+    ' "${config}" >"${temporary}"
+
+    if cmp -s -- "${config}" "${temporary}"; then
+      rm -f -- "${temporary}"
+      continue
+    fi
+
+    preserve_file_metadata "${config}" "${temporary}"
+    mv -f -- "${temporary}" "${config}"
+  done
+}
+
+apply_kwin_input_defaults() {
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
+  local config temporary
+
+  for config in "${home_root}"/*/.config/kwinrc; do
+    [ -f "${config}" ] || continue
+    temporary="$(mktemp "${config}.thorch.XXXXXX")" || continue
+
+    awk '
+      function append_group(name, entry) {
+        if (output_lines > 0) {
+          print ""
+        }
+        print name
+        print entry
+        output_lines += 3
+      }
+
+      {
+        lines[NR] = $0
+        if ($0 ~ /^\[[^]]+\]$/) {
+          section = $0
+          group_seen[section] = 1
+        }
+        group_last[section] = NR
+
+        normalized = $0
+        sub(/^[[:space:]]*/, "", normalized)
+        if (section == "[Plugins]" && normalized ~ /^gamecontrollerEnabled[[:space:]]*=/) {
+          controller_configured = 1
+        }
+        if (section == "[TouchEdges]" && normalized ~ /^(Top|Right|Bottom|Left)[[:space:]]*=/) {
+          gestures_configured = 1
+        }
+        if (normalized ~ /^(TouchBorderActivate|TouchBorderActivateAll|TouchBorderActivateClass|GridTouchBorderActivate|TouchBorderAlternativeActivate)[[:space:]]*=/) {
+          gestures_configured = 1
+        }
+      }
+
+      END {
+        add_controller = !controller_configured
+        add_gestures = !gestures_configured
+
+        for (i = 1; i <= NR; i++) {
+          print lines[i]
+          output_lines++
+          if (add_controller && group_seen["[Plugins]"] && i == group_last["[Plugins]"]) {
+            print "gamecontrollerEnabled=true"
+            output_lines++
+          }
+          if (add_gestures && group_seen["[TouchEdges]"] && i == group_last["[TouchEdges]"]) {
+            print "Right=KRunner"
+            output_lines++
+          }
+          if (add_gestures && group_seen["[Effect-overview]"] && i == group_last["[Effect-overview]"]) {
+            print "TouchBorderActivate=6"
+            output_lines++
+          }
+        }
+
+        if (add_controller && !group_seen["[Plugins]"]) {
+          append_group("[Plugins]", "gamecontrollerEnabled=true")
+        }
+        if (add_gestures && !group_seen["[TouchEdges]"]) {
+          append_group("[TouchEdges]", "Right=KRunner")
+        }
+        if (add_gestures && !group_seen["[Effect-overview]"]) {
+          append_group("[Effect-overview]", "TouchBorderActivate=6")
+        }
+      }
+    ' "${config}" >"${temporary}"
+
+    if cmp -s -- "${config}" "${temporary}"; then
+      rm -f -- "${temporary}"
+      continue
+    fi
+
+    preserve_file_metadata "${config}" "${temporary}"
+    mv -f -- "${temporary}" "${config}"
+  done
+}
+
+is_legacy_zero_powerdevil_profile() {
+  local config="$1"
+
+  awk '
+    function add(section, key, value) {
+      expected[section SUBSEP key] = value
+      expected_count++
+    }
+
+    BEGIN {
+      add("[AC][SuspendSession]", "idleTime", "0")
+      add("[Battery][SuspendSession]", "idleTime", "0")
+      add("[LowBattery][SuspendSession]", "idleTime", "0")
+      add("[Migration]", "MigratedProfilesToPlasma6", "powerdevilrc")
+    }
+
+    /^[[:space:]]*$/ || /^[[:space:]]*[#;]/ { next }
+    /^\[/ {
+      section = $0
+      next
+    }
+
+    {
+      separator = index($0, "=")
+      if (separator == 0) {
+        invalid = 1
+        next
+      }
+
+      key = substr($0, 1, separator - 1)
+      value = substr($0, separator + 1)
+      id = section SUBSEP key
+      if (!(id in expected) || expected[id] != value || seen[id]) {
+        invalid = 1
+        next
+      }
+      seen[id] = 1
+      seen_count++
+    }
+
+    END { exit invalid || seen_count != expected_count }
+  ' "${config}"
+}
+
+is_migrated_zero_powerdevil_profile() {
+  local config="$1"
+
+  awk '
+    function add(section, key, value) {
+      expected[section SUBSEP key] = value
+      expected_count++
+    }
+
+    BEGIN {
+      add("[AC][Display]", "DimDisplayWhenIdle", "false")
+      add("[AC][Display]", "TurnOffDisplayWhenIdle", "false")
+      add("[AC][SuspendAndShutdown]", "AutoSuspendAction", "0")
+      add("[AC][SuspendAndShutdown]", "AutoSuspendIdleTimeoutSec", "0")
+      add("[AC][SuspendAndShutdown]", "AutoSuspendWhenIdle", "false")
+      add("[AC][SuspendAndShutdown]", "LidAction", "0")
+      add("[AC][SuspendAndShutdown]", "PowerButtonAction", "0")
+      add("[AC][SuspendAndShutdown]", "PowerDownAction", "0")
+
+      add("[Battery][Display]", "DimDisplayWhenIdle", "false")
+      add("[Battery][Display]", "TurnOffDisplayWhenIdle", "false")
+      add("[Battery][SuspendAndShutdown]", "AutoSuspendAction", "1")
+      add("[Battery][SuspendAndShutdown]", "AutoSuspendIdleTimeoutSec", "0")
+      add("[Battery][SuspendAndShutdown]", "AutoSuspendWhenIdle", "true")
+      add("[Battery][SuspendAndShutdown]", "LidAction", "0")
+      add("[Battery][SuspendAndShutdown]", "PowerButtonAction", "0")
+      add("[Battery][SuspendAndShutdown]", "PowerDownAction", "0")
+
+      add("[LowBattery][Display]", "DimDisplayWhenIdle", "false")
+      add("[LowBattery][Display]", "TurnOffDisplayWhenIdle", "false")
+      add("[LowBattery][Display]", "UseProfileSpecificDisplayBrightness", "false")
+      add("[LowBattery][SuspendAndShutdown]", "AutoSuspendAction", "1")
+      add("[LowBattery][SuspendAndShutdown]", "AutoSuspendIdleTimeoutSec", "0")
+      add("[LowBattery][SuspendAndShutdown]", "AutoSuspendWhenIdle", "true")
+      add("[LowBattery][SuspendAndShutdown]", "LidAction", "0")
+      add("[LowBattery][SuspendAndShutdown]", "PowerButtonAction", "0")
+      add("[LowBattery][SuspendAndShutdown]", "PowerDownAction", "0")
+    }
+
+    /^[[:space:]]*$/ || /^[[:space:]]*[#;]/ { next }
+    /^\[/ {
+      section = $0
+      next
+    }
+
+    {
+      separator = index($0, "=")
+      if (separator == 0) {
+        invalid = 1
+        next
+      }
+
+      key = substr($0, 1, separator - 1)
+      value = substr($0, separator + 1)
+      id = section SUBSEP key
+      if (!(id in expected) || expected[id] != value || seen[id]) {
+        invalid = 1
+        next
+      }
+      seen[id] = 1
+      seen_count++
+    }
+
+    END { exit invalid || seen_count != expected_count }
+  ' "${config}"
+}
+
+repair_legacy_powerdevil_profiles() {
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
+  local defaults="${install_root}/etc/skel/.config/powerdevilrc"
+  local config legacy temporary
+
+  [ -f "${defaults}" ] || return 0
+
+  for config in "${home_root}"/*/.config/powerdevilrc; do
+    [ -f "${config}" ] || continue
+    legacy="${config%/*}/powermanagementprofilesrc"
+    [ -f "${legacy}" ] || continue
+    is_legacy_zero_powerdevil_profile "${legacy}" || continue
+    is_migrated_zero_powerdevil_profile "${config}" || continue
+
+    temporary="$(mktemp "${config}.thorch.XXXXXX")" || continue
+    cp -- "${defaults}" "${temporary}"
+    preserve_file_metadata "${config}" "${temporary}"
+    mv -f -- "${temporary}" "${config}"
+    rm -f -- "${legacy}"
   done
 }
 
@@ -131,9 +509,16 @@ restore_legacy_sddm_autologin() {
 
 post_install() {
   apply_bluetooth_default
+  stop_legacy_companion_panel
+  remove_legacy_companion_autostart
+  enable_custom_action_drawer
   stop_legacy_touch_mapper
   remove_legacy_touch_mapper_autostart
+  remove_legacy_display_setup_autostart
   remove_legacy_touch_input_overrides
+  remove_retired_quick_settings
+  apply_kwin_input_defaults
+  repair_legacy_powerdevil_profiles
 }
 
 pre_upgrade() {
@@ -143,7 +528,14 @@ pre_upgrade() {
 post_upgrade() {
   restore_legacy_sddm_autologin
   apply_bluetooth_default
+  stop_legacy_companion_panel
+  remove_legacy_companion_autostart
+  enable_custom_action_drawer
   stop_legacy_touch_mapper
   remove_legacy_touch_mapper_autostart
+  remove_legacy_display_setup_autostart
   remove_legacy_touch_input_overrides
+  remove_retired_quick_settings
+  apply_kwin_input_defaults
+  repair_legacy_powerdevil_profiles
 }

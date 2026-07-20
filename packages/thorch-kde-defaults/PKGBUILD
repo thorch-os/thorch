@@ -2,18 +2,27 @@
 
 pkgname=thorch-kde-defaults
 pkgver=1
-pkgrel=16
+pkgrel=29
 pkgdesc='KDE Plasma Mobile/Desktop defaults for Thorch on AYN Thor'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-or-later)
-depends=(alsa-utils ark bluez bluez-utils bluedevil dolphin firefox gawk gwenview kate kcalc kirigami konsole kscreen kwin libpulse noto-fonts-cjk okular perl pipewire plasma-desktop plasma-keyboard plasma-maliit-framework plasma-maliit-plugins plasma-mobile plasma-nm plasma-pa plasma-settings plasma-workspace plasma5support python qt6-declarative qt6-tools qt6-virtualkeyboard rtkit sddm spectacle systemd util-linux wireplumber xorg-xrandr)
+depends=(alsa-utils ark bluez bluez-utils bluedevil dolphin firefox gawk gwenview kate kcalc kcmutils kcoreaddons kirigami konsole kscreen kwin layer-shell-qt libpulse noto-fonts-cjk okular perl pipewire plasma-desktop plasma-keyboard plasma-maliit-framework plasma-maliit-plugins plasma-mobile plasma-nm plasma-pa plasma-settings plasma-workspace plasma5support python qt6-base qt6-declarative qt6-tools qt6-virtualkeyboard rtkit sddm spectacle systemd thorch-bsp util-linux wireplumber xorg-xrandr)
+makedepends=(extra-cmake-modules)
 optdepends=('vlc: media player')
 install=thorch-kde-defaults.install
 source=()
 sha256sums=()
 
+build() {
+  cmake -B build -S "${startdir}" \
+    -DCMAKE_BUILD_TYPE=Release
+  cmake --build build
+}
+
 package() {
+  DESTDIR="${pkgdir}" cmake --install build
+
   cd "${startdir}/payload"
   cp -a . "${pkgdir}/"
 
@@ -21,6 +30,7 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-display-setup"
   chmod 755 "${pkgdir}/usr/bin/thorch-hardware-settings"
   chmod 755 "${pkgdir}/usr/bin/thorch-touchscreen-setup"
+  chmod 755 "${pkgdir}/usr/bin/thorch-windowctl"
   chmod 755 "${pkgdir}/usr/bin/thorch-kwin-touch-map"
   chmod 755 "${pkgdir}/usr/bin/thorch-sessionctl"
   chmod 755 "${pkgdir}/usr/bin/thorch-session-recovery"
