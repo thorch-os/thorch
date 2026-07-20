@@ -12,7 +12,6 @@ Key {
     property int fixedModifiers: Qt.NoModifier
     property int thorchAccent: 0
 
-    readonly property bool thorchManualShift: InputContext.priv.shiftHandler.shiftActive && !InputContext.priv.shiftHandler.capsLockActive
     readonly property var modifierState: {
         let item = parent;
         while (item) {
@@ -23,22 +22,31 @@ Key {
         }
         return null;
     }
+    readonly property bool thorchManualShiftPending: modifierState ? modifierState.thorchManualShiftActive : false
+    readonly property bool thorchManualShift: thorchManualShiftPending && !noModifier
     readonly property int activeModifiers: modifierState ? modifierState.thorchStickyModifiers : Qt.NoModifier
+    readonly property bool thorchUppercase: InputContext.uppercase && !noModifier
+    readonly property string thorchEffectiveText: thorchUppercase
+        ? (shiftText.length > 0 ? shiftText : baseText.toUpperCase())
+        : baseText
 
-    text: shiftText.length > 0 && thorchManualShift ? shiftText : baseText
-    displayText: text
+    text: baseText
+    displayText: thorchEffectiveText
     noKeyEvent: activeModifiers !== Qt.NoModifier || fixedModifiers !== Qt.NoModifier || thorchManualShift
 
     onClicked: {
         if (!noKeyEvent) {
+            if (modifierState && thorchManualShiftPending) {
+                modifierState.consumeThorchShift();
+            }
             return;
         }
 
         const modifiers = activeModifiers | fixedModifiers | (thorchManualShift ? Qt.ShiftModifier : Qt.NoModifier);
-        InputContext.sendKeyClick(key, "", modifiers);
+        InputContext.sendKeyClick(key, thorchEffectiveText, modifiers);
 
-        if (thorchManualShift) {
-            InputContext.priv.shiftHandler.shiftActive = false;
+        if (modifierState && thorchManualShiftPending) {
+            modifierState.consumeThorchShift();
         }
         if (modifierState && activeModifiers !== Qt.NoModifier) {
             modifierState.consumeThorchModifiers();

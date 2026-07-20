@@ -4,8 +4,7 @@ import QtQuick
 import QtQuick.VirtualKeyboard.Components
 
 Key {
-    required property bool showNavigationPage
-    property int thorchAccent: 1
+    required property string targetPage
 
     readonly property var pageController: {
         let item = parent;
@@ -18,13 +17,28 @@ Key {
         return null;
     }
 
-    displayText: showNavigationPage ? "Nav" : "ABC"
+    property int thorchAccent: pageController && pageController.thorchPage === targetPage ? 2 : 1
+
+    displayText: {
+        switch (targetPage) {
+        case "main":
+            return "ABC";
+        case "symbols":
+            return "123";
+        case "symbolsMore":
+            return "#+=";
+        case "navigation":
+            return "Nav";
+        default:
+            return "Thorch";
+        }
+    }
     noKeyEvent: true
     functionKey: true
 
     onClicked: {
         if (pageController) {
-            pageController.thorchNavigationPage = showNavigationPage;
+            pageController.showThorchPage(targetPage);
         }
     }
 }

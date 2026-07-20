@@ -24,48 +24,22 @@ index ca6bb6a..2fd6ccd 100644
      const QList<xkb_keysym_t> keys = QXkbCommon::toKeysym(event);
      for (auto key : keys) {
          if (event->text().isEmpty() || key == XKB_KEY_Return) { // (return is technically "\n")
-@@ -363,6 +371,71 @@ void InputListenerItem::keyReleaseEvent(QKeyEvent *event)
+@@ -363,6 +371,43 @@ void InputListenerItem::keyReleaseEvent(QKeyEvent *event)
      }
  }
 
 +bool InputListenerItem::forwardModifiedKeyEvent(QKeyEvent *event, InputPlugin::KeyState state)
 +{
 +    constexpr Qt::KeyboardModifiers chordModifiers =
-+        Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier | Qt::GroupSwitchModifier | Qt::KeypadModifier;
++        Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier | Qt::GroupSwitchModifier;
 +    if (!(event->modifiers() & chordModifiers)) {
 +        return false;
 +    }
 +
-+    QList<xkb_keysym_t> modifierSymbols;
-+    if (event->modifiers() & Qt::ControlModifier) {
-+        modifierSymbols.append(XKB_KEY_Control_L);
-+    }
-+    if (event->modifiers() & Qt::AltModifier) {
-+        modifierSymbols.append(XKB_KEY_Alt_L);
-+    }
-+    if (event->modifiers() & Qt::MetaModifier) {
-+        modifierSymbols.append(XKB_KEY_Super_L);
-+    }
-+    if (event->modifiers() & Qt::GroupSwitchModifier) {
-+        modifierSymbols.append(XKB_KEY_ISO_Level3_Shift);
-+    }
-+    if (event->modifiers() & Qt::ShiftModifier) {
-+        modifierSymbols.append(XKB_KEY_Shift_L);
-+    }
-+
 +    const QList<xkb_keysym_t> keySymbols = QXkbCommon::toKeysym(event);
-+    QList<quint32> modifierCodes;
 +    QList<quint32> keyCodes;
-+    modifierCodes.reserve(modifierSymbols.size());
 +    keyCodes.reserve(keySymbols.size());
 +
-+    for (const xkb_keysym_t symbol : modifierSymbols) {
-+        const auto code = m_input.keyCodeForKeysym(symbol);
-+        if (!code) {
-+            return false;
-+        }
-+        modifierCodes.append(*code);
-+    }
 +    for (const xkb_keysym_t symbol : keySymbols) {
 +        const auto code = m_input.keyCodeForKeysym(symbol);
 +        if (!code) {
@@ -75,8 +49,8 @@ index ca6bb6a..2fd6ccd 100644
 +    }
 +
 +    if (state == InputPlugin::Pressed) {
-+        for (const quint32 code : modifierCodes) {
-+            m_input.key(InputPlugin::Pressed, code);
++        if (!m_input.setModifiers(event->modifiers() & chordModifiers)) {
++            return false;
 +        }
 +        for (const quint32 code : keyCodes) {
 +            m_input.key(InputPlugin::Pressed, code);
@@ -85,9 +59,7 @@ index ca6bb6a..2fd6ccd 100644
 +        for (auto code = keyCodes.crbegin(); code != keyCodes.crend(); ++code) {
 +            m_input.key(InputPlugin::Released, *code);
 +        }
-+        for (auto code = modifierCodes.crbegin(); code != modifierCodes.crend(); ++code) {
-+            m_input.key(InputPlugin::Released, *code);
-+        }
++        m_input.setModifiers(Qt::NoModifier);
 +    }
 +
 +    return true;

@@ -1,0 +1,147 @@
+diff --git a/src/qmlplugin/BreezeConstants.qml b/src/qmlplugin/BreezeConstants.qml
+index 44c824b..36c1efc 100644
+--- a/src/qmlplugin/BreezeConstants.qml
++++ b/src/qmlplugin/BreezeConstants.qml
+@@ -13,40 +13,46 @@ QtObject {
+
+     readonly property string fontFamily: Kirigami.Theme.defaultFont.family
+     readonly property real keyBackgroundMargin: Math.max(1, Math.round(3 * scaleHint))
+-    readonly property real keyContentMargin: Math.round(16 * scaleHint)
++    readonly property real keyContentMargin: Math.round(14 * scaleHint)
+     readonly property real keyIconScale: scaleHint * 0.8
+
+-    property color primaryColor: "#1c1c2a"
+-    property color primaryLightColor: "#3d3e5a"
+-    property color primaryDarkColor: "#565878"
+-    property color textOnPrimaryColor: "#f4f3fa"
+-    property color secondaryColor: "#4a304e"
+-    property color secondaryLightColor: "#68476d"
+-    property color secondaryDarkColor: "#352239"
+-    property color textOnSecondaryColor: "#f4f3fa"
++    property color primaryColor: "#000000"
++    property color primaryLightColor: "#171b1f"
++    property color primaryDarkColor: "#263941"
++    property color textOnPrimaryColor: "#f6fafc"
++    property color secondaryColor: "#13252b"
++    property color secondaryLightColor: "#064455"
++    property color secondaryDarkColor: "#0b171b"
++    property color textOnSecondaryColor: "#f6fafc"
+
+     property color keyboardBackgroundColor: primaryColor
+     property color normalKeyBackgroundColor: primaryLightColor
+     property color normalKeyPressedBackgroundColor: primaryDarkColor
+     property color highlightedKeyBackgroundColor: secondaryLightColor
+     property color modifierKeyBackgroundColor: secondaryColor
+-    property color actionKeyBackgroundColor: "#294953"
+-    property color capsLockKeyAccentColor: secondaryColor
++    property color actionKeyBackgroundColor: "#182831"
++    property color capsLockKeyAccentColor: Kirigami.Theme.highlightColor
+     property color modeKeyAccentColor: textOnPrimaryColor
+     property color keyTextColor: textOnPrimaryColor
+-    property color keySmallTextColor: textOnPrimaryColor
+-    property color popupBackgroundColor: secondaryColor
++    property color keySmallTextColor: "#a8b4ba"
++    property color normalKeyBorderColor: "#39444a"
++    property color modifierKeyBorderColor: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.38)
++    property color actionKeyBorderColor: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.72)
++    property color highlightedKeyBorderColor: Kirigami.Theme.highlightColor
++    property color pressedKeyBorderColor: Kirigami.Theme.highlightColor
++    readonly property real keyBorderWidth: Math.max(1, Math.round(scaleHint))
++    property color popupBackgroundColor: "#11181c"
+     property color popupBorderColor: Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.textColor, secondaryColor, 0.9)
+     property color popupTextColor: textOnSecondaryColor
+     property color popupTextSelectedColor: textOnSecondaryColor
+     property color popupHighlightBorderColor: Kirigami.Theme.highlightColor
+     property color popupHighlightColor: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.3)
+     property color selectionListTextColor: textOnPrimaryColor
+-    property color selectionListSeparatorColor: primaryLightColor
++    property color selectionListSeparatorColor: "#253036"
+     property color selectionListBackgroundColor: primaryColor
+     property color navigationHighlightColor: Qt.rgba(navigationHighlightBorderColor.r, navigationHighlightBorderColor.g, navigationHighlightBorderColor.b, 0.3)
+     property color navigationHighlightBorderColor: Kirigami.Theme.highlightColor
+
+-    readonly property real buttonRadius: Math.max(Kirigami.Units.cornerRadius, Math.round(10 * scaleHint))
++    readonly property real buttonRadius: Math.max(Kirigami.Units.cornerRadius, Math.round(7 * scaleHint))
+     readonly property real popupRadius: Kirigami.Units.cornerRadius
+ }
+diff --git a/src/qmlplugin/BreezeKeyPanel.qml b/src/qmlplugin/BreezeKeyPanel.qml
+index dbc7710..15fe798 100644
+--- a/src/qmlplugin/BreezeKeyPanel.qml
++++ b/src/qmlplugin/BreezeKeyPanel.qml
+@@ -22,6 +22,22 @@ KeyPanel {
+
+     readonly property int accent: control && control.thorchAccent !== undefined ? control.thorchAccent : 0
+
++    readonly property color borderColor: {
++        if (control && control.pressed) {
++            return BreezeConstants.pressedKeyBorderColor;
++        } else if (control && control.highlighted) {
++            return BreezeConstants.highlightedKeyBorderColor;
++        } else if (accent === 1) {
++            return BreezeConstants.modifierKeyBorderColor;
++        } else if (accent === 2) {
++            return BreezeConstants.actionKeyBorderColor;
++        }
++        return BreezeConstants.normalKeyBorderColor;
++    }
++    readonly property real borderWidth: control && control.highlighted
++        ? Math.max(2, BreezeConstants.keyBorderWidth)
++        : BreezeConstants.keyBorderWidth
++
+     property color color: {
+         if (control && control.pressed) {
+             return BreezeConstants.normalKeyPressedBackgroundColor;
+@@ -46,10 +62,39 @@ KeyPanel {
+             color: root.color
+             radius: root.radius
+
++            border.color: root.borderColor
++            border.width: root.borderWidth
++
+             // Shadow
+-            shadow.color: Qt.rgba(0, 0, 0, 0.2)
++            shadow.color: Qt.rgba(0, 0, 0, 0.5)
+             shadow.size: 2
+             shadow.yOffset: 1
++
++            Rectangle {
++                anchors {
++                    top: parent.top
++                    left: parent.left
++                    right: parent.right
++                    topMargin: Math.max(2, root.radius / 3)
++                    leftMargin: root.radius
++                    rightMargin: root.radius
++                }
++                height: Math.max(1, Math.round(BreezeConstants.scaleHint))
++                color: Qt.rgba(1, 1, 1, 0.08)
++            }
++        }
++
++        Rectangle {
++            visible: root.control && root.control.highlighted && root.accent === 1
++            anchors {
++                top: parent.top
++                left: parent.left
++                margins: Math.max(5, Math.round(7 * BreezeConstants.scaleHint))
++            }
++            width: Math.max(5, Math.round(6 * BreezeConstants.scaleHint))
++            height: width
++            radius: width / 2
++            color: BreezeConstants.highlightedKeyBorderColor
+         }
+     }
+
+diff --git a/src/styles/breeze/style.qml b/src/styles/breeze/style.qml
+index 6fe2038..818f507 100644
+--- a/src/styles/breeze/style.qml
++++ b/src/styles/breeze/style.qml
+@@ -140,7 +140,7 @@ KeyboardStyle {
+                 minimumPixelSize: Math.max(10, 16 * scaleHint)
+                 font {
+                     family: theme.fontFamily
+-                    weight: Font.DemiBold
++                    weight: control.functionKey ? Font.Medium : Font.DemiBold
+                     pixelSize: 44 * scaleHint
+                     capitalization: control.uppercased ? Font.AllUppercase : Font.MixedCase
+                 }

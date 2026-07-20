@@ -2,7 +2,7 @@
 
 pkgname=plasma-keyboard
 pkgver=6.7.3
-pkgrel=3
+pkgrel=15
 pkgdesc='Thorch-tuned Plasma on-screen keyboard'
 arch=(aarch64)
 url='https://invent.kde.org/plasma/plasma-keyboard'
@@ -16,8 +16,18 @@ source=("https://download.kde.org/stable/plasma/${pkgver}/${pkgname}-${pkgver}.t
         0003-add-thorch-keyboard-settings-and-style.patch
         0004-run-compositor-test-headless.patch
         0005-expose-panel-width-setting.patch
-        0006-size-compact-mode-for-thorch.patch)
+        0006-size-compact-mode-for-thorch.patch
+        0007-add-thorch-layout-settings.patch
+        0008-load-layout-smoke-test.patch
+        0009-refresh-thorch-keyboard-style.patch
+        0010-normalize-modifier-keysyms.patch
+        0011-forward-explicit-modifier-state.patch)
 sha256sums=('c371d98c4588db6672a93aa13b53d178f2dc383bdb580c8bed65d1849be7c97e'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP'
@@ -33,6 +43,11 @@ prepare() {
   patch -Np1 -i "${srcdir}/0004-run-compositor-test-headless.patch"
   patch -Np1 -i "${srcdir}/0005-expose-panel-width-setting.patch"
   patch -Np1 -i "${srcdir}/0006-size-compact-mode-for-thorch.patch"
+  patch -Np1 -i "${srcdir}/0007-add-thorch-layout-settings.patch"
+  patch -Np1 -i "${srcdir}/0008-load-layout-smoke-test.patch"
+  patch -Np1 -i "${srcdir}/0009-refresh-thorch-keyboard-style.patch"
+  patch -Np1 -i "${srcdir}/0010-normalize-modifier-keysyms.patch"
+  patch -Np1 -i "${srcdir}/0011-forward-explicit-modifier-state.patch"
 }
 
 build() {
@@ -58,6 +73,8 @@ check() {
 
   XDG_RUNTIME_DIR="${runtime_dir}" \
     LANG=C.UTF-8 \
+    PLASMA_KEYBOARD_TEST_QML="${startdir}/tests/ThorchLayoutSmoke.qml" \
+    QML_IMPORT_PATH="${srcdir}/build/bin" \
     QT_FORCE_STDERR_LOGGING=1 \
     QT_QPA_PLATFORM=offscreen \
     QT_QUICK_BACKEND=software \
@@ -65,7 +82,7 @@ check() {
     QT_VIRTUALKEYBOARD_FORCE_EVENTS_WITHOUT_FOCUS=1 \
     QT_VIRTUALKEYBOARD_LAYOUT_PATH="${test_layouts}" \
     QT_VIRTUALKEYBOARD_STYLE=default \
-    timeout 12 /usr/lib/qt6/bin/qmlscene "${startdir}/tests/ThorchLayoutSmoke.qml"
+    timeout 12 "${srcdir}/build/bin/plasma-keyboard"
 }
 
 package() {
@@ -77,8 +94,8 @@ package() {
     "${startdir}/layouts/ThorchKey.qml" \
     "${startdir}/layouts/ThorchModifierKey.qml" \
     "${startdir}/layouts/ThorchShiftKey.qml" \
-    "${startdir}/layouts/ThorchCapsLockKey.qml" \
     "${startdir}/layouts/ThorchPageKey.qml" \
+    "${startdir}/layouts/ThorchUtilityRow.qml" \
     "${startdir}/layouts/ThorchSettingsKey.qml" \
     "${startdir}/layouts/ThorchHideKey.qml" \
     "${layout_dir}/"

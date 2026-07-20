@@ -100,10 +100,10 @@ index 00ae6de..2b8a43d 100644
 +        QQC2.ComboBox {
 +            id: panelHeight
 +            Kirigami.FormData.label: i18n("Keyboard height:")
-+            model: [i18n("Full lower display"), i18n("Half height")]
-+            currentIndex: kcm.panelHeightPercent === 50 ? 1 : 0
++            model: [i18n("100%"), i18n("65%"), i18n("50%")]
++            currentIndex: kcm.panelHeightPercent === 65 ? 1 : kcm.panelHeightPercent === 50 ? 2 : 0
 +
-+            onActivated: kcm.panelHeightPercent = currentIndex === 1 ? 50 : 100
++            onActivated: kcm.panelHeightPercent = [100, 65, 50][currentIndex]
 +        }
 +
          QQC2.CheckBox {
@@ -210,21 +210,26 @@ diff --git a/src/styles/breeze/style.qml b/src/styles/breeze/style.qml
 index 3c31aef..5258156 100644
 --- a/src/styles/breeze/style.qml
 +++ b/src/styles/breeze/style.qml
-@@ -50,8 +50,11 @@ KeyboardStyle {
+@@ -50,8 +50,16 @@ KeyboardStyle {
          }
      }
 
 -    // Always have the keyboard panel be 30% of the screen height, or 150px (whichever is larger)
 -    readonly property real targetKeyboardHeight: Math.max(Screen.height * 0.3, 150)
 +    // Thorch uses the second panel as a dedicated keyboard surface by default.
++    // The top display owns Plasma's desktop panel. Size the keyboard against
++    // that output's usable area so full-height mode does not sit under it.
++    readonly property real thorchAvailableScreenHeight: Screen.name === "DSI-2"
++        ? Screen.desktopAvailableHeight
++        : Screen.height
 +    readonly property real targetKeyboardHeight: Math.min(
-+        Screen.height,
-+        Math.max(Screen.height * PlasmaKeyboardSettings.panelHeightPercent / 100.0, 200)
++        thorchAvailableScreenHeight,
++        Math.max(thorchAvailableScreenHeight * PlasmaKeyboardSettings.panelHeightPercent / 100.0, 200)
 +    )
 
      // The value to multiply the height by to get the width
      readonly property real aspectRatio: {
-@@ -130,12 +133,15 @@ KeyboardStyle {
+@@ -130,12 +138,15 @@ KeyboardStyle {
                  text: control.displayText
                  color: theme.keyTextColor
                  horizontalAlignment: Text.AlignHCenter

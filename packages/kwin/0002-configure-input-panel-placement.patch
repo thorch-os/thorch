@@ -1,0 +1,254 @@
+diff --git a/autotests/integration/inputmethod_test.cpp b/autotests/integration/inputmethod_test.cpp
+--- a/autotests/integration/inputmethod_test.cpp
++++ b/autotests/integration/inputmethod_test.cpp
+@@ -34,6 +34,7 @@
+ #include <QSignalSpy>
+ #include <QTest>
+
++#include <KConfigGroup>
+ #include <KWayland/Client/compositor.h>
+ #include <KWayland/Client/connection_thread.h>
+ #include <KWayland/Client/keyboard.h>
+@@ -61,6 +62,7 @@
+
+     void testOpenClose();
+     void testRequestedOutput();
++    void testInputPanelPlacement();
+     void testEnableDisableV3();
+     void testEnableActive();
+     void testHidePanel();
+@@ -214,6 +216,59 @@
+
+     shellSurface.reset();
+     QVERIFY(Test::waitForWindowClosed(window));
++}
++
++void InputMethodTest::testInputPanelPlacement()
++{
++    const auto outputs = workspace()->outputs();
++    QCOMPARE(outputs.size(), 2);
++
++    KConfigGroup waylandGroup = kwinApp()->config()->group(QStringLiteral("Wayland"));
++    waylandGroup.writeEntry("InputPanelPlacement", QStringLiteral("Auto"));
++    kwinApp()->config()->sync();
++
++    std::unique_ptr<KWayland::Client::Surface> surface(Test::createSurface());
++    std::unique_ptr<Test::XdgToplevel> shellSurface(Test::createXdgToplevelSurface(surface.get()));
++    Window *window = Test::renderAndWaitForShown(surface.get(), QSize(800, 600), Qt::red);
++    QVERIFY(window);
++    QCOMPARE(window->output(), outputs[0]);
++
++    // Request the same output as the text field. Auto must override that request
++    // and place the keyboard on the other output.
++    Test::inputMethod()->setOutputIndex(0);
++    std::unique_ptr<KWayland::Client::TextInput> textInput(Test::waylandTextInputManager()->createTextInput(Test::waylandSeat()));
++    QSignalSpy windowAddedSpy(workspace(), &Workspace::windowAdded);
++    textInput->enable(surface.get());
++    textInput->showInputPanel();
++    QVERIFY(windowAddedSpy.wait());
++
++    Window *keyboardClient = windowAddedSpy.last().first().value<Window *>();
++    QVERIFY(keyboardClient);
++    QVERIFY(keyboardClient->isInputMethod());
++    QTRY_COMPARE(keyboardClient->output(), outputs[1]);
++
++    waylandGroup.writeEntry("InputPanelPlacement", QStringLiteral("Top"), KConfig::Notify);
++    kwinApp()->config()->sync();
++    workspace()->slotReconfigure();
++    QTRY_COMPARE(keyboardClient->output(), outputs[0]);
++
++    waylandGroup.writeEntry("InputPanelPlacement", QStringLiteral("Bottom"), KConfig::Notify);
++    kwinApp()->config()->sync();
++    workspace()->slotReconfigure();
++    QTRY_COMPARE(keyboardClient->output(), outputs[1]);
++
++    waylandGroup.writeEntry("InputPanelPlacement", QStringLiteral("Auto"), KConfig::Notify);
++    kwinApp()->config()->sync();
++    workspace()->slotReconfigure();
++    QTRY_COMPARE(keyboardClient->output(), outputs[1]);
++
++    // Auto follows the text-input window if it moves to the other output.
++    window->sendToOutput(outputs[1]);
++    QTRY_COMPARE(window->output(), outputs[1]);
++    QTRY_COMPARE(keyboardClient->output(), outputs[0]);
++
++    shellSurface.reset();
++    QVERIFY(Test::waitForWindowClosed(window));
+ }
+
+ void InputMethodTest::testEnableDisableV3()
+diff --git a/src/inputpanelv1window.cpp b/src/inputpanelv1window.cpp
+--- a/src/inputpanelv1window.cpp
++++ b/src/inputpanelv1window.cpp
+@@ -11,6 +11,7 @@
+ #include "core/output.h"
+ #include "core/pixelgrid.h"
+ #include "inputmethod.h"
++#include "main.h"
+ #include "wayland/output.h"
+ #include "wayland/seat.h"
+ #include "wayland/surface.h"
+@@ -19,6 +20,10 @@
+ #include "wayland_server.h"
+ #include "workspace.h"
+
++#include <KConfigGroup>
++
++#include <algorithm>
++
+ namespace KWin
+ {
+
+@@ -43,7 +48,11 @@
+     connect(panelSurface, &InputPanelSurfaceV1Interface::aboutToBeDestroyed, this, &InputPanelV1Window::destroyWindow);
+
+     connect(workspace(), &Workspace::outputsChanged, this, &InputPanelV1Window::reposition);
++    connect(workspace(), &Workspace::configChanged, this, &InputPanelV1Window::reposition);
++    connect(workspace(), &Workspace::windowActivated, this, &InputPanelV1Window::updatePlacementWindow);
+     connect(kwinApp()->inputMethod(), &InputMethod::cursorRectangleChanged, this, &InputPanelV1Window::reposition);
++    connect(kwinApp()->inputMethod(), &InputMethod::activeWindowChanged, this, &InputPanelV1Window::updatePlacementWindow);
++    updatePlacementWindow();
+
+     m_rescalingTimer.setSingleShot(true);
+     m_rescalingTimer.setInterval(0);
+@@ -64,11 +73,11 @@
+ void InputPanelV1Window::showTopLevel(OutputInterface *output, InputPanelSurfaceV1Interface::Position position)
+ {
+     m_requestedOutput = output ? output->handle() : nullptr;
+-    if (m_requestedOutput) {
+-        setOutput(m_requestedOutput);
+-        setMoveResizeOutput(m_requestedOutput);
+-    }
+     m_mode = Mode::VirtualKeyboard;
++    if (LogicalOutput *targetOutput = placementOutput()) {
++        setOutput(targetOutput);
++        setMoveResizeOutput(targetOutput);
++    }
+     maybeShow();
+ }
+
+@@ -92,6 +101,66 @@
+     }
+ }
+
++void InputPanelV1Window::updatePlacementWindow()
++{
++    disconnect(m_placementWindowOutputConnection);
++
++    Window *typingWindow = kwinApp()->inputMethod()->activeWindow();
++    if (!typingWindow) {
++        typingWindow = workspace()->activeWindow();
++    }
++    if (typingWindow) {
++        m_placementWindowOutputConnection = connect(typingWindow, &Window::outputChanged, this, &InputPanelV1Window::reposition);
++    }
++
++    reposition();
++}
++
++LogicalOutput *InputPanelV1Window::placementOutput() const
++{
++    const QList<LogicalOutput *> outputs = workspace()->outputs();
++    if (outputs.isEmpty()) {
++        return m_requestedOutput ? m_requestedOutput.data() : workspace()->activeOutput();
++    }
++    if (outputs.size() == 1) {
++        return outputs.constFirst();
++    }
++
++    QList<LogicalOutput *> orderedOutputs = outputs;
++    std::ranges::stable_sort(orderedOutputs, [](const LogicalOutput *left, const LogicalOutput *right) {
++        const QPointF leftCenter = left->geometry().center();
++        const QPointF rightCenter = right->geometry().center();
++        if (leftCenter.y() != rightCenter.y()) {
++            return leftCenter.y() < rightCenter.y();
++        }
++        return leftCenter.x() < rightCenter.x();
++    });
++
++    const QString placement = kwinApp()->config()
++                                  ->group(QStringLiteral("Wayland"))
++                                  .readEntry("InputPanelPlacement", QStringLiteral("Auto"))
++                                  .trimmed();
++    if (placement.compare(QLatin1StringView("Top"), Qt::CaseInsensitive) == 0) {
++        return orderedOutputs.constFirst();
++    }
++    if (placement.compare(QLatin1StringView("Bottom"), Qt::CaseInsensitive) == 0) {
++        return orderedOutputs.constLast();
++    }
++
++    Window *typingWindow = kwinApp()->inputMethod()->activeWindow();
++    if (!typingWindow) {
++        typingWindow = workspace()->activeWindow();
++    }
++    if (outputs.size() == 2 && typingWindow && outputs.contains(typingWindow->output())) {
++        return outputs.constFirst() == typingWindow->output() ? outputs.constLast() : outputs.constFirst();
++    }
++
++    if (m_requestedOutput && outputs.contains(m_requestedOutput.data())) {
++        return m_requestedOutput.data();
++    }
++    return orderedOutputs.constLast();
++}
++
+ void InputPanelV1Window::resetPosition()
+ {
+     Q_ASSERT(!isDeleted());
+@@ -103,7 +172,12 @@
+         // maliit creates a fullscreen overlay so use the input shape as the window geometry.
+         m_windowGeometry = surface()->input().boundingRect();
+
+-        const auto targetOutput = m_requestedOutput ? m_requestedOutput.data() : workspace()->activeOutput();
++        LogicalOutput *targetOutput = placementOutput();
++        if (!targetOutput) {
++            return;
++        }
++        setOutput(targetOutput);
++        setMoveResizeOutput(targetOutput);
+         RectF availableArea;
+         if (waylandServer()->isScreenLocked()) {
+             availableArea = workspace()->clientArea(FullScreenArea, this, targetOutput);
+@@ -179,7 +253,11 @@
+     m_panelSurface->disconnect(this);
+     m_panelSurface->surface()->disconnect(this);
+     disconnect(workspace(), &Workspace::outputsChanged, this, &InputPanelV1Window::reposition);
++    disconnect(workspace(), &Workspace::configChanged, this, &InputPanelV1Window::reposition);
++    disconnect(workspace(), &Workspace::windowActivated, this, &InputPanelV1Window::updatePlacementWindow);
+     disconnect(kwinApp()->inputMethod(), &InputMethod::cursorRectangleChanged, this, &InputPanelV1Window::reposition);
++    disconnect(kwinApp()->inputMethod(), &InputMethod::activeWindowChanged, this, &InputPanelV1Window::updatePlacementWindow);
++    disconnect(m_placementWindowOutputConnection);
+
+     markAsDeleted();
+     Q_EMIT closed();
+diff --git a/src/inputpanelv1window.h b/src/inputpanelv1window.h
+--- a/src/inputpanelv1window.h
++++ b/src/inputpanelv1window.h
+@@ -89,6 +89,8 @@
+ private:
+     void showTopLevel(OutputInterface *output, InputPanelSurfaceV1Interface::Position position);
+     void showOverlayPanel();
++    LogicalOutput *placementOutput() const;
++    void updatePlacementWindow();
+     void resetPosition();
+     void reposition();
+     void handleMapped();
+@@ -102,6 +104,7 @@
+     bool m_wasEverMapped = false;
+     const QPointer<InputPanelSurfaceV1Interface> m_panelSurface;
+     QPointer<LogicalOutput> m_requestedOutput;
++    QMetaObject::Connection m_placementWindowOutputConnection;
+     QTimer m_rescalingTimer;
+ };
+
+diff --git a/src/options.cpp b/src/options.cpp
+--- a/src/options.cpp
++++ b/src/options.cpp
+@@ -90,7 +90,7 @@
+         if (group.name() == QLatin1StringView("KDE") && names.contains(QByteArrayLiteral("AnimationDurationFactor"))) {
+             m_settings->load();
+             Q_EMIT animationSpeedChanged();
+-        } else if (group.name() == QLatin1StringView("Xwayland")) {
++        } else if (group.name() == QLatin1StringView("Xwayland") || group.name() == QLatin1StringView("Wayland")) {
+             workspace()->reconfigure();
+         }
+     });

@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 desktop="${root}/packages/thorch-kde-defaults/payload/usr/share/applications/thorch-plasma-keyboard.desktop"
+kwinrc="${root}/packages/thorch-kde-defaults/payload/etc/skel/.config/kwinrc"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -10,14 +11,13 @@ fail() {
 }
 
 grep -q '^Exec=env PLASMA_KEYBOARD_OUTPUT=DSI-1 ' "${desktop}" ||
-  fail "virtual keyboard is not pinned to the bottom DSI-1 output"
+  fail "virtual keyboard is missing its DSI-1 output fallback"
+grep -q '^InputPanelPlacement=Auto$' "${kwinrc}" ||
+  fail "virtual keyboard placement does not default to Auto"
 
-layout="${root}/packages/plasma-keyboard/layouts/main.qml"
-grep -q '^KeyboardLayoutLoader {' "${layout}" ||
-  fail "keyboard layout does not use Qt Virtual Keyboard's multi-page extension point"
-grep -q 'Qt.Key_F12' "${layout}" || fail "keyboard layout is missing function keys"
-grep -q 'Qt.Key_Tab' "${layout}" || fail "keyboard layout is missing Tab"
-grep -q 'Qt.ControlModifier' "${layout}" || fail "keyboard layout is missing Ctrl"
-grep -q 'id: navigationLayout' "${layout}" || fail "keyboard layout is missing its navigation/numpad page"
+if command -v desktop-file-validate >/dev/null 2>&1; then
+  desktop-file-validate "${desktop}" ||
+    fail "virtual keyboard desktop entry is invalid"
+fi
 
-printf 'thorch Plasma keyboard config checks passed\n'
+printf 'thorch Plasma keyboard integration config checks passed\n'
