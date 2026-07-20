@@ -36,7 +36,9 @@ source_files() {
   if [[ -d "${root}/.git" ]]; then
     (
       cd "${root}"
-      git ls-files --cached --others --exclude-standard
+      while IFS= read -r rel; do
+        [[ -f "${rel}" ]] && printf '%s\n' "${rel}"
+      done < <(git ls-files --cached --others --exclude-standard)
     ) | sed "s#^#${root}/#" | sort
     return
   fi

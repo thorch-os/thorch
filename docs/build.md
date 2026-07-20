@@ -168,10 +168,9 @@ controlled power/stability comparison.
 
 The image builder assembles standalone FAT plus ext4 or Btrfs filesystem images
 and writes them into a sparse raw GPT image. It does not mount the final GPT
-partitions or bind-mount host API filesystems. Ext4 remains the conservative
-default; use
-`THORCH_ROOT_FSTYPE=btrfs make build` to build a btrfs root image. Btrfs roots
-use `THORCH_BTRFS_MOUNT_OPTIONS`, defaulting to
+partitions or bind-mount host API filesystems. Btrfs is the default; use
+`THORCH_ROOT_FSTYPE=ext4 make build` when an uncompressed ext4 root is required.
+Btrfs roots use `THORCH_BTRFS_MOUNT_OPTIONS`, defaulting to
 `rw,relatime,compress=zstd:1`. The builder populates the filesystem through a
 loop-mounted standalone filesystem because affected btrfs-progs offline
 `--rootdir` compression paths can emit unreadable zstd extents for some
@@ -294,7 +293,7 @@ describes their purpose without duplicating mutable source or kernel refs.
   together with a non-empty `THORCH_PASSWORD`; public images must leave it off.
 - `THORCH_IMAGE_SIZE`: raw image size, default `auto`; set a fixed size such as `16G` when preallocated free space is needed.
 - `THORCH_IMAGE_AUTO_HEADROOM`: extra rootfs space when `THORCH_IMAGE_SIZE=auto`, default `1G`.
-- `THORCH_ROOT_FSTYPE`: root filesystem type, default `ext4`; set to `btrfs` for a compressed btrfs root image.
+- `THORCH_ROOT_FSTYPE`: root filesystem type, default `btrfs`; set to `ext4` for an uncompressed ext4 root image.
 - `THORCH_BTRFS_MOUNT_OPTIONS`: btrfs root mount options, default `rw,relatime,compress=zstd:1`.
 - `THORCH_USER_CACHE_TMPFS_SIZE`: default user's `~/.cache` tmpfs size, default `512M`; set `0`, `off`, `none`, or `disabled` to turn it off.
 - `THORCH_BOOT_SIZE`: FAT boot partition size, default `512M`.

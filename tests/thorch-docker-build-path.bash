@@ -88,6 +88,7 @@ if (( EUID == 0 )); then
   trap 'rm -rf "${ownership_fixture}"' EXIT
   mkdir -p \
     "${ownership_fixture}/build/image-rootfs/etc" \
+    "${ownership_fixture}/build/pkg-base-root/etc" \
     "${ownership_fixture}/build/pkg-root/etc" \
     "${ownership_fixture}/build/cache" \
     "${ownership_fixture}/output" \
@@ -98,6 +99,8 @@ if (( EUID == 0 )); then
 
   [[ "$(stat -c '%u:%g' "${ownership_fixture}/build/image-rootfs/etc")" == 0:0 ]] ||
     fail "container ownership repair changed image-rootfs metadata"
+  [[ "$(stat -c '%u:%g' "${ownership_fixture}/build/pkg-base-root/etc")" == 0:0 ]] ||
+    fail "container ownership repair changed pkg-base-root metadata"
   [[ "$(stat -c '%u:%g' "${ownership_fixture}/build/pkg-root/etc")" == 0:0 ]] ||
     fail "container ownership repair changed pkg-root metadata"
   [[ "$(stat -c '%u:%g' "${ownership_fixture}/build/cache")" == 1234:1235 ]] ||

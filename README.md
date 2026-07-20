@@ -160,11 +160,11 @@ SSH together with that password:
 THORCH_PASSWORD='<local-test-password>' THORCH_ENABLE_SSH=1 make build
 ```
 
-Ext4 is the conservative root default. To build the compressed Btrfs image used
-for current SD-card testing:
+Btrfs is the root default, with zstd compression enabled for SD-card and
+nightly images. To build an uncompressed ext4 root instead:
 
 ```bash
-THORCH_ROOT_FSTYPE=btrfs make build
+THORCH_ROOT_FSTYPE=ext4 make build
 ```
 
 Auto-sized images remove package caches and retain 1 GiB of root headroom by

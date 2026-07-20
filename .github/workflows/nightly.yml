@@ -20,9 +20,9 @@ on:
         required: true
         type: choice
         options:
-          - ext4
           - btrfs
-        default: "ext4"
+          - ext4
+        default: "btrfs"
       publish_release:
         description: "Create or update a GitHub prerelease"
         required: true
@@ -54,7 +54,7 @@ jobs:
       ROCKNIX_KERNEL_SOURCE: nightly
       ROCKNIX_KERNEL_RELEASE: ${{ inputs.rocknix_kernel_release || 'latest' }}
       THORCH_IMAGE_SIZE: ${{ inputs.image_size || 'auto' }}
-      THORCH_ROOT_FSTYPE: ${{ inputs.root_fstype || 'ext4' }}
+      THORCH_ROOT_FSTYPE: ${{ inputs.root_fstype || 'btrfs' }}
       THORCH_OUTPUT_DIR: output
       THORCH_BUILD_DIR: build
       THORCH_ROOTFS_RUNNER: chroot

@@ -145,7 +145,7 @@ grep -q '^mount:' <<< "${invalid_output}" ||
   fail "failed mount did not preserve mount(8) stderr"
 grep -q 'mount failed source=' <<< "${invalid_output}" ||
   fail "failed mount did not identify its source and options"
-grep -q 'unable to mount partitions' <<< "${invalid_output}" ||
+grep -q 'unable to extract ROCKNIX boot files' <<< "${invalid_output}" ||
   fail "failed mount did not retain its terminal error"
 
 printf 'ROCKNIX partition mount integration checks passed\n'

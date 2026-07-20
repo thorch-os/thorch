@@ -20,8 +20,8 @@ fail() {
   exit 1
 }
 
-grep -q 'THORCH_ROOT_FSTYPE="${THORCH_ROOT_FSTYPE:-ext4}"' "${config}" ||
-  fail "config does not define ext4 as the conservative default root filesystem"
+grep -q 'THORCH_ROOT_FSTYPE="${THORCH_ROOT_FSTYPE:-btrfs}"' "${config}" ||
+  fail "config does not define btrfs as the default root filesystem"
 
 grep -q 'THORCH_BTRFS_MOUNT_OPTIONS="${THORCH_BTRFS_MOUNT_OPTIONS:-rw,relatime,compress=zstd:1}"' "${config}" ||
   fail "config does not define default btrfs mount options"
@@ -86,10 +86,13 @@ grep -q '\[ "$fstype" = "btrfs" \]' "${sd_hook}" ||
 grep -q 'SUPPORTED_ROOT_FSTYPES = {"ext4", "btrfs"}' "${firstbootctl}" ||
   fail "firstboot helper does not allow btrfs SD roots"
 
-grep -q 'root_fstype:' "${nightly}" ||
-  fail "nightly workflow does not expose a btrfs root filesystem option"
+grep -A8 'root_fstype:' "${nightly}" | grep -q 'default: "btrfs"' ||
+  fail "nightly workflow does not default to btrfs"
 
-grep -q 'THORCH_ROOT_FSTYPE=btrfs' "${build_docs}" ||
-  fail "build docs do not document the btrfs root option"
+grep -q "THORCH_ROOT_FSTYPE: \${{ inputs.root_fstype || 'btrfs' }}" "${nightly}" ||
+  fail "scheduled nightly workflow does not fall back to btrfs"
+
+grep -q 'default `btrfs`' "${build_docs}" ||
+  fail "build docs do not document btrfs as the default root filesystem"
 
 printf 'thorch btrfs root checks passed\n'

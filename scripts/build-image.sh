@@ -302,9 +302,15 @@ stage_image_repository() {
   [[ -e "${rootfs_dir}/var/cache/thorch/thorch.db" ]] ||
     die "local package repository has no thorch.db"
 
-  # Undo the build-only settings left by roots composed before the isolated
-  # configuration was introduced. Never ship the emulation sandbox exception.
-  sed -i '/^DisableSandbox$/d; s/^#CheckSpace$/CheckSpace/' \
+  # The imported ROCKNIX kernel does not currently provide Landlock. Keep
+  # pacman's alpm download user and seccomp filter, but disable only the
+  # unsupported filesystem portion of the download sandbox.
+  sed -i \
+    -e '/^DisableSandbox$/d' \
+    -e '/^DisableSandboxFilesystem$/d' \
+    -e 's/^#CheckSpace$/CheckSpace/' \
+    "${rootfs_dir}/etc/pacman.conf"
+  sed -i '/^\[options\]/a DisableSandboxFilesystem' \
     "${rootfs_dir}/etc/pacman.conf"
   cp "${rootfs_dir}/etc/pacman.conf" "${pacman_build_conf}"
   configure_pacman_for_emulated_build "${pacman_build_conf}"

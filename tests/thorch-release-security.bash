@@ -43,6 +43,10 @@ grep -q "printf 'enable sshd.service" "${builder}" ||
   fail "image builder does not support explicit local SSH enablement through presets"
 grep -q 'THORCH_ENABLE_SSH requires a non-empty THORCH_PASSWORD' "${builder}" ||
   fail "image builder permits SSH without an explicit password"
+grep -Fq "sed -i '/^\\[options\\]/a DisableSandboxFilesystem'" "${builder}" ||
+  fail "image builder does not accommodate the imported kernel's missing Landlock support"
+! grep -Fq "sed -i '/^\\[options\\]/a DisableSandbox'" "${builder}" ||
+  fail "image builder disables pacman's seccomp sandbox instead of only its unsupported Landlock sandbox"
 
 service_block="$(sed -n '/^rootfs_services=(/,/^)/p' "${builder}")"
 ! grep -q 'sshd.service' <<< "${service_block}" ||

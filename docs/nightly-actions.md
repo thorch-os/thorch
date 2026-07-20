@@ -85,13 +85,12 @@ manually from the Actions tab. Manual runs can override:
 - `rocknix_ref`: defaults to `next`.
 - `rocknix_kernel_release`: defaults to `latest`.
 - `image_size`: defaults to `auto`.
-- `root_fstype`: `ext4` or `btrfs`, defaulting to `ext4`.
+- `root_fstype`: `btrfs` or `ext4`, defaulting to `btrfs`.
 - `publish_release`: defaults to enabled.
 
 Scheduled runs use the workflow defaults: ROCKNIX `next`, the latest nightly
-SM8550 image, an auto-sized ext4 root, and prerelease publication. Manual runs
-can select Btrfs for SD-card performance validation without changing the
-repository default.
+SM8550 image, an auto-sized compressed Btrfs root, and prerelease publication.
+Manual runs can select ext4 when an uncompressed compatibility image is needed.
 
 Each published nightly is a prerelease tagged with the UTC date and source
 commit, for example:

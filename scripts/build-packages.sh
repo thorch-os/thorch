@@ -498,6 +498,10 @@ if [[ ! -d "${base_root}/usr" || ! -f "${base_root_schema_file}" ||
   "$(cat "${base_root_schema_file}" 2>/dev/null || true)" != "${base_root_schema}" ]]; then
   log "extracting pristine package base root"
   assert_path_beneath "${build_dir}" "${base_root}" "package base root"
+  # Rootfs archives legitimately contain read-only directories. Docker
+  # Desktop bind mounts enforce those modes even for container root, so make
+  # the generated tree removable before replacing it.
+  chmod -R u+w "${base_root}" 2>/dev/null || true
   rm -rf "${base_root}"
   install -d "${base_root}"
   ensure_alarm_rootfs "${rootfs_tar}"
@@ -676,6 +680,7 @@ reset_package_root() {
       die "unable to unmount package root before building ${pkg}"
   fi
   assert_path_beneath "${build_dir}" "${build_root}" "package build root"
+  chmod -R u+w "${build_root}" 2>/dev/null || true
   rm -rf "${build_root}"
   install -d "${build_root}"
   cp -a --reflink=auto "${base_root}/." "${build_root}/"
