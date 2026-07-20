@@ -3,6 +3,26 @@ set -euo pipefail
 
 steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
 steam_dotdir="${HOME}/.steam"
+bin_dir="${HOME}/.local/bin"
+system_bin_dir="${THORCH_STEAM_SYSTEM_BIN_DIR:-/usr/bin}"
+
+repair_user_helpers() {
+  local helper source target
+
+  mkdir -p "${bin_dir}"
+  for helper in \
+    thorch-setup-steam-arm64 \
+    thorch-start-steam-arm64 \
+    thorch-repair-steam-arm64 \
+    fex-steam; do
+    source="${system_bin_dir}/${helper}"
+    target="${bin_dir}/${helper}"
+    [[ -x "${source}" ]] || continue
+    if [[ "$(readlink -f "${source}")" != "$(readlink -m "${target}")" ]]; then
+      install -m 0755 "${source}" "${target}"
+    fi
+  done
+}
 
 link_first_existing() {
   local link target
@@ -50,3 +70,4 @@ repair_sdk_steamclient_links() {
 
 repair_launch_wrapper
 repair_sdk_steamclient_links
+repair_user_helpers

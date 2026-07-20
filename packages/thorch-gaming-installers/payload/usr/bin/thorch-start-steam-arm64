@@ -11,10 +11,35 @@ gamescope_backend="${THORCH_STEAM_GAMESCOPE_BACKEND:-nested}"
 mangohud="${THORCH_STEAM_MANGOHUD:-auto}"
 mangohud_config="${THORCH_STEAM_MANGOHUD_CONFIG:-}"
 support_bin_dir="${steam_root}/thorch-steamos-bin"
+runtime_bin_dir=""
 mangoapp_args=()
 steam_system_dir="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
 proton_arm_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
 preflight="${THORCH_STEAM_PREFLIGHT:-1}"
+
+build_runtime_path() {
+  local candidate
+  local -a entries=(
+    "${support_bin_dir}"
+    "${HOME}/.local/bin"
+    "${steam_root}/steamrtarm64"
+    "${steam_root}/steamrtarm64/bin"
+    "/usr/share/steam/fex"
+    "/usr/share/steam/fex/usr/bin"
+  )
+
+  runtime_bin_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/pressure-vessel/bin' -type d -print -quit 2>/dev/null || true)"
+  [[ -z "${runtime_bin_dir}" ]] || entries+=("${runtime_bin_dir}")
+
+  for candidate in "${entries[@]}"; do
+    [[ -d "${candidate}" ]] || continue
+    case ":${PATH}:" in
+      *":${candidate}:"*) ;;
+      *) PATH="${candidate}:${PATH}" ;;
+    esac
+  done
+  export PATH
+}
 
 configure_mangohud() {
   local config_dir config_file system_config user_config
@@ -109,7 +134,7 @@ fi
 
 configure_mangohud
 export LD_LIBRARY_PATH="${steam_root}/lib/aarch64-linux-gnu"
-export PATH="${support_bin_dir}:${PATH}"
+build_runtime_path
 export STEAM_BASE_FOLDER="${steam_root}"
 export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
@@ -118,7 +143,10 @@ cd "${steam_root}/steamrtarm64"
 stage_proton_arm_manifest
 case "${preflight,,}" in
   1|true|yes|on|enabled)
-    ./steam -steamdeck -exitsteam || true
+    # Preflight only prepares the selected client branch. Passing -steamdeck
+    # here rewrites publicbeta to steamdeck_stable even for desktop and Big
+    # Picture launches, before the mode-specific command is evaluated.
+    ./steam -exitsteam || true
     stage_proton_arm_manifest
     ;;
 esac

@@ -35,6 +35,7 @@ autostart_dir="${HOME}/.config/autostart"
 autostart_file="${autostart_dir}/thorch-steamos-mode.desktop"
 kwin_script="${runtime_dir}/thorch-steamos-mode-kwin.js"
 launcher="${THORCH_STEAMOS_LAUNCHER:-${HOME}/.local/bin/thorch-start-steam-arm64}"
+self_command="${THORCH_STEAMOS_SELF:-/usr/bin/thorch-steamos-mode}"
 
 detect_display() {
   local sock last
@@ -236,18 +237,6 @@ EOF
   timeout 5s qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null 2>&1 || true
 }
 
-enable_plasma_mobile_steamos_overrides() {
-  if [[ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ]]; then
-    sudo -n /usr/lib/thorch/plasma-mobile-action-drawer-mode enable >/dev/null 2>&1 || true
-  fi
-}
-
-disable_plasma_mobile_steamos_overrides() {
-  if [[ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ]]; then
-    sudo -n /usr/lib/thorch/plasma-mobile-action-drawer-mode disable >/dev/null 2>&1 || true
-  fi
-}
-
 unload_kwin_mode_script() {
   command -v qdbus6 >/dev/null 2>&1 || return 0
   [[ -S "${runtime_dir}/bus" ]] || return 0
@@ -341,6 +330,7 @@ run_mode() {
 }
 
 start_mode() {
+  local launch_pid launch_status=0 tick wait_ticks
   ensure_session_env
   install -d -m 0755 "${log_dir}"
 
@@ -349,12 +339,7 @@ start_mode() {
     return 0
   fi
 
-  if command -v thorch-display-setup >/dev/null 2>&1; then
-    timeout 10s thorch-display-setup >/dev/null 2>&1 || true
-  fi
-
   ensure_launcher
-  enable_plasma_mobile_steamos_overrides
   load_kwin_mode_script
 
   setsid env \
@@ -376,8 +361,23 @@ start_mode() {
     THORCH_STEAM_MANGOHUD="${THORCH_STEAM_MANGOHUD:-auto}" \
     THORCH_STEAM_SKIP_BOOTSTRAP="${THORCH_STEAM_SKIP_BOOTSTRAP:-1}" \
     THORCH_STEAM_SDL_VIDEODRIVER="${THORCH_STEAM_SDL_VIDEODRIVER:-${SDL_VIDEODRIVER:-x11}}" \
-    /usr/bin/thorch-steamos-mode run >>"${log_file}" 2>&1 < /dev/null &
-  echo "$!" > "${pid_file}"
+    "${self_command}" run >>"${log_file}" 2>&1 < /dev/null &
+  launch_pid="$!"
+  echo "${launch_pid}" > "${pid_file}"
+
+  wait_ticks="${THORCH_STEAMOS_STARTUP_WAIT_TICKS:-30}"
+  for ((tick = 0; tick < wait_ticks; ++tick)); do
+    if ! kill -0 "${launch_pid}" >/dev/null 2>&1; then
+      wait "${launch_pid}" || launch_status=$?
+      rm -f "${pid_file}"
+      if [[ "${launch_status}" -eq 0 ]]; then
+        launch_status=1
+      fi
+      echo "SteamOS mode failed to start (exit ${launch_status:-0}); log: ${log_file}" >&2
+      return "${launch_status}"
+    fi
+    sleep 0.1
+  done
 
   echo "Started SteamOS mode on ${steam_output}; log: ${log_file}"
 }
@@ -407,7 +407,6 @@ stop_mode() {
   pkill -KILL -u "${uid}" -f '/usr/bin/FEX .*/\.local/share/Steam/steamapps/common/' >/dev/null 2>&1 || true
   rm -f "${pid_file}"
   unload_kwin_mode_script
-  disable_plasma_mobile_steamos_overrides
   echo "Stopped SteamOS mode."
 }
 
