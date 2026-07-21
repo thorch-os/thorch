@@ -2,7 +2,7 @@
 
 pkgname=kwin
 pkgver=6.7.3
-pkgrel=5
+pkgrel=6
 pkgdesc='KWin with dual-screen placement and reliable forced input panels'
 arch=(aarch64)
 url='https://invent.kde.org/plasma/kwin'
