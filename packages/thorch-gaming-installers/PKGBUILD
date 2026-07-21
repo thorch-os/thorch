@@ -2,7 +2,7 @@
 
 pkgname=thorch-gaming-installers
 pkgver=1
-pkgrel=34
+pkgrel=35
 pkgdesc='Steam ARM64 and required FEX gaming setup for Thorch'
 arch=(aarch64)
 license=(GPL-2.0-or-later)
