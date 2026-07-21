@@ -86,6 +86,62 @@ X-KDE-autostart-phase=1'
   done
 }
 
+upgrade_legacy_desktop_panel_thickness() {
+  local old_version="${1:-}"
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
+  local config temporary version_comparison
+
+  [ -n "${old_version}" ] || return 0
+  version_comparison="$(vercmp "${old_version}" '1-32' 2>/dev/null)" || return 0
+  [ "${version_comparison}" -lt 0 ] || return 0
+
+  for config in "${home_root}"/*/.config/plasmashellrc; do
+    [ -f "${config}" ] || continue
+    temporary="$(mktemp "${config}.thorch.XXXXXX")" || continue
+
+    awk '
+      /^\[/ { section = $0 }
+      section == "[PlasmaViews][Panel 3][Defaults]" && $0 == "thickness=18" {
+        print "thickness=44"
+        next
+      }
+      { print }
+    ' "${config}" >"${temporary}"
+
+    if cmp -s -- "${config}" "${temporary}"; then
+      rm -f -- "${temporary}"
+      continue
+    fi
+
+    preserve_file_metadata "${config}" "${temporary}"
+    mv -f -- "${temporary}" "${config}"
+  done
+}
+
+remove_legacy_desktop_launchers() {
+  local old_version="${1:-}"
+  local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
+  local name canonical shortcut version_comparison
+
+  [ -n "${old_version}" ] || return 0
+  version_comparison="$(vercmp "${old_version}" '1-32' 2>/dev/null)" || return 0
+  [ "${version_comparison}" -lt 0 ] || return 0
+
+  for name in \
+    thorch-display-setup.desktop \
+    thorch-switch-to-desktop.desktop \
+    thorch-switch-to-mobile.desktop \
+    thorch-switch-to-steamos.desktop; do
+    canonical="${install_root}/usr/share/applications/${name}"
+    [ -f "${canonical}" ] || continue
+    for shortcut in "${home_root}"/*/Desktop/"${name}"; do
+      [ -f "${shortcut}" ] || continue
+      cmp -s -- "${canonical}" "${shortcut}" || continue
+      rm -f -- "${shortcut}"
+    done
+  done
+}
+
 remove_legacy_touch_input_overrides() {
   local home_root="${THORCH_HOME_ROOT:-${install_root}/home}"
   local config temporary
@@ -537,6 +593,8 @@ pre_upgrade() {
 }
 
 post_upgrade() {
+  upgrade_legacy_desktop_panel_thickness "${2:-}"
+  remove_legacy_desktop_launchers "${2:-}"
   restore_legacy_sddm_autologin
   apply_bluetooth_default
   stop_legacy_companion_panel

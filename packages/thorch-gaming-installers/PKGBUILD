@@ -2,7 +2,7 @@
 
 pkgname=thorch-gaming-installers
 pkgver=1
-pkgrel=39
+pkgrel=40
 pkgdesc='Steam ARM64 and required FEX gaming setup for Thorch'
 arch=(aarch64)
 license=(GPL-2.0-or-later)
@@ -37,5 +37,4 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/steamos-polkit-helpers/jupiter-dock-updater"
   chmod 750 "${pkgdir}/etc/sudoers.d"
   chmod 440 "${pkgdir}/etc/sudoers.d/49-thorch-steamos-compat"
-  chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-switch-to-steamos.desktop"
 }

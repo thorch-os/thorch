@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Install Gaming Stack
+Comment=Install Steam ARM64, FEX, community Proton, and gaming tools
+Exec=thorch-install-gaming-stack
+Icon=applications-games
+Terminal=true
+Categories=Game;

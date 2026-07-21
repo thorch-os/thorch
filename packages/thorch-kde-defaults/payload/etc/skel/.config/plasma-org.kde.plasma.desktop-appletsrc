@@ -141,4 +141,4 @@ wallpaperplugin=org.kde.image
 
 [ScreenMapping]
 itemsOnDisabledScreens=
-screenMapping=desktop:/thorch-switch-to-mobile.desktop,0,13154e3b-b7ed-4b2c-84d5-5928e5cad640,desktop:/thorch-switch-to-desktop.desktop,0,13154e3b-b7ed-4b2c-84d5-5928e5cad640,desktop:/thorch-display-setup.desktop,0,13154e3b-b7ed-4b2c-84d5-5928e5cad640
+screenMapping=
