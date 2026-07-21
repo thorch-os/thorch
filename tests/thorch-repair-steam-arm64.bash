@@ -25,7 +25,7 @@ touch \
   "${steam_root}/linux32/steamclient.so"
 chmod 755 "${steam_root}/linuxarm64/steam-launch-wrapper"
 
-for helper in thorch-setup-steam-arm64 thorch-start-steam-arm64 thorch-repair-steam-arm64 fex-steam; do
+for helper in thorch-setup-steam-arm64 thorch-start-steam-arm64 thorch-repair-steam-arm64; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"${system_bin}/${helper}"
   chmod 755 "${system_bin}/${helper}"
 done
@@ -46,7 +46,7 @@ sdk32="${tmp}/.steam/sdk32/steamclient.so"
 [[ "$(readlink "${sdk32}")" == "${steam_root}/linux32/steamclient.so" ]] ||
   fail "unexpected sdk32 target: $(readlink "${sdk32}")"
 
-for helper in thorch-setup-steam-arm64 thorch-start-steam-arm64 thorch-repair-steam-arm64 fex-steam; do
+for helper in thorch-setup-steam-arm64 thorch-start-steam-arm64 thorch-repair-steam-arm64; do
   cmp -s "${system_bin}/${helper}" "${tmp}/.local/bin/${helper}" ||
     fail "repair did not refresh ${helper} from the installed package"
 done

@@ -6,12 +6,20 @@ if ! command -v FEXConfig >/dev/null 2>&1; then
   exit 1
 fi
 
-config_src="/usr/config/fex-emu"
+config_src="/usr/share/fex-emu"
+if [[ ! -d "${config_src}" ]]; then
+  config_src="/usr/config/fex-emu"
+fi
 if [[ ! -d "${config_src}" ]]; then
   config_src="/usr/share/thorch/fex-emu"
 fi
 
-config_dst="${HOME}/.config/fex-emu"
+legacy_config_dst="${HOME}/.fex-emu"
+if [[ -d "${legacy_config_dst}" ]]; then
+  config_dst="${legacy_config_dst}"
+else
+  config_dst="${XDG_CONFIG_HOME:-${HOME}/.config}/fex-emu"
+fi
 if [[ ! -d "${config_dst}" && -d "${config_src}" ]]; then
   mkdir -p "$(dirname "${config_dst}")"
   cp -a "${config_src}" "${config_dst}"

@@ -19,21 +19,6 @@ restart_binfmt() {
   fi
 }
 
-stop_fex_server() {
-  command -v FEXServer >/dev/null 2>&1 || return 0
-  pkill -u "$(id -u)" -x FEXServer >/dev/null 2>&1 || true
-  sleep 1
-}
-
-start_fex_server() {
-  command -v FEXServer >/dev/null 2>&1 || return 0
-  if pgrep -u "$(id -u)" -x FEXServer >/dev/null 2>&1; then
-    return 0
-  fi
-  setsid FEXServer --persistent=3600 >/dev/null 2>&1 &
-  sleep 1
-}
-
 resolve_fex_rootfs() {
   local rootfs_dir
 
@@ -73,25 +58,48 @@ ensure_canonical_fex_rootfs() {
 }
 
 write_fex_config_defaults() {
-  local config_file="$1" rootfs_name="$2"
+  local config_file="$1" rootfs_path="$2" template_override
 
-  python - "${config_file}" "${rootfs_name}" <<'PY'
+  template_override="${THORCH_FEX_CONFIG_TEMPLATE:-}"
+  python3 - "${config_file}" "${rootfs_path}" "${template_override}" <<'PY'
 import json
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
-rootfs_name = sys.argv[2]
-template = pathlib.Path("/usr/config/fex-emu/Config.json")
-if not template.exists():
-    template = pathlib.Path("/usr/share/thorch/fex-emu/Config.json")
-try:
-    data = json.loads(template.read_text(encoding="utf-8")) if template.exists() else {}
-except json.JSONDecodeError:
-    data = {}
+rootfs_path = str(pathlib.Path(sys.argv[2]).resolve(strict=True))
+new_config = not path.exists()
+templates = tuple(filter(None, (
+    pathlib.Path(sys.argv[3]) if sys.argv[3] else None,
+    pathlib.Path("/usr/share/fex-emu/Config.json"),
+    pathlib.Path("/usr/config/fex-emu/Config.json"),
+    pathlib.Path("/usr/share/thorch/fex-emu/Config.json"),
+)))
+
+if path.exists():
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Refusing to overwrite invalid user FEX config {path}: {exc}")
+else:
+    template = next((candidate for candidate in templates if candidate.exists()), None)
+    try:
+        data = json.loads(template.read_text(encoding="utf-8")) if template else {}
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid packaged FEX config {template}: {exc}")
+
+if not isinstance(data, dict):
+    raise SystemExit(f"Invalid user FEX config {path}: top level must be an object")
 config = data.setdefault("Config", {})
-config.update({
-    "RootFS": rootfs_name,
+if not isinstance(config, dict):
+    raise SystemExit(f"Invalid user FEX config {path}: Config must be an object")
+
+# Migrate only the old Thorch-managed relative selections. Preserve an explicit
+# user-selected rootfs and every unrelated FEX tuning choice.
+if config.get("RootFS") in (None, "", "ArchLinux", "ArchLinux.sqsh"):
+    config["RootFS"] = rootfs_path
+
+defaults = {
     "ServerSocketPath": "",
     "ThunkHostLibs": "/usr/lib/fex-emu/HostThunks",
     "ThunkGuestLibs": "/usr/share/fex-emu/GuestThunks",
@@ -100,8 +108,11 @@ config.update({
     "X87ReducedPrecision": "1",
     "SilentLog": "1",
     "OutputLog": "server",
-})
-data["ThunksDB"] = {
+}
+for key, value in defaults.items():
+    config.setdefault(key, value)
+
+thunk_defaults = {
     "GL": 1,
     "Vulkan": 1,
     "drm": 1,
@@ -109,6 +120,15 @@ data["ThunksDB"] = {
     "WaylandClient": 1,
     "fex_thunk_test": 0,
 }
+thunks = data.setdefault("ThunksDB", {})
+if not isinstance(thunks, dict):
+    raise SystemExit(f"Invalid user FEX config {path}: ThunksDB must be an object")
+if new_config:
+    thunks.update(thunk_defaults)
+else:
+    for key, value in thunk_defaults.items():
+        thunks.setdefault(key, value)
+
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
@@ -232,21 +252,12 @@ install_rocknix_guest_freedreno() {
 
 restart_binfmt
 
-config_src=/usr/config/fex-emu
-if [[ ! -d "${config_src}" ]]; then
-  config_src=/usr/share/thorch/fex-emu
-fi
-config_dst="${HOME}/.config/fex-emu"
 legacy_config_dst="${HOME}/.fex-emu"
-if [[ -d "${config_src}" ]]; then
-  for dst in "${legacy_config_dst}" "${config_dst}"; do
-    mkdir -p "${dst}"
-    cp -a "${config_src}/." "${dst}/"
-  done
+xdg_config_dst="${XDG_CONFIG_HOME:-${HOME}/.config}/fex-emu"
+if [[ ! -e "${legacy_config_dst}/Config.json" && -e "${xdg_config_dst}/Config.json" ]]; then
+  mkdir -p "${legacy_config_dst}"
+  cp -a "${xdg_config_dst}/." "${legacy_config_dst}/"
 fi
-
-write_fex_config_defaults "${legacy_config_dst}/Config.json" "ArchLinux.sqsh"
-write_fex_config_defaults "${config_dst}/Config.json" "ArchLinux.sqsh"
 
 if command -v FEXRootFSFetcher >/dev/null 2>&1; then
   rootfs_dir="${FEX_ROOTFS_DIR:-${HOME}/.fex-emu/RootFS}"
@@ -284,16 +295,11 @@ fi
 
 if [[ -d "${rootfs_tree}" ]]; then
   ensure_canonical_fex_rootfs "ArchLinux" "${rootfs_tree}"
-  write_fex_config_defaults "${legacy_config_dst}/Config.json" "ArchLinux"
-  write_fex_config_defaults "${config_dst}/Config.json" "ArchLinux"
+  write_fex_config_defaults "${legacy_config_dst}/Config.json" "${rootfs_tree}"
 elif [[ -f "${rootfs_file}" ]]; then
   ensure_canonical_fex_rootfs "ArchLinux.sqsh" "${rootfs_file}"
-  write_fex_config_defaults "${legacy_config_dst}/Config.json" "ArchLinux.sqsh"
-  write_fex_config_defaults "${config_dst}/Config.json" "ArchLinux.sqsh"
+  write_fex_config_defaults "${legacy_config_dst}/Config.json" "${rootfs_file}"
 fi
-
-stop_fex_server
-start_fex_server
 
 fex_test_output="$(FEX /bin/uname -m 2>&1)" || {
   echo "FEX RootFS is installed, but FEX could not start an x86_64 process." >&2

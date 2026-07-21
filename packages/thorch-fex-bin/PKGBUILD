@@ -1,8 +1,8 @@
 # Maintainer: Thorch contributors
 
 pkgname=thorch-fex-bin
-pkgver=2605
-pkgrel=4
+pkgver=2607
+pkgrel=1
 pkgdesc='ROCKNIX-imported FEX binary runtime for Thorch on AArch64'
 arch=(aarch64)
 url='https://github.com/FEX-Emu/FEX'
@@ -11,6 +11,7 @@ makedepends=(python)
 depends=(
   alsa-lib
   bash
+  curl
   gcc-libs
   glibc
   libdrm
@@ -161,6 +162,10 @@ PY
     install -d "${pkgdir}/usr/config/fex-emu" "${pkgdir}/usr/share/thorch/fex-emu"
     cp -a "${_runtime_dir}/usr/config/fex-emu/." "${pkgdir}/usr/config/fex-emu/"
     cp -a "${_runtime_dir}/usr/config/fex-emu/." "${pkgdir}/usr/share/thorch/fex-emu/"
+    if [[ -f "${_runtime_dir}/usr/config/fex-emu/Config.json" ]]; then
+      install -Dm644 "${_runtime_dir}/usr/config/fex-emu/Config.json" \
+        "${pkgdir}/usr/share/fex-emu/Config.json"
+    fi
   fi
 
   install -Dm644 "${startdir}/LICENSE.FEX" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

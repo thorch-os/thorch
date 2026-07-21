@@ -7,6 +7,15 @@ proton_dir="${steam_root}/steamapps/common/${proton_name}"
 steam_branch="${THORCH_STEAM_BRANCH:-}"
 runtime_lib_dir=""
 support_bin_dir="${steam_root}/thorch-steamos-bin"
+wget_retry=(
+  -c
+  --tries=20
+  --waitretry=15
+  --retry-connrefused
+  --read-timeout=30
+  --timeout=30
+  --retry-on-http-error=408,429,500,502,503,504
+)
 mkdir -p "${steam_root}" "${steam_root}/package" "${HOME}/.steam"
 if [[ -z "${steam_branch}" ]]; then
   steam_branch="publicbeta"
@@ -447,7 +456,7 @@ if [[ "${1:-}" == "--repair-proton-beta-runtime-links" ]]; then
 fi
 
 if [[ ! -d "${steam_root}/steam-runtime-steamrt-arm64" ]]; then
-  wget -c -t 5 -O "${steam_root}/steam-runtime-steamrt-arm64.tar.xz" \
+  wget "${wget_retry[@]}" -O "${steam_root}/steam-runtime-steamrt-arm64.tar.xz" \
     "https://repo.steampowered.com/steamrt3c/images/latest-public-beta/steam-runtime-steamrt-arm64.tar.xz"
   tar xvf "${steam_root}/steam-runtime-steamrt-arm64.tar.xz" -C "${steam_root}"
   rm -f "${steam_root}/steam-runtime-steamrt-arm64.tar.xz"
@@ -460,7 +469,7 @@ if [[ ! -d "${steam_root}/steamrtarm64" ]]; then
   manifest="$(curl -fsSL "${manifest_url}" | strings)"
   target_file="$(printf '%s\n' "${manifest}" | grep -Eo 'bins_linuxarm64_linuxarm64\.zip\.[^"]+' | grep -v '\.vz\.' | head -n1)"
   [[ -n "${target_file}" ]] || { echo "Could not find ARM64 Steam zip in Valve manifest" >&2; exit 1; }
-  wget -c -t 5 -O "${steam_root}/linuxarm64.zip" "https://client-update.steamstatic.com/${target_file}"
+  wget "${wget_retry[@]}" -O "${steam_root}/linuxarm64.zip" "https://client-update.steamstatic.com/${target_file}"
   unzip -o "${steam_root}/linuxarm64.zip" -d "${steam_root}"
   rm -f "${steam_root}/linuxarm64.zip"
   chmod +x "${steam_root}/steamrtarm64/steam"

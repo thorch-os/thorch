@@ -49,7 +49,6 @@ install_steam_launcher() {
     thorch-setup-steam-arm64
     thorch-start-steam-arm64
     thorch-repair-steam-arm64
-    fex-steam
   )
 
   for helper in "${helpers[@]}"; do

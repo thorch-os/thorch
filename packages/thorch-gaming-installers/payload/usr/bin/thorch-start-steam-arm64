@@ -16,6 +16,8 @@ mangoapp_args=()
 steam_system_dir="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
 proton_arm_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
 preflight="${THORCH_STEAM_PREFLIGHT:-1}"
+binfmt_helper_override="${THORCH_FEX_BINFMT_HELPER:-}"
+binfmt_helper="${binfmt_helper_override:-/usr/bin/thorch-fex-binfmt}"
 
 build_runtime_path() {
   local candidate
@@ -116,6 +118,49 @@ stage_proton_arm_manifest() {
   cp -f "${source_manifest}" "${proton_dir}/toolmanifest.vdf"
 }
 
+run_with_fex_binfmt_suspended() {
+  local child_pid="" rc=0
+  local -a control=()
+
+  if [[ -n "${binfmt_helper_override}" && -x "${binfmt_helper}" ]]; then
+    control=("${binfmt_helper}")
+  elif [[ "${EUID}" -eq 0 && -x "${binfmt_helper}" ]]; then
+    control=("${binfmt_helper}")
+  elif [[ -x "${binfmt_helper}" ]] && command -v sudo >/dev/null 2>&1; then
+    control=(sudo -n "${binfmt_helper}")
+  fi
+
+  # Native ARM Steam must leave x86 game execution to Proton ARM's FEX
+  # integration. System-wide binfmt remains enabled for normal Thorch use and
+  # is restored as soon as this Steam process exits, including failures.
+  if [[ "${#control[@]}" -eq 0 ]] || ! "${control[@]}" disable; then
+    exec "$@"
+  fi
+
+  forward_signal() {
+    local signal="$1"
+    [[ -z "${child_pid}" ]] || kill -s "${signal}" "${child_pid}" 2>/dev/null || true
+  }
+  trap 'forward_signal TERM' TERM
+  trap 'forward_signal INT' INT
+  trap 'forward_signal HUP' HUP
+
+  "$@" &
+  child_pid=$!
+  if wait "${child_pid}"; then
+    rc=0
+  else
+    rc=$?
+  fi
+
+  trap - TERM INT HUP
+  "${control[@]}" enable || {
+    echo "Warning: failed to restore FEX binfmt handlers." >&2
+    [[ "${rc}" -ne 0 ]] || rc=1
+  }
+  return "${rc}"
+}
+
 if [[ ! -x "${steam_root}/steamrtarm64/steam" ]]; then
   echo "Steam ARM64 is not installed. Run thorch-install-steam-arm64 first." >&2
   exit 1
@@ -190,9 +235,11 @@ if command -v gamescope >/dev/null 2>&1 && [[ "${use_gamescope}" == 1 ]]; then
     if gamescope_supports_option "--use-rotation-shader"; then
       gamescope_args+=(--use-rotation-shader)
     fi
-    exec env -u WAYLAND_DISPLAY gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+    run_with_fex_binfmt_suspended env -u WAYLAND_DISPLAY gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+    exit $?
   fi
-  exec gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+  run_with_fex_binfmt_suspended gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+  exit $?
 fi
 
-exec ./steam "${steam_args[@]}" "$@"
+run_with_fex_binfmt_suspended ./steam "${steam_args[@]}" "$@"

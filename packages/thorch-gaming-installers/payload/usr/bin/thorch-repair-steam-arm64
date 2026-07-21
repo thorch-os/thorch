@@ -13,8 +13,7 @@ repair_user_helpers() {
   for helper in \
     thorch-setup-steam-arm64 \
     thorch-start-steam-arm64 \
-    thorch-repair-steam-arm64 \
-    fex-steam; do
+    thorch-repair-steam-arm64; do
     source="${system_bin_dir}/${helper}"
     target="${bin_dir}/${helper}"
     [[ -x "${source}" ]] || continue

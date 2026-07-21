@@ -2,7 +2,7 @@
 
 pkgname=thorch-gaming-installers
 pkgver=1
-pkgrel=33
+pkgrel=34
 pkgdesc='Steam ARM64 and required FEX gaming setup for Thorch'
 arch=(aarch64)
 license=(GPL-2.0-or-later)
@@ -19,6 +19,7 @@ package() {
   cd "${startdir}/payload"
   cp -a . "${pkgdir}/"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-fex"
+  chmod 755 "${pkgdir}/usr/bin/thorch-fex-binfmt"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-gaming-stack"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-steam-arm64"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-heroic-arm64"

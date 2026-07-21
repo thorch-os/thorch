@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: thorch-fex-binfmt disable|enable|status" >&2
+}
+
+[[ "${EUID}" -eq 0 ]] || {
+  echo "thorch-fex-binfmt must run as root" >&2
+  exit 1
+}
+
+case "${1:-}" in
+  disable)
+    for handler in x86_64 x86; do
+      control="/proc/sys/fs/binfmt_misc/${handler}"
+      [[ -e "${control}" ]] || continue
+      if ! printf '0\n' > "${control}"; then
+        systemctl restart systemd-binfmt.service 2>/dev/null || true
+        echo "failed to disable ${handler} binfmt handler" >&2
+        exit 1
+      fi
+    done
+    ;;
+  enable)
+    systemctl restart systemd-binfmt.service
+    ;;
+  status)
+    for handler in x86_64 x86; do
+      control="/proc/sys/fs/binfmt_misc/${handler}"
+      if [[ -r "${control}" ]]; then
+        printf '%s: ' "${handler}"
+        sed -n '1p' "${control}"
+      else
+        printf '%s: unavailable\n' "${handler}"
+      fi
+    done
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

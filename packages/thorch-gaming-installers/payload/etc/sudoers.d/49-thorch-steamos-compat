@@ -4,3 +4,5 @@
 %wheel ALL=(root) NOPASSWD: /usr/bin/steamos-polkit-helpers/set-timezone
 %wheel ALL=(root) NOPASSWD: /usr/bin/steamos-polkit-helpers/steamos-devkit-mode
 %wheel ALL=(root) NOPASSWD: /usr/bin/steamos-polkit-helpers/jupiter-dock-updater
+%wheel ALL=(root) NOPASSWD: /usr/bin/thorch-fex-binfmt disable
+%wheel ALL=(root) NOPASSWD: /usr/bin/thorch-fex-binfmt enable
