@@ -37,8 +37,8 @@ printf '2419200 2803200\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy4/scal
 printf '2841600\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy4/scaling_boost_frequencies"
 printf '2995200\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy7/scaling_max_freq"
 printf '3187200\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy7/cpuinfo_max_freq"
-printf 'msm-adreno-tz\n' > "${tmp}/sys/class/devfreq/gpu0/governor"
-printf 'performance msm-adreno-tz ondemand simple_ondemand powersave\n' > "${tmp}/sys/class/devfreq/gpu0/available_governors"
+printf 'simple_ondemand\n' > "${tmp}/sys/class/devfreq/gpu0/governor"
+printf 'performance simple_ondemand powersave userspace\n' > "${tmp}/sys/class/devfreq/gpu0/available_governors"
 
 THORCH_HW_DEFAULTS_SYSFS_ROOT="${tmp}/sys" THORCH_CPU_BOOST=1 THORCH_CPU_GOVERNOR=performance THORCH_GPU_GOVERNOR=performance "${script}" apply
 
@@ -73,6 +73,6 @@ status_output="$(THORCH_HW_DEFAULTS_SYSFS_ROOT="${tmp}/sys" THORCH_CPU_BOOST=0 "
 grep -q 'cpu0/cpuidle/state1/disable=0' <<< "${status_output}" || fail "status did not report CPU0 idle workaround state"
 grep -q 'policy4/boost=0' <<< "${status_output}" || fail "status did not report current boost-capable policy state"
 grep -q 'policy0/scaling_governor=performance' <<< "${status_output}" || fail "status did not report cpu governor state"
-grep -q 'gpu0/governor=msm-adreno-tz' <<< "${status_output}" || fail "default GPU governor was not msm-adreno-tz"
+grep -q 'gpu0/governor=simple_ondemand' <<< "${status_output}" || fail "default GPU governor was not simple_ondemand"
 
 printf 'ok\n'

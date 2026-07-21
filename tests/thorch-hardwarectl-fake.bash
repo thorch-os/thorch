@@ -132,7 +132,7 @@ PY
 default_config="${tmp}/default-hardware.conf"
 : > "${default_config}"
 default_status="$(THORCH_HARDWARE_CONFIG="${default_config}" "${script}" status)"
-grep -q '^gpu_governor: msm-adreno-tz$' <<< "${default_status}" ||
-  fail "hardware control default GPU governor was not msm-adreno-tz"
+grep -q '^gpu_governor: simple_ondemand$' <<< "${default_status}" ||
+  fail "hardware control default GPU governor was not simple_ondemand"
 
 printf 'ok\n'

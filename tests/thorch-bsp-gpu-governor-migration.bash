@@ -18,16 +18,16 @@ run_upgrade() {
     "${BASH}" -s -- "${install_script}" "${installed_version}" <<'EOF'
 source "$1"
 
-vercmp() {
-  case "$1:$2" in
-    1-27:1-30) printf '%s\n' -1 ;;
-    1-30:1-30) printf '%s\n' 0 ;;
-    1-31:1-30) printf '%s\n' 1 ;;
+  vercmp() {
+    case "$1:$2" in
+    1-27:1-32|1-30:1-32|1-31:1-32) printf '%s\n' -1 ;;
+    1-32:1-32) printf '%s\n' 0 ;;
+    1-33:1-32) printf '%s\n' 1 ;;
     *) return 1 ;;
-  esac
-}
+    esac
+  }
 
-post_upgrade '1-30' "$2" >/dev/null 2>&1
+  post_upgrade '1-32' "$2" >/dev/null 2>&1
 EOF
 }
 
@@ -46,7 +46,7 @@ cat >"${expected}" <<'EOF'
 # Thorch Thor custom settings
 THORCH_CPU_GOVERNOR=performance
 THORCH_FAN_PROFILE=quiet
-THORCH_GPU_GOVERNOR=ondemand
+THORCH_GPU_GOVERNOR=simple_ondemand
 THORCH_EXTRA_VALUE='preserve = exactly'
 EOF
 
@@ -57,6 +57,18 @@ cmp "${expected}" "${config}" >/dev/null ||
 run_upgrade '1-27'
 cmp "${expected}" "${config}" >/dev/null ||
   fail 'the legacy GPU governor migration is not idempotent'
+
+cat >"${config}" <<'EOF'
+THORCH_FAN_PROFILE=quiet
+THORCH_GPU_GOVERNOR=ondemand
+EOF
+cat >"${expected}" <<'EOF'
+THORCH_FAN_PROFILE=quiet
+THORCH_GPU_GOVERNOR=simple_ondemand
+EOF
+run_upgrade '1-31'
+cmp "${expected}" "${config}" >/dev/null ||
+  fail 'the upgrade did not replace the invalid ondemand GPU governor'
 
 cat >"${config}" <<'EOF'
 THORCH_FAN_PROFILE=quiet
@@ -72,10 +84,10 @@ THORCH_FAN_PROFILE=quiet
 THORCH_GPU_GOVERNOR=msm-adreno-tz
 EOF
 cp "${config}" "${expected}"
-run_upgrade '1-30'
+run_upgrade '1-32'
 cmp "${expected}" "${config}" >/dev/null ||
-  fail 'the migration changed a GPU governor set after the 1-30 upgrade'
-run_upgrade '1-31'
+  fail 'the migration changed a GPU governor set after the 1-32 upgrade'
+run_upgrade '1-33'
 cmp "${expected}" "${config}" >/dev/null ||
   fail 'the migration ran for a newer package version'
 

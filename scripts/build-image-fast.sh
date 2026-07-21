@@ -43,11 +43,7 @@ done
 require_root
 
 root="$(repo_root)"
-if [[ "${THORCH_BUILD_DIR}" = /* ]]; then
-  build_dir="${THORCH_BUILD_DIR%/}"
-else
-  build_dir="${root}/${THORCH_BUILD_DIR}"
-fi
+build_dir="$(resolve_thorch_build_dir "${root}" "${THORCH_BUILD_DIR}")"
 rootfs_dir="${build_dir}/image-rootfs"
 repo_dir="${root}/${THORCH_LOCAL_REPO_DIR}"
 

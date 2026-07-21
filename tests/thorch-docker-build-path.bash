@@ -12,6 +12,8 @@ ownership_script="${root}/scripts/fix-container-ownership.sh"
 image_builder="${root}/scripts/build-image.sh"
 fast_image_builder="${root}/scripts/build-image-fast.sh"
 common_helpers="${root}/scripts/lib/common.sh"
+# shellcheck source=../scripts/lib/common.sh
+source "${common_helpers}"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -74,11 +76,25 @@ grep -A8 '^stage_qemu_for_rootfs() {' "${image_builder}" | grep -q 'aarch64|arm6
 [[ "$(grep -c '^[[:space:]]*stage_qemu_for_rootfs$' "${image_builder}")" -eq 2 ]] ||
   fail "fresh and reused image rootfs paths do not share architecture-aware QEMU staging"
 
-grep -A5 '^root="$(repo_root)"' "${image_builder}" | grep -q '\[\[ "${THORCH_BUILD_DIR}" = /\* \]\]' ||
-  fail "image builder does not preserve an absolute native-volume build path"
+grep -A2 '^root="$(repo_root)"' "${image_builder}" | grep -q 'resolve_thorch_build_dir' ||
+  fail "image builder does not validate its configured build path"
 
-grep -A5 '^root="$(repo_root)"' "${fast_image_builder}" | grep -q '\[\[ "${THORCH_BUILD_DIR}" = /\* \]\]' ||
-  fail "fast image builder does not preserve an absolute native-volume build path"
+grep -A2 '^root="$(repo_root)"' "${fast_image_builder}" | grep -q 'resolve_thorch_build_dir' ||
+  fail "fast image builder does not validate its configured build path"
+
+[[ "$(resolve_thorch_build_dir "${root}" build)" == "$(abspath "${root}/build")" ]] ||
+  fail "relative build path does not resolve beneath the repository"
+[[ "$(resolve_thorch_build_dir "${root}" /tmp/thorch-build)" == "$(abspath /tmp/thorch-build)" ]] ||
+  fail "absolute native-volume build path is not preserved"
+if (resolve_thorch_build_dir "${root}" ../escape >/dev/null 2>&1); then
+  fail "relative build path can escape the repository"
+fi
+if (resolve_thorch_build_dir "${root}" / >/dev/null 2>&1); then
+  fail "filesystem root is accepted as a build path"
+fi
+if (resolve_thorch_build_dir "${root}" /usr/.. >/dev/null 2>&1); then
+  fail "a build path alias resolving to the filesystem root is accepted"
+fi
 
 grep -A40 '^run_plain_chroot_cmd() {' "${common_helpers}" | grep -q '"$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64"' ||
   fail "plain chroot runner does not recognize both native ARM architecture names"

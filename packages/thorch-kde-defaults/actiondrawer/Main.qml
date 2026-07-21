@@ -26,9 +26,7 @@ Item {
         visible: root.controlScreen !== null
 
         LayerShell.Window.screen: root.controlScreen
-        LayerShell.Window.anchors: LayerShell.Window.AnchorTop
-            | LayerShell.Window.AnchorLeft
-            | LayerShell.Window.AnchorRight
+        LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
         LayerShell.Window.layer: LayerShell.Window.LayerOverlay
         LayerShell.Window.exclusionZone: -1
         LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
@@ -56,10 +54,7 @@ Item {
         visible: root.controlScreen !== null && drawer.intendedToBeVisible
 
         LayerShell.Window.screen: root.controlScreen
-        LayerShell.Window.anchors: LayerShell.Window.AnchorTop
-            | LayerShell.Window.AnchorBottom
-            | LayerShell.Window.AnchorLeft
-            | LayerShell.Window.AnchorRight
+        LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
         LayerShell.Window.layer: LayerShell.Window.LayerOverlay
         LayerShell.Window.exclusionZone: -1
         LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
@@ -95,8 +90,7 @@ Item {
                 blacklistedDesktopEntries: drawer.notificationSettings.historyBlacklistedApplications
                 blacklistedNotifyRcNames: drawer.notificationSettings.historyBlacklistedServices
                 urgencies: {
-                    let values = NotificationManager.Notifications.CriticalUrgency
-                        | NotificationManager.Notifications.NormalUrgency;
+                    let values = NotificationManager.Notifications.CriticalUrgency | NotificationManager.Notifications.NormalUrgency;
                     if (drawer.notificationSettings.lowPriorityHistory) {
                         values |= NotificationManager.Notifications.LowUrgency;
                     }

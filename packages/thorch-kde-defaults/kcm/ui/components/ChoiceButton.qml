@@ -40,12 +40,8 @@ QQC2.Button {
 
     background: Rectangle {
         radius: 8
-        color: control.checked
-               ? Kirigami.Theme.highlightColor
-               : (control.hovered ? Kirigami.Theme.alternateBackgroundColor : Kirigami.Theme.backgroundColor)
-        border.color: control.checked
-                      ? Kirigami.Theme.highlightColor
-                      : Kirigami.Theme.disabledTextColor
+        color: control.checked ? Kirigami.Theme.highlightColor : (control.hovered ? Kirigami.Theme.alternateBackgroundColor : Kirigami.Theme.backgroundColor)
+        border.color: control.checked ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
         opacity: control.enabled ? 1 : 0.55
     }
 }

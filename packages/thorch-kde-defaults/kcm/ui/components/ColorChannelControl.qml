@@ -42,7 +42,7 @@ ColumnLayout {
         onMoved: root.valueEdited(Math.round(value))
         onValueChanged: {
             if (pressed) {
-                root.valueEdited(Math.round(value))
+                root.valueEdited(Math.round(value));
             }
         }
     }

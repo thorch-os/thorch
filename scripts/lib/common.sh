@@ -43,8 +43,11 @@ require_root() {
 abspath() {
   local path="$1"
   if command -v realpath >/dev/null 2>&1; then
-    realpath -m "${path}"
-    return
+    local resolved
+    if resolved="$(realpath -m "${path}" 2>/dev/null)"; then
+      printf '%s\n' "${resolved}"
+      return
+    fi
   fi
   if [[ -d "${path}" ]]; then
     (cd "${path}" && pwd)
@@ -55,6 +58,25 @@ abspath() {
     mkdir -p "${parent}"
     printf '%s/%s\n' "$(cd "${parent}" && pwd)" "${base}"
   fi
+}
+
+resolve_thorch_build_dir() {
+  local root="$1" configured="$2" canonical_root resolved
+
+  [[ -n "${configured}" ]] || die "THORCH_BUILD_DIR must not be empty"
+  canonical_root="$(abspath "${root}")"
+  if [[ "${configured}" = /* ]]; then
+    resolved="$(abspath "${configured}")"
+  else
+    resolved="$(abspath "${canonical_root}/${configured}")"
+    case "${resolved}" in
+      "${canonical_root}"/*) ;;
+      *) die "THORCH_BUILD_DIR escapes ${canonical_root}: ${configured}" ;;
+    esac
+  fi
+  [[ "${resolved}" != / ]] || \
+    die "THORCH_BUILD_DIR must not resolve to the filesystem root"
+  printf '%s\n' "${resolved}"
 }
 
 nspawn_machine_name() {

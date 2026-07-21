@@ -16,10 +16,7 @@ QQC2.Frame {
     background: Rectangle {
         radius: 8
         color: Kirigami.Theme.alternateBackgroundColor
-        border.color: Qt.rgba(Kirigami.Theme.textColor.r,
-                              Kirigami.Theme.textColor.g,
-                              Kirigami.Theme.textColor.b,
-                              0.10)
+        border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.10)
     }
 
     contentItem: ColumnLayout {

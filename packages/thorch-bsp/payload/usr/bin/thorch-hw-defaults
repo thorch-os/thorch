@@ -4,7 +4,7 @@ set -euo pipefail
 sysfs_root="${THORCH_HW_DEFAULTS_SYSFS_ROOT:-/sys}"
 cpu_boost_setting="${THORCH_CPU_BOOST:-1}"
 cpu_governor_setting="${THORCH_CPU_GOVERNOR:-performance}"
-gpu_governor_setting="${THORCH_GPU_GOVERNOR:-msm-adreno-tz}"
+gpu_governor_setting="${THORCH_GPU_GOVERNOR:-simple_ondemand}"
 gpu_devfreq_path="${THORCH_GPU_DEVFREQ_PATH:-}"
 disable_cpu0_idle_state1_setting="${THORCH_DISABLE_CPU0_IDLE_STATE1:-1}"
 

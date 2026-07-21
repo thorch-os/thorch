@@ -42,23 +42,24 @@ migrate_legacy_sudoers() {
   fi
 }
 
-fix_adreno_governor() {
+fix_gpu_governor() {
   local old_version="${1:-}"
   local root="${THORCH_INSTALL_ROOT:-}"
   local config="${root}/etc/thorch/hardware.conf"
   local rewritten
   local version_comparison
 
-  # Version 1-30 corrected the legacy Adreno governor value. Pacman preserves
-  # the whole file after any user edit, so update only the exact old default
-  # while upgrading from an older package.
+  # Version 1-32 corrected the two invalid devfreq governor values emitted by
+  # earlier Thorch packages. Pacman preserves the whole file after any user
+  # edit, so update only those exact values while upgrading from an older
+  # package.
   [[ -n "${old_version}" && -f "${config}" ]] || return 0
-  version_comparison="$(vercmp "${old_version}" '1-30' 2>/dev/null)" || return 0
+  version_comparison="$(vercmp "${old_version}" '1-32' 2>/dev/null)" || return 0
   (( version_comparison < 0 )) || return 0
-  grep -qxF 'THORCH_GPU_GOVERNOR=msm-adreno-tz' "${config}" || return 0
+  grep -Eq '^THORCH_GPU_GOVERNOR=(msm-adreno-tz|ondemand)$' "${config}" || return 0
 
   rewritten="${config}.thorch-upgrade.$$"
-  sed 's/^THORCH_GPU_GOVERNOR=msm-adreno-tz$/THORCH_GPU_GOVERNOR=ondemand/' \
+  sed -E 's/^THORCH_GPU_GOVERNOR=(msm-adreno-tz|ondemand)$/THORCH_GPU_GOVERNOR=simple_ondemand/' \
     "${config}" >"${rewritten}" || { rm -f "${rewritten}"; return 0; }
   cat "${rewritten}" >"${config}"
   rm -f "${rewritten}"
@@ -67,7 +68,7 @@ fix_adreno_governor() {
 remove_legacy_sleep_hooks() {
   local root="${THORCH_INSTALL_ROOT:-}"
 
-  # Let the kernel and systemd own the s2idle transition. These hooks changed
+  # Let the kernel and systemd own the suspend transition. These hooks changed
   # USB role, UFS clocks, CPU/GPU policy, and RGB state while devices were
   # already entering suspend, which made the wake path needlessly stateful.
   rm -f \
@@ -103,7 +104,7 @@ post_install() {
 }
 
 post_upgrade() {
-  fix_adreno_governor "$2"
+  fix_gpu_governor "$2"
   configure_boot_confirmation
   configure_network_policy
   migrate_legacy_sudoers

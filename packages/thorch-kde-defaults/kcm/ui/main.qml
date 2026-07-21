@@ -23,7 +23,7 @@ KCM.SimpleKCM {
 
     property string cpuBoost: "1"
     property string cpuGovernor: "performance"
-    property string gpuGovernor: "msm-adreno-tz"
+    property string gpuGovernor: "simple_ondemand"
     property string fanProfile: "moderate"
     property string fanSensorMode: "max"
     property string rgbMode: "battery"
@@ -34,7 +34,7 @@ KCM.SimpleKCM {
 
     property string pendingCpuBoost: "1"
     property string pendingCpuGovernor: "performance"
-    property string pendingGpuGovernor: "msm-adreno-tz"
+    property string pendingGpuGovernor: "simple_ondemand"
     property string pendingFanProfile: "moderate"
     property string pendingFanSensorMode: "max"
     property string pendingRgbMode: "battery"
@@ -49,129 +49,107 @@ KCM.SimpleKCM {
     readonly property bool cpuDirty: pendingCpuBoost !== cpuBoost
     readonly property bool governorsDirty: pendingCpuGovernor !== cpuGovernor || pendingGpuGovernor !== gpuGovernor
     readonly property bool coolingDirty: pendingFanProfile !== normalizedFanProfile || pendingFanSensorMode !== fanSensorMode
-    readonly property bool lightingDirty: pendingRgbMode !== rgbMode
-                                         || pendingRgbBrightness !== rgbBrightness
-                                         || pendingRgbStaticR !== rgbStaticR
-                                         || pendingRgbStaticG !== rgbStaticG
-                                         || pendingRgbStaticB !== rgbStaticB
-    readonly property color previewColor: Qt.rgba(
-                                              pendingRgbStaticR * pendingRgbBrightness / 65025,
-                                              pendingRgbStaticG * pendingRgbBrightness / 65025,
-                                              pendingRgbStaticB * pendingRgbBrightness / 65025,
-                                              1
-                                          )
+    readonly property bool lightingDirty: pendingRgbMode !== rgbMode || pendingRgbBrightness !== rgbBrightness || pendingRgbStaticR !== rgbStaticR || pendingRgbStaticG !== rgbStaticG || pendingRgbStaticB !== rgbStaticB
+    readonly property color previewColor: Qt.rgba(pendingRgbStaticR * pendingRgbBrightness / 65025, pendingRgbStaticG * pendingRgbBrightness / 65025, pendingRgbStaticB * pendingRgbBrightness / 65025, 1)
     readonly property string pendingRgbHex: "#" + hexByte(pendingRgbStaticR) + hexByte(pendingRgbStaticG) + hexByte(pendingRgbStaticB)
 
     Component.onCompleted: refreshStatus(false)
 
     function hexByte(value) {
-        const hex = Number(value).toString(16).toUpperCase()
-        return hex.length < 2 ? "0" + hex : hex
+        const hex = Number(value).toString(16).toUpperCase();
+        return hex.length < 2 ? "0" + hex : hex;
     }
 
     function parseStatus(stdout) {
-        const payload = JSON.parse(stdout)
+        const payload = JSON.parse(stdout);
 
-        cpuBoost = payload.cpu_boost_enabled ? "1" : "0"
-        cpuGovernor = payload.cpu_governor
-        gpuGovernor = payload.gpu_governor
-        fanProfile = payload.fan_profile
-        fanSensorMode = payload.fan_sensor_mode
-        rgbMode = payload.rgb_mode
-        rgbBrightness = payload.rgb_brightness
-        rgbStaticR = payload.rgb_static_r
-        rgbStaticG = payload.rgb_static_g
-        rgbStaticB = payload.rgb_static_b
+        cpuBoost = payload.cpu_boost_enabled ? "1" : "0";
+        cpuGovernor = payload.cpu_governor;
+        gpuGovernor = payload.gpu_governor;
+        fanProfile = payload.fan_profile;
+        fanSensorMode = payload.fan_sensor_mode;
+        rgbMode = payload.rgb_mode;
+        rgbBrightness = payload.rgb_brightness;
+        rgbStaticR = payload.rgb_static_r;
+        rgbStaticG = payload.rgb_static_g;
+        rgbStaticB = payload.rgb_static_b;
 
         if (!preservePendingOnRefresh || appliedSectionOnRefresh === "cpu") {
-            pendingCpuBoost = cpuBoost
+            pendingCpuBoost = cpuBoost;
         }
         if (!preservePendingOnRefresh || appliedSectionOnRefresh === "governors") {
-            pendingCpuGovernor = cpuGovernor
-            pendingGpuGovernor = gpuGovernor
+            pendingCpuGovernor = cpuGovernor;
+            pendingGpuGovernor = gpuGovernor;
         }
         if (!preservePendingOnRefresh || appliedSectionOnRefresh === "cooling") {
-            pendingFanProfile = fanProfile === "auto" ? "moderate" : fanProfile
-            pendingFanSensorMode = fanSensorMode
+            pendingFanProfile = fanProfile === "auto" ? "moderate" : fanProfile;
+            pendingFanSensorMode = fanSensorMode;
         }
         if (!preservePendingOnRefresh || appliedSectionOnRefresh === "lighting") {
-            pendingRgbMode = rgbMode
-            pendingRgbBrightness = rgbBrightness
-            pendingRgbStaticR = rgbStaticR
-            pendingRgbStaticG = rgbStaticG
-            pendingRgbStaticB = rgbStaticB
+            pendingRgbMode = rgbMode;
+            pendingRgbBrightness = rgbBrightness;
+            pendingRgbStaticR = rgbStaticR;
+            pendingRgbStaticG = rgbStaticG;
+            pendingRgbStaticB = rgbStaticB;
         }
 
-        preservePendingOnRefresh = false
-        appliedSectionOnRefresh = ""
+        preservePendingOnRefresh = false;
+        appliedSectionOnRefresh = "";
     }
 
     function refreshStatus(preservePending, appliedSection) {
-        preservePendingOnRefresh = preservePending === true
-        appliedSectionOnRefresh = preservePendingOnRefresh ? (appliedSection || "") : ""
+        preservePendingOnRefresh = preservePending === true;
+        appliedSectionOnRefresh = preservePendingOnRefresh ? (appliedSection || "") : "";
         if (loading) {
-            statusError = ""
+            statusError = "";
         }
-        statusSource.connectSource(statusCommand)
+        statusSource.connectSource(statusCommand);
     }
 
     function runAction(command, actionName, actionSection) {
-        actionError = ""
-        actionRunning = true
-        pendingAction = actionName
-        pendingActionSection = actionSection
-        actionSource.connectSource(command)
+        actionError = "";
+        actionRunning = true;
+        pendingAction = actionName;
+        pendingActionSection = actionSection;
+        actionSource.connectSource(command);
     }
 
     function saveCpu() {
-        runAction(controlCommand + " set cpu-boost " + (pendingCpuBoost === "1" ? "on" : "off"),
-                  qsTr("CPU boost"),
-                  "cpu")
+        runAction(controlCommand + " set cpu-boost " + (pendingCpuBoost === "1" ? "on" : "off"), qsTr("CPU boost"), "cpu");
     }
 
     function saveGovernors() {
-        runAction(controlCommand + " set governors " + pendingCpuGovernor + " " + pendingGpuGovernor,
-                  qsTr("governors"),
-                  "governors")
+        runAction(controlCommand + " set governors " + pendingCpuGovernor + " " + pendingGpuGovernor, qsTr("governors"), "governors");
     }
 
     function saveCooling() {
-        runAction(controlCommand + " set fan-state " + pendingFanProfile + " " + pendingFanSensorMode,
-                  qsTr("cooling"),
-                  "cooling")
+        runAction(controlCommand + " set fan-state " + pendingFanProfile + " " + pendingFanSensorMode, qsTr("cooling"), "cooling");
     }
 
     function saveLighting() {
-        runAction(controlCommand + " set rgb-state "
-                  + pendingRgbMode + " "
-                  + pendingRgbBrightness + " "
-                  + pendingRgbStaticR + " "
-                  + pendingRgbStaticG + " "
-                  + pendingRgbStaticB,
-                  qsTr("lighting"),
-                  "lighting")
+        runAction(controlCommand + " set rgb-state " + pendingRgbMode + " " + pendingRgbBrightness + " " + pendingRgbStaticR + " " + pendingRgbStaticG + " " + pendingRgbStaticB, qsTr("lighting"), "lighting");
     }
 
     function revertCpu() {
-        pendingCpuBoost = cpuBoost
+        pendingCpuBoost = cpuBoost;
     }
 
     function revertGovernors() {
-        pendingCpuGovernor = cpuGovernor
-        pendingGpuGovernor = gpuGovernor
+        pendingCpuGovernor = cpuGovernor;
+        pendingGpuGovernor = gpuGovernor;
     }
 
     function revertCooling() {
-        pendingFanProfile = normalizedFanProfile
-        pendingFanSensorMode = fanSensorMode
+        pendingFanProfile = normalizedFanProfile;
+        pendingFanSensorMode = fanSensorMode;
     }
 
     function revertLighting() {
-        pendingRgbMode = rgbMode
-        pendingRgbBrightness = rgbBrightness
-        pendingRgbStaticR = rgbStaticR
-        pendingRgbStaticG = rgbStaticG
-        pendingRgbStaticB = rgbStaticB
+        pendingRgbMode = rgbMode;
+        pendingRgbBrightness = rgbBrightness;
+        pendingRgbStaticR = rgbStaticR;
+        pendingRgbStaticG = rgbStaticG;
+        pendingRgbStaticB = rgbStaticB;
     }
 
     P5Support.DataSource {
@@ -179,19 +157,19 @@ KCM.SimpleKCM {
         engine: "executable"
 
         onNewData: (sourceName, data) => {
-            disconnectSource(sourceName)
-            page.loading = false
+            disconnectSource(sourceName);
+            page.loading = false;
 
             if (data.stdout === undefined || data.stdout.trim().length === 0) {
-                page.statusError = qsTr("Could not read current hardware settings.")
-                return
+                page.statusError = qsTr("Could not read current hardware settings.");
+                return;
             }
 
             try {
-                page.parseStatus(data.stdout.trim())
-                page.statusError = ""
+                page.parseStatus(data.stdout.trim());
+                page.statusError = "";
             } catch (error) {
-                page.statusError = qsTr("Hardware settings output could not be parsed.")
+                page.statusError = qsTr("Hardware settings output could not be parsed.");
             }
         }
     }
@@ -201,20 +179,18 @@ KCM.SimpleKCM {
         engine: "executable"
 
         onNewData: (sourceName, data) => {
-            disconnectSource(sourceName)
-            page.actionRunning = false
+            disconnectSource(sourceName);
+            page.actionRunning = false;
 
-            const exitCode = data["exit code"] !== undefined ? Number(data["exit code"]) : 0
+            const exitCode = data["exit code"] !== undefined ? Number(data["exit code"]) : 0;
             if (exitCode !== 0) {
-                const stderrText = data.stderr !== undefined ? data.stderr.trim() : ""
-                page.actionError = stderrText.length > 0
-                                   ? stderrText
-                                   : qsTr("Updating %1 did not complete.").arg(page.pendingAction)
+                const stderrText = data.stderr !== undefined ? data.stderr.trim() : "";
+                page.actionError = stderrText.length > 0 ? stderrText : qsTr("Updating %1 did not complete.").arg(page.pendingAction);
             } else {
-                page.actionError = ""
+                page.actionError = "";
             }
 
-            page.refreshStatus(true, exitCode === 0 ? page.pendingActionSection : "")
+            page.refreshStatus(true, exitCode === 0 ? page.pendingActionSection : "");
         }
     }
 
@@ -359,14 +335,6 @@ KCM.SimpleKCM {
                     description: qsTr("Max clocks")
                     optionValue: "performance"
                     text: qsTr("Performance")
-                    onClicked: page.pendingGpuGovernor = optionValue
-                }
-
-                Components.ChoiceButton {
-                    currentValue: page.pendingGpuGovernor
-                    description: qsTr("Adreno adaptive")
-                    optionValue: "msm-adreno-tz"
-                    text: qsTr("Adreno TZ")
                     onClicked: page.pendingGpuGovernor = optionValue
                 }
 

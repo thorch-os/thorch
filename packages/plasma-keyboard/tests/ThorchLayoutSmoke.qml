@@ -100,9 +100,7 @@ Window {
             fail("Desktop utility row must contain exactly Ctrl, Alt, Nav, and Settings");
             return false;
         }
-        if (ctrlKey.modifier !== Qt.ControlModifier
-                || altKey.modifier !== Qt.AltModifier
-                || navigationKey.displayText !== "Nav") {
+        if (ctrlKey.modifier !== Qt.ControlModifier || altKey.modifier !== Qt.AltModifier || navigationKey.displayText !== "Nav") {
             fail("Desktop utility row has incorrect modifier or page bindings");
             return false;
         }
@@ -167,8 +165,7 @@ Window {
         initialThorchLayout = layout;
         const page = activePage(layout);
         initialMainPage = page;
-        if (layout.thorchPage !== "main" || !page || page.objectName !== "thorchMainLayout"
-                || page.children.length !== 7 || visibleRowCount(page) !== 6) {
+        if (layout.thorchPage !== "main" || !page || page.objectName !== "thorchMainLayout" || page.children.length !== 7 || visibleRowCount(page) !== 6) {
             fail("ABC page does not have the expected six visible touch rows");
             return;
         }
@@ -189,9 +186,7 @@ Window {
         const symbolsKey = findNamedItem(page, "thorchSymbolsPageKey");
         const ctrlKey = findNamedItem(page, "thorchControlModifierKey");
 
-        if (!functionRow || !numberRow || !tabKey || !aKey || !oKey || !pKey || !lKey
-                || !shiftKey || !zKey || !cKey || !vKey || !mKey || !backspaceKey
-                || !symbolsKey || !ctrlKey) {
+        if (!functionRow || !numberRow || !tabKey || !aKey || !oKey || !pKey || !lKey || !shiftKey || !zKey || !cKey || !vKey || !mKey || !backspaceKey || !symbolsKey || !ctrlKey) {
             fail("ABC page is missing a required touch or desktop key");
             return;
         }
@@ -199,13 +194,11 @@ Window {
             fail("ABC page defaults must hide F-keys and show the number row");
             return;
         }
-        if (shiftKey.parent !== zKey.parent
-                || childIndex(zKey.parent, shiftKey) + 1 !== childIndex(zKey.parent, zKey)) {
+        if (shiftKey.parent !== zKey.parent || childIndex(zKey.parent, shiftKey) + 1 !== childIndex(zKey.parent, zKey)) {
             fail("Shift is not immediately left of Z");
             return;
         }
-        if (mKey.parent !== backspaceKey.parent
-                || childIndex(mKey.parent, mKey) + 1 !== childIndex(mKey.parent, backspaceKey)) {
+        if (mKey.parent !== backspaceKey.parent || childIndex(mKey.parent, mKey) + 1 !== childIndex(mKey.parent, backspaceKey)) {
             fail("Backspace is not immediately right of M");
             return;
         }
@@ -254,9 +247,7 @@ Window {
         input.receivedText = "";
         shiftKey.clicked();
         numberOneKey.clicked();
-        if (input.receivedKey !== Qt.Key_1
-                || !(input.receivedModifiers & Qt.ShiftModifier)
-                || input.receivedText !== "!") {
+        if (input.receivedKey !== Qt.Key_1 || !(input.receivedModifiers & Qt.ShiftModifier) || input.receivedText !== "!") {
             fail("Shifted number-row symbols did not produce the mapped text");
             return;
         }
@@ -282,9 +273,7 @@ Window {
         input.receivedText = "";
         shiftKey.clicked();
         cKey.clicked();
-        if (input.receivedKey !== Qt.Key_C
-                || !(input.receivedModifiers & Qt.ShiftModifier)
-                || input.receivedText !== "C") {
+        if (input.receivedKey !== Qt.Key_C || !(input.receivedModifiers & Qt.ShiftModifier) || input.receivedText !== "C") {
             fail("One-shot Shift+C did not produce an uppercase key event");
             return;
         }
@@ -292,8 +281,7 @@ Window {
         resetShiftState(layout);
         shiftKey.clicked();
         shiftKey.clicked();
-        if (!InputContext.capsLockActive || shiftKey.displayText !== "Caps"
-                || layout.thorchManualShiftActive || cKey.displayText !== "C") {
+        if (!InputContext.capsLockActive || shiftKey.displayText !== "Caps" || layout.thorchManualShiftActive || cKey.displayText !== "C") {
             fail("Double-tapping Shift did not enable Caps Lock");
             return;
         }
@@ -336,8 +324,7 @@ Window {
     function checkSymbolsPage() {
         const layout = currentLayout();
         const page = activePage(layout);
-        if (!layout.thorchSymbolsPage || !page || page.children.length !== 5
-                || findNamedItem(layout, "thorchMainLayout") !== initialMainPage) {
+        if (!layout.thorchSymbolsPage || !page || page.children.length !== 5 || findNamedItem(layout, "thorchMainLayout") !== initialMainPage) {
             fail("123 page did not activate with five touch rows");
             return;
         }
@@ -346,13 +333,11 @@ Window {
         const moreKey = findNamedItem(page, "thorchSymbolsMorePageKey");
         const mainKey = findNamedItem(page, "thorchSymbolsMainPageKey");
         const backspaceKey = findNamedItem(page, "thorchSymbolsBackspaceKey");
-        if (!zeroKey || !moreKey || !mainKey || !backspaceKey
-                || moreKey.displayText !== "#+=" || mainKey.displayText !== "ABC") {
+        if (!zeroKey || !moreKey || !mainKey || !backspaceKey || moreKey.displayText !== "#+=" || mainKey.displayText !== "ABC") {
             fail("123 page is missing its zero, mode, ABC, or Backspace key");
             return;
         }
-        if (!findBaseText(page, "-") || !findBaseText(page, "@")
-                || !findBaseText(page, "\"") || !findBaseText(page, "?")) {
+        if (!findBaseText(page, "-") || !findBaseText(page, "@") || !findBaseText(page, "\"") || !findBaseText(page, "?")) {
             fail("123 page is missing required punctuation");
             return;
         }
@@ -371,10 +356,7 @@ Window {
             fail("#+= page did not activate with five touch rows");
             return;
         }
-        if (!findBaseText(page, "[") || !findBaseText(page, "}")
-                || !findBaseText(page, "\\") || !findBaseText(page, "|")
-                || !findBaseText(page, "£") || !findBaseText(page, "€")
-                || !findBaseText(page, "¥") || !findBaseText(page, "•")) {
+        if (!findBaseText(page, "[") || !findBaseText(page, "}") || !findBaseText(page, "\\") || !findBaseText(page, "|") || !findBaseText(page, "£") || !findBaseText(page, "€") || !findBaseText(page, "¥") || !findBaseText(page, "•")) {
             fail("#+= page is missing required programming or currency symbols");
             return;
         }
@@ -382,8 +364,7 @@ Window {
         const symbolsKey = findNamedItem(page, "thorchSymbolsMoreBackKey");
         const mainKey = findNamedItem(page, "thorchSymbolsMoreMainPageKey");
         const backspaceKey = findNamedItem(page, "thorchSymbolsMoreBackspaceKey");
-        if (!symbolsKey || !mainKey || !backspaceKey
-                || symbolsKey.displayText !== "123" || mainKey.displayText !== "ABC") {
+        if (!symbolsKey || !mainKey || !backspaceKey || symbolsKey.displayText !== "123" || mainKey.displayText !== "ABC") {
             fail("#+= page is missing its mode, ABC, or Backspace key");
             return;
         }

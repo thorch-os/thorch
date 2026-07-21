@@ -11,7 +11,7 @@ legacy_dir="${THORCH_HARDWARE_LEGACY_DIR:-/etc/thorch}"
 cpu_boost="1"
 disable_cpu0_idle_state1="1"
 cpu_governor="performance"
-gpu_governor="msm-adreno-tz"
+gpu_governor="simple_ondemand"
 fan_profile="moderate"
 fan_sensor_mode="max"
 rgb_mode="battery"
@@ -322,8 +322,8 @@ set_governors() {
     *) die "cpu-governor must be performance, schedutil, ondemand, powersave, or auto" ;;
   esac
   case "${gpu_value}" in
-    performance|msm-adreno-tz|ondemand|simple_ondemand|powersave|userspace|auto) ;;
-    *) die "gpu-governor must be performance, msm-adreno-tz, ondemand, simple_ondemand, powersave, userspace, or auto" ;;
+    performance|simple_ondemand|powersave|userspace|auto) ;;
+    *) die "gpu-governor must be performance, simple_ondemand, powersave, userspace, or auto" ;;
   esac
 
   write_config_value THORCH_CPU_GOVERNOR "${cpu_value}"

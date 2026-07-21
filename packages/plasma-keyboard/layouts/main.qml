@@ -18,20 +18,8 @@ KeyboardLayout {
     readonly property bool thorchSymbolsMorePage: thorchPage === "symbolsMore"
     property int thorchStickyModifiers: Qt.NoModifier
     property bool thorchManualShiftActive: false
-    readonly property int thorchPageIndex: thorchSymbolsPage
-        ? 1
-        : thorchSymbolsMorePage
-            ? 2
-            : thorchNavigationPage
-                ? 3
-                : 0
-    readonly property Item thorchActiveLayout: thorchPageIndex === 1
-        ? symbolsLayout
-        : thorchPageIndex === 2
-            ? symbolsMoreLayout
-            : thorchPageIndex === 3
-                ? navigationLayout
-                : mainLayout
+    readonly property int thorchPageIndex: thorchSymbolsPage ? 1 : thorchSymbolsMorePage ? 2 : thorchNavigationPage ? 3 : 0
+    readonly property Item thorchActiveLayout: thorchPageIndex === 1 ? symbolsLayout : thorchPageIndex === 2 ? symbolsMoreLayout : thorchPageIndex === 3 ? navigationLayout : mainLayout
 
     function scanLayout() {
         return thorchActiveLayout ? thorchActiveLayout.scanLayout() : null;
@@ -407,8 +395,7 @@ KeyboardLayout {
                 }
             }
 
-            ThorchUtilityRow {
-            }
+            ThorchUtilityRow {}
         }
 
         KeyboardLayout {
@@ -593,8 +580,7 @@ KeyboardLayout {
                 }
             }
 
-            ThorchUtilityRow {
-            }
+            ThorchUtilityRow {}
         }
 
         KeyboardLayout {
@@ -778,8 +764,7 @@ KeyboardLayout {
                 }
             }
 
-            ThorchUtilityRow {
-            }
+            ThorchUtilityRow {}
         }
 
         KeyboardLayout {
@@ -847,17 +832,61 @@ KeyboardLayout {
             KeyboardRow {
                 objectName: "thorchNavigationFunctionRow"
 
-                ThorchKey { key: Qt.Key_F1; displayText: "F1"; functionKey: true }
-                ThorchKey { key: Qt.Key_F2; displayText: "F2"; functionKey: true }
-                ThorchKey { key: Qt.Key_F3; displayText: "F3"; functionKey: true }
-                ThorchKey { key: Qt.Key_F4; displayText: "F4"; functionKey: true }
-                ThorchKey { key: Qt.Key_F5; displayText: "F5"; functionKey: true }
-                ThorchKey { key: Qt.Key_F6; displayText: "F6"; functionKey: true }
-                ThorchKey { key: Qt.Key_F7; displayText: "F7"; functionKey: true }
-                ThorchKey { key: Qt.Key_F8; displayText: "F8"; functionKey: true }
-                ThorchKey { key: Qt.Key_F9; displayText: "F9"; functionKey: true }
-                ThorchKey { key: Qt.Key_F10; displayText: "F10"; functionKey: true }
-                ThorchKey { key: Qt.Key_F11; displayText: "F11"; functionKey: true }
+                ThorchKey {
+                    key: Qt.Key_F1
+                    displayText: "F1"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F2
+                    displayText: "F2"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F3
+                    displayText: "F3"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F4
+                    displayText: "F4"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F5
+                    displayText: "F5"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F6
+                    displayText: "F6"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F7
+                    displayText: "F7"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F8
+                    displayText: "F8"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F9
+                    displayText: "F9"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F10
+                    displayText: "F10"
+                    functionKey: true
+                }
+                ThorchKey {
+                    key: Qt.Key_F11
+                    displayText: "F11"
+                    functionKey: true
+                }
                 ThorchKey {
                     objectName: "thorchNavigationF12Key"
                     key: Qt.Key_F12
@@ -1060,9 +1089,7 @@ KeyboardLayout {
                 }
             }
 
-            ThorchUtilityRow {
-            }
+            ThorchUtilityRow {}
         }
-
     }
 }

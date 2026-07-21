@@ -352,9 +352,7 @@ Item {
             Layout.preferredWidth: Kirigami.Units.gridUnit * 2.5
             Layout.alignment: Qt.AlignVCenter
             horizontalAlignment: Text.AlignRight
-            text: sliderRow.maximum > 0
-                ? Math.round(slider.value * 100 / sliderRow.maximum) + "%"
-                : ""
+            text: sliderRow.maximum > 0 ? Math.round(slider.value * 100 / sliderRow.maximum) + "%" : ""
         }
     }
 }

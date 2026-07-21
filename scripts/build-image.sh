@@ -57,11 +57,7 @@ require_cmd awk bsdtar cat curl dd du file find mcopy mdir mkfs.vfat numfmt pyth
 require_rootfs_runner
 
 root="$(repo_root)"
-if [[ "${THORCH_BUILD_DIR}" = /* ]]; then
-  build_dir="${THORCH_BUILD_DIR%/}"
-else
-  build_dir="${root}/${THORCH_BUILD_DIR}"
-fi
+build_dir="$(resolve_thorch_build_dir "${root}" "${THORCH_BUILD_DIR}")"
 cache_dir="${build_dir}/cache"
 rootfs_dir="${build_dir}/image-rootfs"
 boot_stage="${build_dir}/boot-stage"

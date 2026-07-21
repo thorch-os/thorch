@@ -26,9 +26,7 @@ Key {
     readonly property bool thorchManualShift: thorchManualShiftPending && !noModifier
     readonly property int activeModifiers: modifierState ? modifierState.thorchStickyModifiers : Qt.NoModifier
     readonly property bool thorchUppercase: InputContext.uppercase && !noModifier
-    readonly property string thorchEffectiveText: thorchUppercase
-        ? (shiftText.length > 0 ? shiftText : baseText.toUpperCase())
-        : baseText
+    readonly property string thorchEffectiveText: thorchUppercase ? (shiftText.length > 0 ? shiftText : baseText.toUpperCase()) : baseText
 
     text: baseText
     displayText: thorchEffectiveText
