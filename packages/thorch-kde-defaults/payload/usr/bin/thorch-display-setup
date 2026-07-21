@@ -97,8 +97,8 @@ apply_wayland_layout() {
 	fi
 
 	kscreen-doctor \
-		"output.${dsi2}.enable" "output.${dsi2}.rotation.right" "output.${dsi2}.position.0,0" "output.${dsi2}.scale.${dsi_scale}" "output.${dsi2}.priority.2" \
-		"output.${dsi1}.enable" "output.${dsi1}.rotation.right" "output.${dsi1}.position.${dsi1_logical_x},${dsi1_logical_y}" "output.${dsi1}.scale.${dsi_scale}" "output.${dsi1}.priority.1"
+		"output.${dsi2}.enable" "output.${dsi2}.rotation.right" "output.${dsi2}.position.0,0" "output.${dsi2}.scale.${dsi_scale}" "output.${dsi2}.priority.1" \
+		"output.${dsi1}.enable" "output.${dsi1}.rotation.right" "output.${dsi1}.position.${dsi1_logical_x},${dsi1_logical_y}" "output.${dsi1}.scale.${dsi_scale}" "output.${dsi1}.priority.2"
 
 	if [[ -f "${HOME}/.config/kwinoutputconfig.json" ]]; then
 		perl -0pi -e 's/"autoRotation": "InTabletMode"/"autoRotation": "Never"/g' "${HOME}/.config/kwinoutputconfig.json" || true
@@ -113,8 +113,8 @@ apply_x11_layout() {
 		return 1
 	}
 
-	xrandr --output DSI-2 --mode 1080x1920 --rotate right --pos 0x0 \
-	       --output DSI-1 --mode 1080x1240 --rotate right --pos 340x1080 --primary \
+	xrandr --output DSI-2 --mode 1080x1920 --rotate right --pos 0x0 --primary \
+	       --output DSI-1 --mode 1080x1240 --rotate right --pos 340x1080 \
 	       --output DP-1 --off
 	command -v thorch-kwin-touch-map >/dev/null 2>&1 && thorch-kwin-touch-map || true
 }

@@ -44,7 +44,10 @@ fake_root="${tmp}/root"
 unset_config="${fake_root}/home/unset/.config/kwinrc"
 custom_config="${fake_root}/home/custom/.config/kwinrc"
 effect_config="${fake_root}/home/effect/.config/kwinrc"
-mkdir -p "$(dirname "${unset_config}")" "$(dirname "${custom_config}")" "$(dirname "${effect_config}")"
+disabled_config="${fake_root}/home/disabled/.config/kwinrc"
+explicit_mode_config="${fake_root}/home/explicit-mode/.config/kwinrc"
+mkdir -p "$(dirname "${unset_config}")" "$(dirname "${custom_config}")" "$(dirname "${effect_config}")" \
+  "$(dirname "${disabled_config}")" "$(dirname "${explicit_mode_config}")"
 
 cat >"${unset_config}" <<'EOF'
 [Wayland]
@@ -64,7 +67,18 @@ cat >"${effect_config}" <<'EOF'
 TouchBorderActivate=2
 EOF
 
-chmod 0640 "${unset_config}" "${custom_config}" "${effect_config}"
+cat >"${disabled_config}" <<'EOF'
+[Wayland]
+VirtualKeyboardEnabled=false
+EOF
+
+cat >"${explicit_mode_config}" <<'EOF'
+[Wayland]
+VirtualKeyboardEnabled=true
+VirtualKeyboardMode=0
+EOF
+
+chmod 0640 "${unset_config}" "${custom_config}" "${effect_config}" "${disabled_config}" "${explicit_mode_config}"
 
 THORCH_INSTALL_ROOT="${fake_root}" \
 THORCH_HOME_ROOT="${fake_root}/home" \
@@ -76,6 +90,8 @@ THORCH_HOME_ROOT="${fake_root}/home" \
   fail "upgrade did not add the right-edge KRunner gesture when gestures were unset"
 [[ "$(ini_value "${unset_config}" '[Effect-overview]' TouchBorderActivate)" == 6 ]] ||
   fail "upgrade did not add the left-edge Overview gesture when gestures were unset"
+[[ "$(ini_value "${unset_config}" '[Wayland]' VirtualKeyboardMode)" == 2 ]] ||
+  fail "upgrade did not migrate the legacy enabled keyboard default to mouse activation"
 
 [[ "$(ini_value "${custom_config}" '[Plugins]' gamecontrollerEnabled)" == false ]] ||
   fail "upgrade overwrote an explicit game-controller setting"
@@ -92,6 +108,11 @@ THORCH_HOME_ROOT="${fake_root}/home" \
   fail "upgrade overwrote an existing effect gesture"
 [[ -z "$(ini_value "${effect_config}" '[TouchEdges]' Right)" ]] ||
   fail "upgrade added a default alongside an existing effect gesture"
+
+[[ -z "$(ini_value "${disabled_config}" '[Wayland]' VirtualKeyboardMode)" ]] ||
+  fail "upgrade enabled a keyboard the user explicitly disabled"
+[[ "$(ini_value "${explicit_mode_config}" '[Wayland]' VirtualKeyboardMode)" == 0 ]] ||
+  fail "upgrade overwrote an explicit virtual keyboard mode"
 
 [[ "$(file_mode "${unset_config}")" == 640 ]] ||
   fail "upgrade did not preserve kwinrc mode"
