@@ -18,8 +18,8 @@ defaults="$(
 
 grep -qx 'password=' <<< "${defaults}" ||
   fail "default image password is not empty"
-grep -qx 'ssh=0' <<< "${defaults}" ||
-  fail "default image enables SSH"
+grep -qx 'ssh=1' <<< "${defaults}" ||
+  fail "default image does not enable SSH"
 
 mirrors="$(sed -n 's/^mirrors=//p' <<< "${defaults}")"
 [[ -n "${mirrors}" ]] || fail "default ALARM mirror list is empty"
@@ -41,8 +41,9 @@ grep -q 'systemctl --root "${rootfs_dir}" disable sshd.service' "${builder}" ||
   fail "image builder does not explicitly disable SSH"
 grep -q "printf 'enable sshd.service" "${builder}" ||
   fail "image builder does not support explicit local SSH enablement through presets"
-grep -q 'THORCH_ENABLE_SSH requires a non-empty THORCH_PASSWORD' "${builder}" ||
-  fail "image builder permits SSH without an explicit password"
+if grep -q 'THORCH_ENABLE_SSH requires a non-empty THORCH_PASSWORD' "${builder}"; then
+  fail "image builder still prevents locked-account SSH startup"
+fi
 grep -Fq "sed -i '/^\\[options\\]/a DisableSandboxFilesystem'" "${builder}" ||
   fail "image builder does not accommodate the imported kernel's missing Landlock support"
 ! grep -Fq "sed -i '/^\\[options\\]/a DisableSandbox'" "${builder}" ||
@@ -50,7 +51,7 @@ grep -Fq "sed -i '/^\\[options\\]/a DisableSandboxFilesystem'" "${builder}" ||
 
 service_block="$(sed -n '/^rootfs_services=(/,/^)/p' "${builder}")"
 ! grep -q 'sshd.service' <<< "${service_block}" ||
-  fail "image builder still enables SSH by default"
+  fail "image builder duplicates SSH policy in the static service inventory"
 
 if grep -RInE 'default(ing|s)? to `?1234|THORCH_PASSWORD.*1234' \
   "${config}" "${builder}" "${root}/README.md" "${root}/docs" "${root}/SECURITY.md"; then

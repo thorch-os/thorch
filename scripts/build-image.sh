@@ -186,9 +186,6 @@ configure_root_filesystem() {
 
 [[ "${THORCH_USER}" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || die "invalid THORCH_USER: ${THORCH_USER}"
 [[ "${THORCH_PASSWORD}" != *$'\n'* ]] || die "THORCH_PASSWORD must not contain newlines"
-if ssh_enabled && [[ -z "${THORCH_PASSWORD}" ]]; then
-  die "THORCH_ENABLE_SSH requires a non-empty THORCH_PASSWORD"
-fi
 [[ "${#image_packages[@]}" -gt 0 ]] || die "image package profile must contain at least one package"
 configure_root_filesystem
 if cache_tmpfs_enabled; then
@@ -705,8 +702,9 @@ fi
 systemctl --root "${rootfs_dir}" preset-all >/dev/null
 systemctl --root "${rootfs_dir}" --global preset-all >/dev/null
 rm -f "${ssh_build_preset}"
-# Public images keep SSH disabled. Local bring-up builds may opt in only after
-# explicitly provisioning a password above.
+# An empty build-time password leaves both accounts locked; firstboot provisions
+# the owner's password before password authentication can succeed. Builds may
+# still opt out of starting SSH with THORCH_ENABLE_SSH=0.
 if ! ssh_enabled; then
   # Also remove any enablement inherited from an upstream rootfs preset.
   systemctl --root "${rootfs_dir}" disable sshd.service >/dev/null 2>&1 || true

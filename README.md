@@ -153,8 +153,9 @@ shared value for a published image:
 make build
 ```
 
-For a local image that must accept remote verification immediately, opt in to
-SSH together with that password:
+SSH starts by default, but password authentication remains unavailable until
+firstboot provisions the owner's password. For a local image that must accept
+remote verification immediately, seed an explicit throwaway password:
 
 ```bash
 THORCH_PASSWORD='<local-test-password>' THORCH_ENABLE_SSH=1 make build
@@ -278,9 +279,9 @@ temperature-to-PWM curves.
 
 ## First Boot Debug
 
-Published images do not enable SSH or contain a shared password. Complete
-firstboot so the selected account has its owner-chosen password, then opt in
-with the SSH quick setting or:
+Published images start SSH but do not contain a shared password. Complete
+firstboot so the selected account has its owner-chosen password. SSH can then
+be turned off or back on with the quick setting, or managed directly with:
 
 ```bash
 sudo systemctl enable --now sshd.service
