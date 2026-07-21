@@ -54,7 +54,7 @@ ensure_canonical_fex_rootfs() {
     return 0
   fi
 
-  ln -sfnT "${rootfs_path}" "${target}"
+  ln -s "${rootfs_path}" "${target}"
 }
 
 write_fex_config_defaults() {
@@ -136,6 +136,7 @@ PY
 
 unpack_fex_rootfs_for_freedreno() {
   local rootfs_dir="$1" rootfs_file="$2" rootfs_tree="$3" tmp_tree
+  local -a unpack_command=(unsquashfs -no-progress -f -d)
 
   [[ -f "${rootfs_file}" ]] || return 0
   [[ ! -d "${rootfs_tree}/usr/lib" ]] || return 0
@@ -144,10 +145,20 @@ unpack_fex_rootfs_for_freedreno() {
     exit 1
   }
 
-  # The Steam pressure-vessel path expects a normal unpacked x86_64 guest rootfs.
-  # Keep it unpacked so we can repair accidental host-library contamination.
+  # Keep a writable tree so the matching ROCKNIX x86_64 Freedreno guest library
+  # can replace the generic FEX image copy. Fetch the compressed image first,
+  # then unpack it atomically at idle I/O priority so the SD card remains
+  # responsive while several GiB of rootfs data are written.
   tmp_tree="$(mktemp -d "${rootfs_dir}/ArchLinux.tmp.XXXXXX")"
-  if unsquashfs -no-progress -f -d "${tmp_tree}" "${rootfs_file}" >/dev/null; then
+  if command -v ionice >/dev/null 2>&1; then
+    unpack_command=(ionice -c 3 "${unpack_command[@]}")
+  fi
+  if command -v nice >/dev/null 2>&1; then
+    unpack_command=(nice -n 10 "${unpack_command[@]}")
+  fi
+
+  echo "Unpacking the FEX Arch rootfs at low I/O priority; this can take several minutes on an SD card."
+  if "${unpack_command[@]}" "${tmp_tree}" "${rootfs_file}" >/dev/null; then
     rm -rf "${rootfs_tree}"
     mv "${tmp_tree}" "${rootfs_tree}"
   else
@@ -270,7 +281,10 @@ if command -v FEXRootFSFetcher >/dev/null 2>&1; then
   if rootfs_dir_has_valid_candidate "${rootfs_dir}"; then
     echo "FEX Arch rootfs already exists; leaving it in place."
   else
-    FEXRootFSFetcher -y -x --distro-name arch --distro-version rolling
+    # Download the compressed image without invoking the fetcher's interactive
+    # extract/as-is chooser. Thorch unpacks it atomically at low I/O priority
+    # below so the UI stays responsive on slower SD cards.
+    FEXRootFSFetcher -y -a --distro-name arch --distro-version rolling
   fi
   for candidate in "${rootfs_dir}" "${HOME}/.fex-emu/RootFS" "${HOME}/.local/share/fex-emu/RootFS"; do
     [[ -n "${candidate}" ]] || continue

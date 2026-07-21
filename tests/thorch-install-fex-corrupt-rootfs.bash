@@ -84,8 +84,8 @@ FAKE_COMMAND_LOG="${tmp}/commands.log" \
   PATH="${tmp}:${PATH}" \
   "${script}" >/dev/null
 
-grep -qx 'FEXRootFSFetcher -y -x --distro-name arch --distro-version rolling' "${tmp}/commands.log" ||
-  fail "FEXRootFSFetcher was not invoked after corrupt rootfs was found"
+grep -qx 'FEXRootFSFetcher -y -a --distro-name arch --distro-version rolling' "${tmp}/commands.log" ||
+  fail "FEXRootFSFetcher did not noninteractively retain the compressed replacement rootfs"
 
 compgen -G "${rootfs_dir}/ArchLinux.sqsh.invalid.*" >/dev/null ||
   fail "corrupt rootfs was not moved aside"

@@ -12,37 +12,36 @@ fail() {
 }
 
 steam_root="${tmp}/.local/share/Steam"
-system_steam="${tmp}/usr/share/steam"
-proton_dir="${steam_root}/steamapps/common/Proton 11.0 (ARM64)"
 log="${tmp}/steam-args.log"
 binfmt_log="${tmp}/binfmt.log"
 
-mkdir -p "${steam_root}/steamrtarm64" "${proton_dir}" "${system_steam}"
+mkdir -p "${steam_root}/steamrtarm64" "${steam_root}/linuxarm64"
 mkdir -p "${tmp}/.local/bin" "${steam_root}/thorch-steamos-bin"
 touch "${steam_root}/steamrtarm64/fex-steam"
-cat > "${system_steam}/toolmanifest.vdf" <<'EOF'
-"manifest"
-{
-  "version" "2"
-  "commandline" "/proton %verb%"
-  "use_sessions" "1"
-  "compatmanager_layer_name" "proton"
-}
+cat > "${steam_root}/linuxarm64/steam-launch-wrapper" <<'EOF'
+#!/usr/bin/env bash
+exec "$@"
 EOF
-cat > "${proton_dir}/toolmanifest.vdf" <<'EOF'
-"manifest"
-{
-  "version" "2"
-  "commandline" "/proton %verb%"
-  "require_tool_appid" "4185400"
-}
+chmod 755 "${steam_root}/linuxarm64/steam-launch-wrapper"
+cat > "${tmp}/.local/bin/thorch-repair-steam-arm64" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
+rm -f "${steam_root}/steamrtarm64/steam-launch-wrapper"
+ln -s ../linuxarm64/steam-launch-wrapper "${steam_root}/steamrtarm64/steam-launch-wrapper"
 EOF
+chmod 755 "${tmp}/.local/bin/thorch-repair-steam-arm64"
 cat > "${steam_root}/steamrtarm64/steam" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${THORCH_FAKE_STEAM_LOG:?}"
 printf '%s\n' "${LD_LIBRARY_PATH:-}" >> "${THORCH_FAKE_STEAM_ENV_LOG:?}"
 printf '%s\n' "${PATH:-}" >> "${THORCH_FAKE_STEAM_PATH_LOG:?}"
 command -v fex-steam >> "${THORCH_FAKE_FEX_STEAM_LOG:?}"
+if [[ "$*" == "-exitsteam" ]]; then
+  rm -f "${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam/steamrtarm64/steam-launch-wrapper"
+elif [[ ! -x "${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam/steamrtarm64/steam-launch-wrapper" ]]; then
+  exit 127
+fi
 exit "${THORCH_FAKE_STEAM_EXIT:-0}"
 EOF
 chmod 755 "${steam_root}/steamrtarm64/steam"
@@ -56,10 +55,8 @@ cat > "${tmp}/thorch-fex-binfmt" <<'EOF'
 printf '%s\n' "$1" >> "${THORCH_FAKE_BINFMT_LOG:?}"
 EOF
 chmod 755 "${tmp}/thorch-fex-binfmt"
-
 HOME="${tmp}" \
 STEAM_STORAGE_ROOT="${tmp}" \
-THORCH_STEAM_SYSTEM_DIR="${system_steam}" \
 THORCH_STEAM_MODE=deck \
 THORCH_STEAM_USE_GAMESCOPE=0 \
 THORCH_FEX_BINFMT_HELPER="${tmp}/thorch-fex-binfmt" \
@@ -69,12 +66,6 @@ THORCH_FAKE_STEAM_ENV_LOG="${tmp}/steam-env.log" \
 THORCH_FAKE_STEAM_PATH_LOG="${tmp}/steam-path.log" \
 THORCH_FAKE_FEX_STEAM_LOG="${tmp}/fex-steam.log" \
   "${script}"
-
-cmp -s "${system_steam}/toolmanifest.vdf" "${proton_dir}/toolmanifest.vdf" ||
-  fail "Proton ARM toolmanifest was not restored from system Steam assets"
-if grep -q 'require_tool_appid' "${proton_dir}/toolmanifest.vdf"; then
-  fail "Proton ARM manifest still requires Steam Linux Runtime 4.0 - Arm64"
-fi
 
 mapfile -t calls < "${log}"
 [[ "${#calls[@]}" -eq 2 ]] || fail "expected preflight and final Steam calls, got ${#calls[@]}"
@@ -119,7 +110,6 @@ mapfile -t binfmt_calls < "${binfmt_log}"
 set +e
 HOME="${tmp}" \
 STEAM_STORAGE_ROOT="${tmp}" \
-THORCH_STEAM_SYSTEM_DIR="${system_steam}" \
 THORCH_STEAM_MODE=deck \
 THORCH_STEAM_USE_GAMESCOPE=0 \
 THORCH_STEAM_PREFLIGHT=0 \

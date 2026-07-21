@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+steam_root="${THORCH_STEAM_ROOT:-${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam}"
+compat_dir="${steam_root}/compatibilitytools.d"
+# Community Proton archives are larger than Thorch's bounded ~/.cache tmpfs.
+# Keep resumable partial downloads on persistent Steam storage and remove the
+# verified archive immediately after an atomic install.
+download_dir="${THORCH_PROTON_DOWNLOAD_DIR:-${steam_root}/.thorch-downloads}"
+
+cachyos_version="${THORCH_PROTON_CACHYOS_VERSION:-11.0-20260702-slr}"
+cachyos_archive="${THORCH_PROTON_CACHYOS_ARCHIVE:-proton-cachyos-${cachyos_version}-arm64.tar.xz}"
+cachyos_dir="${THORCH_PROTON_CACHYOS_DIR:-proton-cachyos-${cachyos_version}-arm64}"
+cachyos_url="${THORCH_PROTON_CACHYOS_URL:-https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-${cachyos_version}/${cachyos_archive}}"
+cachyos_sha256="${THORCH_PROTON_CACHYOS_SHA256:-5285c18df262984c2b89218c477216fecc9bbb3fc898aeed39a9bd1f9ff8fb1c}"
+
+ge_version="${THORCH_PROTON_GE_VERSION:-GE-Proton11-1}"
+ge_archive="${THORCH_PROTON_GE_ARCHIVE:-${ge_version}-aarch64.tar.gz}"
+ge_dir="${THORCH_PROTON_GE_DIR:-${ge_version}-aarch64}"
+ge_url="${THORCH_PROTON_GE_URL:-https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${ge_version}/${ge_archive}}"
+ge_sha256="${THORCH_PROTON_GE_SHA256:-ce31b73ed00871f42570a8e721336c2ad3d12a245db8b65281d325ef0c3cf96d}"
+
+staging_dirs=()
+cleanup() {
+  local staging
+  for staging in "${staging_dirs[@]}"; do
+    [[ -n "${staging}" && "${staging}" == "${compat_dir}/.thorch-proton-"* ]] || continue
+    rm -rf -- "${staging}"
+  done
+}
+trap cleanup EXIT
+
+fail() {
+  echo "thorch-install-proton-community: $*" >&2
+  exit 1
+}
+
+for command_name in curl python3 sha256sum tar; do
+  command -v "${command_name}" >/dev/null 2>&1 || fail "missing required command: ${command_name}"
+done
+
+valid_variant() {
+  local directory="$1"
+  [[ -x "${directory}/proton" &&
+     -d "${directory}/files/bin-arm64" &&
+     -f "${directory}/compatibilitytool.vdf" &&
+     -f "${directory}/toolmanifest.vdf" ]]
+}
+
+strip_runtime_requirement() {
+  local manifest="${1}/toolmanifest.vdf"
+
+  [[ -f "${manifest}" ]] || return 0
+  python3 - "${manifest}" <<'PY'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+path.write_text(
+    "".join(line for line in lines if not re.match(r'^\s*"require_tool_appid"\s', line)),
+    encoding="utf-8",
+)
+PY
+}
+
+download_archive() {
+  local archive_path part_path sha256 url
+
+  archive_path="$1"
+  url="$2"
+  sha256="$3"
+  part_path="${archive_path}.part"
+
+  if [[ ! -f "${archive_path}" ]]; then
+    if [[ -f "${part_path}" ]] &&
+       printf '%s  %s\n' "${sha256}" "${part_path}" | sha256sum -c - >/dev/null 2>&1; then
+      # Recover if the previous process was interrupted after curl completed
+      # but before the verified partial file was renamed into place.
+      mv -f -- "${part_path}" "${archive_path}"
+    else
+      echo "Downloading $(basename "${archive_path}")..."
+      curl \
+        --fail \
+        --location \
+        --continue-at - \
+        --retry 10 \
+        --retry-all-errors \
+        --retry-delay 5 \
+        --connect-timeout 30 \
+        --speed-limit 1024 \
+        --speed-time 60 \
+        --output "${part_path}" \
+        "${url}"
+      mv -f -- "${part_path}" "${archive_path}"
+    fi
+  fi
+
+  if ! printf '%s  %s\n' "${sha256}" "${archive_path}" | sha256sum -c - >/dev/null; then
+    rm -f -- "${archive_path}" "${part_path}"
+    fail "checksum verification failed for $(basename "${archive_path}")"
+  fi
+}
+
+install_variant() {
+  local archive_name archive_path backup candidate directory_name label sha256 staging url
+
+  label="$1"
+  directory_name="$2"
+  archive_name="$3"
+  url="$4"
+  sha256="$5"
+  candidate="${compat_dir}/${directory_name}"
+
+  if valid_variant "${candidate}"; then
+    strip_runtime_requirement "${candidate}"
+    echo "${label} is already installed."
+    return 0
+  fi
+
+  mkdir -p "${compat_dir}" "${download_dir}"
+  archive_path="${download_dir}/${archive_name}"
+  download_archive "${archive_path}" "${url}" "${sha256}"
+
+  staging="$(mktemp -d "${compat_dir}/.thorch-proton-XXXXXX")"
+  staging_dirs+=("${staging}")
+  tar -xf "${archive_path}" -C "${staging}"
+
+  valid_variant "${staging}/${directory_name}" ||
+    fail "${label} archive does not contain the expected ARM64 Proton layout"
+
+  strip_runtime_requirement "${staging}/${directory_name}"
+
+  if [[ -e "${candidate}" || -L "${candidate}" ]]; then
+    backup="${candidate}.incomplete.$(date +%s)"
+    mv -- "${candidate}" "${backup}"
+    echo "Preserved incomplete ${label} directory as ${backup}." >&2
+  fi
+
+  mv -- "${staging}/${directory_name}" "${candidate}"
+  rm -f -- "${archive_path}"
+  echo "Installed ${label}."
+}
+
+unregister_legacy_valve_tool() {
+  local entry legacy="${compat_dir}/Proton11ARM"
+  local legacy_registration="${compat_dir}/compatibilitytool.vdf"
+
+  # Older Thorch releases copied this exact registration into the root of
+  # compatibilitytools.d. Match both identifying fields so a user-managed VDF
+  # with the conventional filename is never removed merely because it exists.
+  if grep -q '"proton11_arm64"' "${legacy_registration}" 2>/dev/null &&
+     grep -Eq '"install_path"[[:space:]]+"Proton11ARM"' "${legacy_registration}" 2>/dev/null; then
+    rm -f -- "${legacy_registration}"
+  fi
+
+  if [[ -L "${legacy}" ]]; then
+    rm -f -- "${legacy}"
+    return 0
+  fi
+  [[ -d "${legacy}" ]] || return 0
+
+  # Steam can leave a zero-byte lock marker behind after the old Thorch tool
+  # registration has been removed. It is not a Proton payload or user setting.
+  if [[ -f "${legacy}/dist.lock" && ! -s "${legacy}/dist.lock" ]]; then
+    rm -f -- "${legacy}/dist.lock"
+    rmdir "${legacy}" 2>/dev/null && return 0
+  fi
+
+  grep -q '"proton11_arm64"' "${legacy}/compatibilitytool.vdf" 2>/dev/null || return 0
+
+  shopt -s nullglob dotglob
+  for entry in "${legacy}"/*; do
+    [[ -L "${entry}" ]] && rm -f -- "${entry}"
+  done
+  shopt -u nullglob dotglob
+  rm -f -- "${legacy}/compatibilitytool.vdf" "${legacy}/toolmanifest.vdf"
+  if [[ -f "${legacy}/dist.lock" && ! -s "${legacy}/dist.lock" ]]; then
+    rm -f -- "${legacy}/dist.lock"
+  fi
+  if ! rmdir "${legacy}" 2>/dev/null; then
+    echo "Preserved unrelated files in legacy ${legacy}." >&2
+  fi
+}
+
+case "${1:-}" in
+  "")
+    ;;
+  *)
+    echo "usage: thorch-install-proton-community" >&2
+    exit 2
+    ;;
+esac
+
+install_variant "Proton-CachyOS ARM64" "${cachyos_dir}" "${cachyos_archive}" "${cachyos_url}" "${cachyos_sha256}"
+install_variant "GE-Proton ARM64" "${ge_dir}" "${ge_archive}" "${ge_url}" "${ge_sha256}"
+unregister_legacy_valve_tool
+
+echo "Community ARM64 Proton setup complete. Restart Steam to refresh its compatibility-tool list."

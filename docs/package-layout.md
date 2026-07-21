@@ -85,8 +85,8 @@ configuration.
 `thorch-fex-bin` repackages the matching ROCKNIX `/SYSTEM` FEX runtime. It
 installs FEX, Vulkan/OpenGL, audio, DRM, and Wayland thunks, binfmt
 registrations, a `libfmt.so.11` compatibility library for the imported binaries,
-and a Steam-compatible FEX tool under `/usr/share/steam/fex`. The package
-provides and replaces the old `thorch-fex` name for upgrades.
+and the base rootfs configuration used by standalone FEX applications. The
+package provides and replaces the old `thorch-fex` name for upgrades.
 
 `thorch-gamescope` builds Valve's gamescope from source with the ROCKNIX
 handheld gamescope patch set consumed from the synced `vendor/rocknix-sm8550`
@@ -109,22 +109,25 @@ the synced `vendor/rocknix-sm8550` tree.
 
 `thorch-gaming-installers` provides the opt-in Steam ARM64, FEX setup, gaming
 stack installer command, and SteamOS-mode launchers. It does not redistribute
-Steam client payloads. It keeps ROCKNIX-style Steam metadata in
-`/usr/share/steam` for the ARM64 Proton compatibility-tool stub, and links the
-packaged FEX tool from `/usr/share/steam/fex` into the user's Steam
-compatibility tools during setup/launch. The Steam launcher keeps the user Steam
-symlinks fresh, seeds
-per-app FEX configs with DRM, Vulkan, GL, asound, and Wayland host libraries,
-and leaves global FEX binfmt registrations enabled so Steam Runtime and
-pressure-vessel x86_64 helper binaries are handed to FEX normally. The packaged
-FEX thunk database also covers pressure-vessel's library override aliases so CS2
-can use the DRM, Vulkan, GL, asound, and Wayland host-library forwarding paths
-from inside Steam Linux Runtime containers. The FEX Arch rootfs remains an
-x86_64 guest rootfs; when the ROCKNIX FEX-side `libvulkan_freedreno.so` is
-available, the installer copies that x86_64 guest driver into the rootfs just
-like ROCKNIX. It still refuses to copy the aarch64 host driver over the guest
-library. Vulkan acceleration is provided by FEX's Vulkan thunk, which forwards
-guest Vulkan calls to the patched native aarch64 host driver.
+Steam client or Proton payloads. During opt-in setup it downloads the pinned,
+checksum-verified ARM64 releases of Proton-CachyOS and GE-Proton that ROCKNIX
+uses, installs them atomically under Steam's community compatibility-tool
+directory, and leaves Steam's Valve Proton 11 ARM payload unregistered. The
+launcher keeps the user Steam
+symlinks fresh, includes every installed native Steam helper location in
+`PATH`, seeds per-app FEX configs with DRM, Vulkan, GL, asound, and Wayland host
+libraries, and temporarily disables global FEX binfmt handling while native ARM
+Steam is running. This prevents Steam from routing its own mixed-architecture
+helpers through the standalone system registration; the previous state is
+restored when Steam exits. The packaged FEX thunk database also covers
+pressure-vessel's library override aliases so containerized games can use the
+DRM, Vulkan, GL, asound, and Wayland host-library forwarding paths. The FEX Arch
+rootfs remains an x86_64 guest rootfs; when the ROCKNIX FEX-side
+`libvulkan_freedreno.so` is available, the installer copies that x86_64 guest
+driver into the rootfs just like ROCKNIX. It still refuses to copy the aarch64
+host driver over the guest library. Vulkan acceleration is provided by FEX's
+Vulkan thunk, which forwards guest Vulkan calls to the patched native aarch64
+host driver.
 
 `thorch-waydroid-installer` provides the opt-in first-boot Waydroid setup
 command and app-menu installer entry. It does not redistribute Waydroid or

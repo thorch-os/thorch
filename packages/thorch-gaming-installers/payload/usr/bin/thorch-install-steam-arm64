@@ -49,6 +49,7 @@ install_steam_launcher() {
     thorch-setup-steam-arm64
     thorch-start-steam-arm64
     thorch-repair-steam-arm64
+    thorch-install-proton-community
   )
 
   for helper in "${helpers[@]}"; do
@@ -68,7 +69,7 @@ install_steam_launcher() {
       echo "Missing ${source}; install the thorch-gaming-installers package first." >&2
       exit 1
     fi
-    if [[ "$(readlink -f "${source}")" != "$(readlink -m "${bin_dir}/${helper}")" ]]; then
+    if ! cmp -s "${source}" "${bin_dir}/${helper}"; then
       install -m 0755 "${source}" "${bin_dir}/${helper}"
     fi
   done
@@ -76,6 +77,7 @@ install_steam_launcher() {
 
 install_steam_launcher
 "${bin_dir}/thorch-setup-steam-arm64"
+"${bin_dir}/thorch-install-proton-community"
 
 rm -f \
   "${bin_dir}/thorch-start-steam-arm64-gamescope" \

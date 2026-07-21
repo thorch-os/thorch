@@ -2,11 +2,11 @@
 
 pkgname=thorch-gaming-installers
 pkgver=1
-pkgrel=35
+pkgrel=39
 pkgdesc='Steam ARM64 and required FEX gaming setup for Thorch'
 arch=(aarch64)
 license=(GPL-2.0-or-later)
-depends=(bash binutils coreutils curl file jq libxinerama lsof lsb-release openal python squashfs-tools sudo tar unzip thorch-firmware-rocknix wget xorg-xwininfo thorch-fex-bin)
+depends=(bash binutils coreutils curl file gzip jq libxinerama lsof lsb-release openal python squashfs-tools sudo tar unzip xz thorch-firmware-rocknix wget xorg-xwininfo thorch-fex-bin)
 optdepends=('thorch-gamescope: patched Steam gamepad UI session'
             'gamescope: fallback Steam gamepad UI session'
             'thorch-mangohud: ROCKNIX SM8550 MangoHud overlay config'
@@ -22,6 +22,7 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-fex-binfmt"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-gaming-stack"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-steam-arm64"
+  chmod 755 "${pkgdir}/usr/bin/thorch-install-proton-community"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-heroic-arm64"
   chmod 755 "${pkgdir}/usr/bin/thorch-start-heroic"
   chmod 755 "${pkgdir}/usr/bin/thorch-repair-steam-arm64"

@@ -13,8 +13,6 @@ mangohud_config="${THORCH_STEAM_MANGOHUD_CONFIG:-}"
 support_bin_dir="${steam_root}/thorch-steamos-bin"
 runtime_bin_dir=""
 mangoapp_args=()
-steam_system_dir="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
-proton_arm_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
 preflight="${THORCH_STEAM_PREFLIGHT:-1}"
 binfmt_helper_override="${THORCH_FEX_BINFMT_HELPER:-}"
 binfmt_helper="${binfmt_helper_override:-/usr/bin/thorch-fex-binfmt}"
@@ -107,15 +105,17 @@ gamescope_supports_option() {
   gamescope --help 2>&1 | grep -q -- "${option}"
 }
 
-stage_proton_arm_manifest() {
-  local proton_dir source_manifest
-
-  source_manifest="${steam_system_dir}/toolmanifest.vdf"
-  [[ -f "${source_manifest}" ]] || return 0
-
-  proton_dir="${steam_root}/steamapps/common/${proton_arm_name}"
-  mkdir -p "${proton_dir}"
-  cp -f "${source_manifest}" "${proton_dir}/toolmanifest.vdf"
+repair_steam_install() {
+  if [[ -x "${HOME}/.local/bin/thorch-setup-steam-arm64" ]]; then
+    "${HOME}/.local/bin/thorch-setup-steam-arm64" --repair-runtime-links || true
+  elif command -v thorch-setup-steam-arm64 >/dev/null 2>&1; then
+    thorch-setup-steam-arm64 --repair-runtime-links || true
+  fi
+  if [[ -x "${HOME}/.local/bin/thorch-repair-steam-arm64" ]]; then
+    "${HOME}/.local/bin/thorch-repair-steam-arm64" || true
+  elif command -v thorch-repair-steam-arm64 >/dev/null 2>&1; then
+    thorch-repair-steam-arm64 || true
+  fi
 }
 
 run_with_fex_binfmt_suspended() {
@@ -166,16 +166,7 @@ if [[ ! -x "${steam_root}/steamrtarm64/steam" ]]; then
   exit 1
 fi
 
-if [[ -x "${HOME}/.local/bin/thorch-setup-steam-arm64" ]]; then
-  "${HOME}/.local/bin/thorch-setup-steam-arm64" --repair-proton-beta-runtime-links || true
-elif command -v thorch-setup-steam-arm64 >/dev/null 2>&1; then
-  thorch-setup-steam-arm64 --repair-proton-beta-runtime-links || true
-fi
-if [[ -x "${HOME}/.local/bin/thorch-repair-steam-arm64" ]]; then
-  "${HOME}/.local/bin/thorch-repair-steam-arm64" || true
-elif command -v thorch-repair-steam-arm64 >/dev/null 2>&1; then
-  thorch-repair-steam-arm64 || true
-fi
+repair_steam_install
 
 configure_mangohud
 export LD_LIBRARY_PATH="${steam_root}/lib/aarch64-linux-gnu"
@@ -185,14 +176,16 @@ export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 cd "${steam_root}/steamrtarm64"
 
-stage_proton_arm_manifest
 case "${preflight,,}" in
   1|true|yes|on|enabled)
     # Preflight only prepares the selected client branch. Passing -steamdeck
     # here rewrites publicbeta to steamdeck_stable even for desktop and Big
     # Picture launches, before the mode-specific command is evaluated.
     ./steam -exitsteam || true
-    stage_proton_arm_manifest
+    # Steam's preflight can refresh its managed steamrtarm64 directory and
+    # remove the launch-wrapper compatibility link. Repair it again before the
+    # long-running client starts or every Proton launch exits with status 127.
+    repair_steam_install
     ;;
 esac
 
