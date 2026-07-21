@@ -23,6 +23,17 @@ THORCH_DOCKER_FIX_OWNERSHIP ?= 1
 HOST_UID ?= $(shell id -u)
 HOST_GID ?= $(shell id -g)
 
+# macOS bind mounts are normally case-insensitive, but the Arch rootfs contains
+# case-distinct paths. Keep chroots and build caches on a native Docker volume;
+# release artifacts still land in the repository's output directory.
+ifeq ($(shell uname -s),Darwin)
+THORCH_DOCKER_BUILD_DIR ?= /thorch-build
+THORCH_DOCKER_BUILD_VOLUME ?= thorch-build-$(shell printf '%s' '$(CURDIR)' | cksum | awk '{print $$1}')
+THORCH_DOCKER_BUILD_ARGS := --volume "$(THORCH_DOCKER_BUILD_VOLUME):$(THORCH_DOCKER_BUILD_DIR)" --env THORCH_BUILD_DIR="$(THORCH_DOCKER_BUILD_DIR)"
+else
+THORCH_DOCKER_BUILD_ARGS :=
+endif
+
 docker-audit docker-check docker-test docker-test-rust: THORCH_DOCKER_FIX_OWNERSHIP=0
 
 .PHONY: help doctor ci audit sync firmware kernel import-kernel packages packages-userspace build fast nightly test test-rust check write clean docker-image-build docker-image-pull docker-shell
@@ -60,6 +71,7 @@ define thorch_docker_run
 	  --env HOST_UID="$(HOST_UID)" \
 	  --env HOST_GID="$(HOST_GID)" \
 	  --volume "$(CURDIR):$(THORCH_DOCKER_WORKDIR)" \
+	  $(THORCH_DOCKER_BUILD_ARGS) \
 	  --workdir "$(THORCH_DOCKER_WORKDIR)" \
 	  $(THORCH_DOCKER_RUN_ARGS) \
 	  "$(THORCH_DOCKER_IMAGE)" \

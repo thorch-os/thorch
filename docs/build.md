@@ -126,6 +126,13 @@ builds update one pristine base root, then clone it for every package. makepkg
 resolves each clone's dependencies from the PKGBUILD and the staged local repo;
 dependencies from one package build never leak into the next.
 
+On macOS, the wrapper stores `THORCH_BUILD_DIR` in a checkout-specific Docker
+volume mounted at `/thorch-build`. Arch Linux contains case-distinct paths that
+cannot be extracted safely onto the usual case-insensitive macOS bind mount.
+The package repository and final image remain under `output/` in the checkout.
+Override `THORCH_DOCKER_BUILD_DIR` and `THORCH_DOCKER_BUILD_VOLUME` only when a
+different case-sensitive Docker storage location is required.
+
 On an `arm64` or `aarch64` host, `make docker-image-build` selects the native
 `menci/archlinuxarm:base-devel` base and builds kernels and Arch Linux ARM
 packages without CPU emulation. On x86_64 it uses the digest-pinned official
