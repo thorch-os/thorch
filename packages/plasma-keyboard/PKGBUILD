@@ -2,7 +2,7 @@
 
 pkgname=plasma-keyboard
 pkgver=6.7.3
-pkgrel=16
+pkgrel=17
 pkgdesc='Thorch-tuned Plasma on-screen keyboard'
 arch=(aarch64)
 url='https://invent.kde.org/plasma/plasma-keyboard'
