@@ -162,6 +162,7 @@ for value in (
     check "KERNEL command line uses the image root UUID" kernel_uses_image_root_uuid
     check "KERNEL command line rotates fbcon right" kernel_cmdline_has 'fbcon=rotate:1'
     check "KERNEL allows ROCKNIX asymmetric 32-bit CPU features" kernel_cmdline_has 'allow_mismatched_32bit_el0'
+    check "KERNEL defaults to s2idle" kernel_cmdline_has 'mem_sleep_default=s2idle'
     check "KERNEL embeds the ROCKNIX Thor DTB with overlay symbols" kernel_has_rocknix_thor_dtb
     check "KERNEL excludes the generic AIM300 DTB" kernel_excludes_generic_dtb
     check "KERNEL supports Waydroid BinderFS" kernel_supports_waydroid
