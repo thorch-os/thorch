@@ -28,6 +28,12 @@ grep -q 'packages: read' "${workflow}" ||
 grep -q 'runs-on: ubuntu-latest' "${workflow}" ||
   fail "nightly workflow is not using the GitHub-hosted Ubuntu runner"
 
+grep -Eq 'uses: docker/setup-qemu-action@[0-9a-f]{40}' "${workflow}" ||
+  fail "nightly workflow does not pin a QEMU registration action"
+
+grep -A3 'uses: docker/setup-qemu-action@' "${workflow}" | grep -q 'platforms: arm64' ||
+  fail "nightly workflow does not register aarch64 emulation"
+
 grep -Eq 'THORCH_DOCKER_IMAGE: ghcr.io/[$][{][{] github[.]repository_owner [}][}]/thorch-build@sha256:[0-9a-f]{64}$' "${workflow}" ||
   fail "nightly workflow does not pin the published Thorch builder by digest"
 
