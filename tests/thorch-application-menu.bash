@@ -44,6 +44,12 @@ gaming_installer="${gaming_payload}/usr/share/applications/thorch-install-gaming
 [[ "$(desktop_value "${gaming_installer}" Categories)" == 'Game;' ]] ||
   fail "gaming stack installer is not in the Gaming menu"
 
+for name in thorch-steamos-mode.desktop thorch-steamos-mode-enable.desktop thorch-steamos-mode-disable.desktop thorch-steamos-mode-stop.desktop; do
+  launcher="${gaming_payload}/usr/share/applications/${name}"
+  [[ "$(desktop_value "${launcher}" Categories)" == 'Game;' ]] ||
+    fail "${name} declares more than one main application-menu category"
+done
+
 fake_root="${tmp}/root"
 legacy_home="${fake_root}/home/legacy"
 custom_home="${fake_root}/home/custom"

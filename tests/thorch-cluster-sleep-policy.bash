@@ -12,12 +12,12 @@ fail() {
   exit 1
 }
 
-grep -qx 'MemorySleepMode=deep' "${sleep_conf}" ||
-  fail "systemd does not select deep suspend"
-grep -q 'mem_sleep_default=deep' "${repacker}" ||
-  fail "rebuilt boot images do not default to deep suspend"
-! grep -q 'mem_sleep_default=s2idle' "${repacker}" ||
-  fail "rebuilt boot images still default to s2idle"
+grep -qx 'MemorySleepMode=s2idle' "${sleep_conf}" ||
+  fail "systemd does not select s2idle"
+grep -q 'mem_sleep_default=s2idle' "${repacker}" ||
+  fail "rebuilt boot images do not default to s2idle"
+! grep -q 'mem_sleep_default=deep' "${repacker}" ||
+  fail "rebuilt boot images still default to deep suspend"
 if compgen -G "${sleep_hooks}/thorch-*" >/dev/null; then
   fail "BSP still installs a Thorch system-sleep hook"
 fi

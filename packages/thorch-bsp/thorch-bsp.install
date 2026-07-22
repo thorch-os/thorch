@@ -68,7 +68,7 @@ fix_gpu_governor() {
 remove_legacy_sleep_hooks() {
   local root="${THORCH_INSTALL_ROOT:-}"
 
-  # Let the kernel and systemd own the suspend transition. These hooks changed
+  # Let the kernel and systemd own the s2idle transition. These hooks changed
   # USB role, UFS clocks, CPU/GPU policy, and RGB state while devices were
   # already entering suspend, which made the wake path needlessly stateful.
   rm -f \

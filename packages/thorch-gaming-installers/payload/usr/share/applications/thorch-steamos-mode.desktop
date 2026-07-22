@@ -5,4 +5,4 @@ Comment=Run Steam Deck UI on the Steam display and keep Plasma Mobile available
 Exec=/usr/bin/thorch-steamos-mode start
 Icon=steam
 Terminal=false
-Categories=Game;System;
+Categories=Game;
