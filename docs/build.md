@@ -34,8 +34,9 @@ The ROCKNIX kernel sync requires `curl`, `jq`, `losetup`, `mount`,
 Then sync the ROCKNIX image-derived runtime inputs and build the Thorch kernel.
 This is a required clean-build input; `make sync` only downloads public source
 overlays and firmware, not the ABL boot-image template or FEX runtime. By
-default, the kernel sync downloads the latest official ROCKNIX SM8550 nightly,
-verifies its `.sha256`, extracts `/KERNEL` and `/SYSTEM`, normalizes the result
+default, the kernel sync downloads the pinned ROCKNIX SM8550 nightly declared
+in `config/thorch.conf`, verifies its `.sha256`, extracts `/KERNEL` and
+`/SYSTEM`, normalizes the result
 into `vendor/rocknix-kernel` and `vendor/rocknix-runtime`, then source-builds a
 Thorch Thor kernel from ROCKNIX's Linux recipe with BinderFS enabled:
 
@@ -287,7 +288,8 @@ describes their purpose without duplicating mutable source or kernel refs.
 - `ROCKNIX_REF`: pinned ROCKNIX branch, tag, or commit to sync.
 - `ROCKNIX_REPO`: ROCKNIX distribution repository URL.
 - `ROCKNIX_KERNEL_SOURCE`: ROCKNIX image release stream, `nightly` by default; can be `stable`.
-- `ROCKNIX_KERNEL_RELEASE`: release tag/date to import, default `latest`.
+- `ROCKNIX_KERNEL_RELEASE`: release tag/date to import; the project default is
+  pinned in `config/thorch.conf`. Scheduled rolling builds may override it.
 - `ROCKNIX_KERNEL_PLATFORM`: ROCKNIX platform name, default `SM8550`.
 - `ROCKNIX_KERNEL_IMAGE_URL`: explicit ROCKNIX `.img` or `.img.gz` URL.
 - `ROCKNIX_KERNEL_SHA256_URL`: explicit checksum URL for the ROCKNIX image.
