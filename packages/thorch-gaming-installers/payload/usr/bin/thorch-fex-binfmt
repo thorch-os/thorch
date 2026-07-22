@@ -5,29 +5,33 @@ usage() {
   echo "usage: thorch-fex-binfmt disable|enable|status" >&2
 }
 
-[[ "${EUID}" -eq 0 ]] || {
+binfmt_dir="${THORCH_FEX_BINFMT_DIR:-/proc/sys/fs/binfmt_misc}"
+systemctl_bin="${THORCH_FEX_BINFMT_SYSTEMCTL:-systemctl}"
+handlers=(FEX-x86_64 FEX-x86)
+
+[[ "${EUID}" -eq 0 || "${binfmt_dir}" != /proc/sys/fs/binfmt_misc ]] || {
   echo "thorch-fex-binfmt must run as root" >&2
   exit 1
 }
 
 case "${1:-}" in
   disable)
-    for handler in x86_64 x86; do
-      control="/proc/sys/fs/binfmt_misc/${handler}"
+    for handler in "${handlers[@]}"; do
+      control="${binfmt_dir}/${handler}"
       [[ -e "${control}" ]] || continue
       if ! printf '0\n' > "${control}"; then
-        systemctl restart systemd-binfmt.service 2>/dev/null || true
+        "${systemctl_bin}" restart systemd-binfmt.service 2>/dev/null || true
         echo "failed to disable ${handler} binfmt handler" >&2
         exit 1
       fi
     done
     ;;
   enable)
-    systemctl restart systemd-binfmt.service
+    "${systemctl_bin}" restart systemd-binfmt.service
     ;;
   status)
-    for handler in x86_64 x86; do
-      control="/proc/sys/fs/binfmt_misc/${handler}"
+    for handler in "${handlers[@]}"; do
+      control="${binfmt_dir}/${handler}"
       if [[ -r "${control}" ]]; then
         printf '%s: ' "${handler}"
         sed -n '1p' "${control}"
