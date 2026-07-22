@@ -4,6 +4,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 linux_pkgbuild="${root}/packages/linux-thorch/PKGBUILD"
 firmware_pkgbuild="${root}/packages/thorch-firmware-rocknix/PKGBUILD"
+mesa_pkgbuild="${root}/packages/thorch-mesa/PKGBUILD"
+fex_pkgbuild="${root}/packages/thorch-fex-bin/PKGBUILD"
 common="${root}/scripts/lib/common.sh"
 bsp_pkgbuild="${root}/packages/thorch-bsp/PKGBUILD"
 marker_pkgbuild="${root}/packages/thorch-boot-bootstrap-ready/PKGBUILD"
@@ -92,7 +94,25 @@ for package in "${stock_firmware[@]}"; do
       fail "thorch-firmware-rocknix ${field} is missing ${package}"
   done
 done
-grep -Eq 'makedepends=.*patchelf.*python' <<< "${firmware_metadata}" || \
-  fail "firmware package does not declare its ICD rewrite tool"
+if grep -Eq 'vulkan-driver|patchelf|python' <<< "${firmware_metadata}"; then
+  fail "firmware package still owns native graphics runtime metadata"
+fi
+
+mesa_metadata="$(
+  bash -c 'source "$1"; declare -p provides conflicts replaces' \
+    _ "${mesa_pkgbuild}"
+)"
+grep -Eq 'provides=.*mesa=26\.1\.5' <<< "${mesa_metadata}" || \
+  fail "thorch-mesa does not provide versioned mesa"
+grep -Eq 'provides=.*vulkan-freedreno=26\.1\.5' <<< "${mesa_metadata}" || \
+  fail "thorch-mesa does not provide versioned vulkan-freedreno"
+grep -Eq 'conflicts=.*mesa.*vulkan-freedreno' <<< "${mesa_metadata}" || \
+  fail "thorch-mesa does not conflict with the stock graphics packages"
+grep -Eq 'replaces=.*mesa.*vulkan-freedreno' <<< "${mesa_metadata}" || \
+  fail "thorch-mesa does not replace the stock graphics packages"
+
+fex_metadata="$(bash -c 'source "$1"; declare -p depends' _ "${fex_pkgbuild}")"
+grep -Eq 'depends=.*thorch-mesa' <<< "${fex_metadata}" || \
+  fail "thorch-fex-bin does not require the matching native Mesa package"
 
 printf 'thorch package upgrade metadata checks passed\n'

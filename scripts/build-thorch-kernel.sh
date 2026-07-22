@@ -16,9 +16,10 @@ vendor/rocknix-kernel, and repacks that directory's Android /KERNEL template
 with the new kernel and all SM8550 DTB payloads.
 
 This script expects scripts/sync-rocknix-kernel.sh or make kernel to have already
-imported a ROCKNIX kernel/runtime tree. The imported tree supplies firmware,
-runtime graphics/FEX files, and the Android boot-image template that Thor's ABL
-accepts; the source-built kernel and modules replace the imported kernel bits.
+imported the ROCKNIX image inputs. The kernel tree supplies firmware and the
+Android boot-image template that Thor's ABL accepts; the separate runtime tree
+supplies FEX and its guest driver. The source-built kernel and modules replace
+the imported kernel bits.
 
 Options:
   --repo <url>              Kernel git repository.

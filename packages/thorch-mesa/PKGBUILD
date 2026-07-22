@@ -1,0 +1,111 @@
+# Maintainer: Thorch contributors
+#
+# Trimmed SM8550 Mesa recipe adapted from shuuri-labs/pocknix-os. Thorch only
+# needs Freedreno GL, Turnip Vulkan, Zink, and the software fallback; building
+# those locally also prevents the older ROCKNIX image driver from replacing the
+# current Arch Mesa stack.
+
+pkgname=thorch-mesa
+pkgver=26.1.5
+pkgrel=1
+pkgdesc='Mesa 26.1.5 trimmed and tuned for AYN Thor / Qualcomm SM8550'
+arch=(aarch64)
+url='https://www.mesa3d.org/'
+license=('MIT AND BSD-3-Clause AND SGI-B-2.0')
+depends=(
+  expat
+  glibc
+  libdisplay-info
+  libdrm
+  libgcc
+  libglvnd
+  libstdc++
+  libx11
+  libxcb
+  libxext
+  libxrandr
+  libxshmfence
+  libxxf86vm
+  spirv-tools
+  systemd-libs
+  vulkan-icd-loader
+  wayland
+  xcb-util-keysyms
+  zlib
+  zstd
+)
+makedepends=(
+  meson
+  ninja
+  python-mako
+  python-packaging
+  python-ply
+  python-yaml
+  wayland-protocols
+  xorgproto
+)
+provides=(
+  "mesa=${pkgver}"
+  "mesa-libgl=${pkgver}"
+  "vulkan-freedreno=${pkgver}"
+  opengl-driver
+  vulkan-driver
+)
+conflicts=(mesa vulkan-freedreno)
+replaces=(mesa vulkan-freedreno)
+options=(!lto)
+source=("https://archive.mesa3d.org/mesa-${pkgver}.tar.xz")
+sha256sums=('79e421c7ce18cd9e790b8375920325779f10798630bf30e0b22f1a21c8617122')
+
+prepare() {
+  cd "mesa-${pkgver}"
+
+  # Include the local release in Mesa's version string so Chromium/CEF drops
+  # stale GPU caches after a driver package update.
+  printf '%s\n' "${pkgver}-thorch${pkgrel}" > VERSION
+}
+
+build() {
+  local rocknix_tune='-march=armv9-a+fp16+crypto+i8mm+bf16+memtag+sm4+sha3+nosve+nosve2 -mtune=cortex-x3 -mno-outline-atomics'
+  export CFLAGS="${CFLAGS} ${rocknix_tune}"
+  export CXXFLAGS="${CXXFLAGS} ${rocknix_tune}"
+
+  meson setup build "mesa-${pkgver}" \
+    --prefix=/usr \
+    --buildtype=plain \
+    -Db_ndebug=true \
+    -Dplatforms=x11,wayland \
+    -Dglx=dri \
+    -Degl=enabled \
+    -Dgbm=enabled \
+    -Dglvnd=enabled \
+    -Dopengl=true \
+    -Dgles1=disabled \
+    -Dgles2=enabled \
+    -Dgallium-drivers=freedreno,zink,softpipe \
+    -Dvulkan-drivers=freedreno \
+    -Dfreedreno-kmds=msm \
+    -Dvulkan-layers= \
+    -Dllvm=disabled \
+    -Ddraw-use-llvm=false \
+    -Dgallium-rusticl=false \
+    -Dgallium-va=disabled \
+    -Dgallium-extra-hud=false \
+    -Dshader-cache=enabled \
+    -Dandroid-libbacktrace=disabled \
+    -Dlibunwind=disabled \
+    -Dlmsensors=disabled \
+    -Dvalgrind=disabled \
+    -Dmicrosoft-clc=disabled \
+    -Dbuild-tests=false
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "${pkgdir}" --no-rebuild
+
+  # GLVND expects this alias for indirect GLX rendering under XWayland.
+  ln -sr "${pkgdir}"/usr/lib/libGLX_{mesa,indirect}.so.0
+  install -Dm644 "mesa-${pkgver}/docs/license.rst" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/license.rst"
+}

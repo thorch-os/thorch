@@ -54,10 +54,11 @@ Thor firmware is sourced from the public ROCKNIX SM8550 firmware tree and
 packaged as `thorch-firmware-rocknix`. Thorch preserves upstream provenance, but
 does not claim new licensing rights over those blobs.
 
-Some Adreno firmware and runtime graphics files are imported from the ROCKNIX
-image `/SYSTEM` payload together with the kernel import. Those image-derived
-files are recorded in kernel/runtime provenance rather than in the public source
-overlay provenance.
+Some Adreno firmware and the x86_64 FEX guest driver are imported from the
+ROCKNIX image `/SYSTEM` payload. Those image-derived files are recorded in
+kernel or FEX runtime provenance rather than in the public source overlay
+provenance. The native aarch64 Mesa/Turnip driver is built separately by
+`thorch-mesa` from Mesa's upstream release tarball.
 
 ## FEX Runtime
 
@@ -65,6 +66,19 @@ The FEX runtime packaged as `thorch-fex-bin` is imported from the matching
 ROCKNIX `/SYSTEM` payload. Runtime provenance is written to
 `vendor/rocknix-runtime/PROVENANCE` and installed into package license metadata
 with the imported binaries.
+
+The pinned ROCKNIX nightly already carries FEX-2607. Thorch therefore reuses
+that matched runtime and thunk set instead of carrying Pocknix's separate x86
+sysroot build. For comparison, `shuuri-labs/pocknix-os` builds FEX-2607 from
+source with patches 0001, 0002, 0005, and 0006. It drops ROCKNIX's 0004 Nix
+wrapper patch by using a pinned Arch x86 sysroot, and drops the old 0003 sysroot
+include patch because FEX-2607 now filters the standard include path upstream.
+
+## Mesa
+
+`thorch-mesa` builds the upstream Mesa 26.1.5 release tarball and records its
+upstream SHA-256 in the PKGBUILD. Its SM8550-focused package structure and
+driver selection are adapted from `shuuri-labs/pocknix-os`.
 
 ## Arch Linux ARM
 

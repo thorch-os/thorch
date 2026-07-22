@@ -471,10 +471,12 @@ if [[ " ${packages[*]} " == *" linux-thorch "* ]] &&
   needs_rocknix_sync=1
 fi
 if [[ " ${packages[*]} " == *" thorch-firmware-rocknix "* ]] &&
-  { [[ ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/usr/lib/libvulkan_freedreno.so" ]] || ! rocknix_kernel_firmware_ready; }; then
+  ! rocknix_kernel_firmware_ready; then
   needs_rocknix_sync=1
 fi
-if [[ " ${packages[*]} " == *" thorch-fex-bin "* && ! -x "${root}/${THORCH_ROCKNIX_RUNTIME_DIR}/usr/bin/FEX" ]]; then
+if [[ " ${packages[*]} " == *" thorch-fex-bin "* ]] &&
+  { [[ ! -x "${root}/${THORCH_ROCKNIX_RUNTIME_DIR}/usr/bin/FEX" ]] ||
+    [[ ! -f "${root}/${THORCH_ROCKNIX_RUNTIME_DIR}/usr/share/fex-emu/libvulkan_freedreno.so" ]]; }; then
   needs_rocknix_sync=1
 fi
 if [[ "${needs_rocknix_sync}" -eq 1 ]]; then

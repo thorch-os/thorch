@@ -2,8 +2,8 @@
 
 pkgname=thorch-fex-bin
 pkgver=2607
-pkgrel=1
-pkgdesc='ROCKNIX-imported FEX binary runtime for Thorch on AArch64'
+pkgrel=2
+pkgdesc='FEX-2607 binary runtime imported from the pinned ROCKNIX nightly for Thorch on AArch64'
 arch=(aarch64)
 url='https://github.com/FEX-Emu/FEX'
 license=(MIT)
@@ -30,6 +30,7 @@ depends=(
   squashfuse
   systemd
   vulkan-icd-loader
+  thorch-mesa
   wayland
   zlib
   zstd
@@ -53,6 +54,16 @@ Expected files imported from ROCKNIX /SYSTEM:
   usr/lib/fex-emu/HostThunks
   usr/share/fex-emu/GuestThunks
   usr/config/fex-emu/Config.json
+
+Run from the repository root:
+  ./scripts/sync-rocknix-kernel.sh
+EOF
+    exit 1
+  fi
+  if [[ ! -f "${_runtime_dir}/usr/share/fex-emu/libvulkan_freedreno.so" ]]; then
+    cat >&2 <<EOF
+Missing imported ROCKNIX FEX guest Vulkan driver at:
+  ${_runtime_dir}/usr/share/fex-emu/libvulkan_freedreno.so
 
 Run from the repository root:
   ./scripts/sync-rocknix-kernel.sh
@@ -83,7 +94,7 @@ EOF
   fi
 
   install -d "${pkgdir}/usr/share/fex-emu"
-  for rel in AppConfig GuestThunks GuestThunks_32 ThunksDB.json; do
+  for rel in AppConfig GuestThunks GuestThunks_32 ThunksDB.json libvulkan_freedreno.so; do
     if [[ -e "${_runtime_dir}/usr/share/fex-emu/${rel}" ]]; then
       cp -a "${_runtime_dir}/usr/share/fex-emu/${rel}" "${pkgdir}/usr/share/fex-emu/"
     fi
@@ -104,13 +115,13 @@ overlays = {
         "@PREFIX_LIB@/aliases/libGL.so.1.7.0",
     ],
     "Vulkan": [
-        "@PREFIX_LIB@/libvulkan.so.1.4.335",
+        "@PREFIX_LIB@/libvulkan.so.1.4.350",
         "@PREFIX_LIB@/aliases/libvulkan.so",
         "@PREFIX_LIB@/aliases/libvulkan.so.1",
-        "@PREFIX_LIB@/aliases/libvulkan.so.1.4.335",
+        "@PREFIX_LIB@/aliases/libvulkan.so.1.4.350",
         "/var/pressure-vessel/gfx/main/usr/lib/libvulkan.so",
         "/var/pressure-vessel/gfx/main/usr/lib/libvulkan.so.1",
-        "/var/pressure-vessel/gfx/main/usr/lib/libvulkan.so.1.4.335",
+        "/var/pressure-vessel/gfx/main/usr/lib/libvulkan.so.1.4.350",
     ],
     "drm": [
         "@PREFIX_LIB@/aliases/libdrm.so",
