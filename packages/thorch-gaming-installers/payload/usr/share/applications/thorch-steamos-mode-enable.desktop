@@ -5,4 +5,4 @@ Comment=Start SteamOS mode automatically after Plasma Mobile logs in
 Exec=/usr/bin/thorch-steamos-mode enable
 Icon=system-run
 Terminal=false
-Categories=Game;System;
+Categories=Game;

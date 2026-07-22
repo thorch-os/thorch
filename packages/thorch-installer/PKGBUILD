@@ -2,7 +2,7 @@
 
 pkgname=thorch-installer
 pkgver=1
-pkgrel=5
+pkgrel=6
 pkgdesc='Thorch internal installer and recovery tooling for AYN Thor'
 arch=(aarch64)
 license=(GPL-2.0-or-later)

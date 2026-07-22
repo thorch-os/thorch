@@ -7,11 +7,12 @@ ROCKNIX_REF ?= $(shell bash -c 'source "$(THORCH_CONFIG)" >/dev/null 2>&1; print
 BOOT_DIR ?=
 ROOT_DIR ?=
 KERNEL_REF ?= $(ROCKNIX_REF)
-THORCH_SUDO_ENV := THORCH_USER,THORCH_PASSWORD,THORCH_IMAGE_SIZE,THORCH_IMAGE_AUTO_HEADROOM,THORCH_ROOT_FSTYPE,THORCH_BTRFS_MOUNT_OPTIONS,THORCH_USER_CACHE_TMPFS_SIZE,THORCH_BOOT_SIZE,THORCH_DEFAULT_SESSION,THORCH_IMAGE_PACKAGES,THORCH_BUILD_DIR,THORCH_ROOTFS_RUNNER,THORCH_OUTPUT_DIR,THORCH_LOCAL_REPO_DIR,THORCH_ROCKNIX_DIR,THORCH_FIRMWARE_DIR,THORCH_ROCKNIX_KERNEL_DIR,THORCH_ROCKNIX_RUNTIME_DIR,THORCH_KERNEL_SOURCE_BUILD,THORCH_WAYDROID_KERNEL_REQUIRED,THORCH_KERNEL_REPO,THORCH_KERNEL_REF,THORCH_KERNEL_TARBALL_URL,THORCH_KERNEL_TARBALL_SHA256,THORCH_KERNEL_CONFIG,THORCH_KERNEL_CONFIG_FRAGMENT,THORCH_KERNEL_PATCH_DIRS,THORCH_KERNEL_DTS_DIR,THORCH_KERNEL_SOURCE_DIR,THORCH_KERNEL_BUILD_DIR,THORCH_KERNEL_CROSS_COMPILE,THORCH_KERNEL_JOBS,ROCKNIX_REF,ROCKNIX_REPO,ROCKNIX_KERNEL_SOURCE,ROCKNIX_KERNEL_RELEASE,ROCKNIX_KERNEL_PLATFORM,ROCKNIX_KERNEL_IMAGE_URL,ROCKNIX_KERNEL_SHA256_URL,ROCKNIX_KERNEL_ALLOW_UNVERIFIED,ROCKNIX_KERNEL_CACHE_DIR,ALARM_ROOTFS_URL,ALARM_ROOTFS_SIG_URL,ALARM_ROOTFS_SHA256,ALARM_ROOTFS_SIGNING_KEYS,ALARM_ROOTFS_KEYRING_URL,ALARM_ROOTFS_KEYSERVER,ALARM_ROOTFS_KEY_FETCH_TIMEOUT,ALARM_MIRRORS,ALARM_MIRROR
+THORCH_SUDO_ENV := THORCH_USER,THORCH_PASSWORD,THORCH_ENABLE_SSH,THORCH_IMAGE_SIZE,THORCH_IMAGE_AUTO_HEADROOM,THORCH_ROOT_FSTYPE,THORCH_BTRFS_MOUNT_OPTIONS,THORCH_USER_CACHE_TMPFS_SIZE,THORCH_BOOT_SIZE,THORCH_DEFAULT_SESSION,THORCH_IMAGE_PACKAGES,THORCH_BUILD_DIR,THORCH_ROOTFS_RUNNER,THORCH_OUTPUT_DIR,THORCH_LOCAL_REPO_DIR,THORCH_ROCKNIX_DIR,THORCH_FIRMWARE_DIR,THORCH_ROCKNIX_KERNEL_DIR,THORCH_ROCKNIX_RUNTIME_DIR,THORCH_KERNEL_SOURCE_BUILD,THORCH_WAYDROID_KERNEL_REQUIRED,THORCH_KERNEL_REPO,THORCH_KERNEL_REF,THORCH_KERNEL_TARBALL_URL,THORCH_KERNEL_TARBALL_SHA256,THORCH_KERNEL_CONFIG,THORCH_KERNEL_CONFIG_FRAGMENT,THORCH_KERNEL_PATCH_DIRS,THORCH_KERNEL_DTS_DIR,THORCH_KERNEL_SOURCE_DIR,THORCH_KERNEL_BUILD_DIR,THORCH_KERNEL_CROSS_COMPILE,THORCH_KERNEL_JOBS,ROCKNIX_REF,ROCKNIX_REPO,ROCKNIX_KERNEL_SOURCE,ROCKNIX_KERNEL_RELEASE,ROCKNIX_KERNEL_PLATFORM,ROCKNIX_KERNEL_IMAGE_URL,ROCKNIX_KERNEL_SHA256_URL,ROCKNIX_KERNEL_ALLOW_UNVERIFIED,ROCKNIX_KERNEL_CACHE_DIR,ALARM_ROOTFS_URL,ALARM_ROOTFS_SIG_URL,ALARM_ROOTFS_SHA256,ALARM_ROOTFS_SIGNING_KEYS,ALARM_ROOTFS_KEYRING_URL,ALARM_ROOTFS_KEYSERVER,ALARM_ROOTFS_KEY_FETCH_TIMEOUT,ALARM_MIRRORS,ALARM_MIRROR
 THORCH_SUDO := sudo --preserve-env=$(THORCH_SUDO_ENV)
 
 comma := ,
 THORCH_DOCKER_IMAGE ?= ghcr.io/thorch-os/thorch-build:latest
+THORCH_DOCKER_BASE_IMAGE ?= $(shell if uname -m | grep -Eq '^(arm64|aarch64)$$'; then echo menci/archlinuxarm:base-devel; else sed -n 's/^ARG THORCH_DOCKER_BASE_IMAGE=//p' Dockerfile; fi)
 THORCH_DOCKER_CMD ?= $(shell if command -v docker >/dev/null 2>&1; then echo docker; elif command -v podman >/dev/null 2>&1; then echo podman; fi)
 THORCH_DOCKER_WORKDIR ?= /work
 THORCH_DOCKER_RUN_ARGS ?=
@@ -22,9 +23,20 @@ THORCH_DOCKER_FIX_OWNERSHIP ?= 1
 HOST_UID ?= $(shell id -u)
 HOST_GID ?= $(shell id -g)
 
+# macOS bind mounts are normally case-insensitive, but the Arch rootfs contains
+# case-distinct paths. Keep chroots and build caches on a native Docker volume;
+# release artifacts still land in the repository's output directory.
+ifeq ($(shell uname -s),Darwin)
+THORCH_DOCKER_BUILD_DIR ?= /thorch-build
+THORCH_DOCKER_BUILD_VOLUME ?= thorch-build-$(shell printf '%s' '$(CURDIR)' | cksum | awk '{print $$1}')
+THORCH_DOCKER_BUILD_ARGS := --volume "$(THORCH_DOCKER_BUILD_VOLUME):$(THORCH_DOCKER_BUILD_DIR)" --env THORCH_BUILD_DIR="$(THORCH_DOCKER_BUILD_DIR)"
+else
+THORCH_DOCKER_BUILD_ARGS :=
+endif
+
 docker-audit docker-check docker-test docker-test-rust: THORCH_DOCKER_FIX_OWNERSHIP=0
 
-.PHONY: help audit sync firmware kernel import-kernel packages packages-userspace build fast nightly test test-rust check write clean docker-image-build docker-image-pull docker-shell
+.PHONY: help doctor ci audit sync firmware kernel import-kernel packages packages-userspace build fast nightly test test-rust check write clean docker-image-build docker-image-pull docker-shell
 
 help:
 	@printf '%s\n' \
@@ -33,6 +45,8 @@ help:
 	  '  make docker-image-pull             Pull the Thorch Docker builder image' \
 	  '  make docker-<target>               Run any make target inside the Docker builder' \
 	  '  make docker-shell                  Open a shell inside the Docker builder' \
+	  '  make doctor                        Diagnose the contributor environment' \
+	  '  make ci                            Run the required rootless pull-request checks' \
 	  '  make sync                         Sync ROCKNIX sources and firmware' \
 	  '  make firmware                     Sync firmware only' \
 	  '  make kernel                       Sync ROCKNIX runtime, then source-build BinderFS Thor kernel' \
@@ -57,6 +71,7 @@ define thorch_docker_run
 	  --env HOST_UID="$(HOST_UID)" \
 	  --env HOST_GID="$(HOST_GID)" \
 	  --volume "$(CURDIR):$(THORCH_DOCKER_WORKDIR)" \
+	  $(THORCH_DOCKER_BUILD_ARGS) \
 	  --workdir "$(THORCH_DOCKER_WORKDIR)" \
 	  $(THORCH_DOCKER_RUN_ARGS) \
 	  "$(THORCH_DOCKER_IMAGE)" \
@@ -65,7 +80,9 @@ endef
 
 docker-image-build:
 	@test -n "$(THORCH_DOCKER_CMD)" || { echo 'docker or podman is required'; exit 2; }
-	$(THORCH_DOCKER_CMD) build --pull --tag "$(THORCH_DOCKER_IMAGE)" --file Dockerfile .
+	$(THORCH_DOCKER_CMD) build --pull \
+	  --build-arg THORCH_DOCKER_BASE_IMAGE="$(THORCH_DOCKER_BASE_IMAGE)" \
+	  --tag "$(THORCH_DOCKER_IMAGE)" --file Dockerfile .
 
 docker-image-pull:
 	@test -n "$(THORCH_DOCKER_CMD)" || { echo 'docker or podman is required'; exit 2; }
@@ -76,6 +93,12 @@ docker-shell:
 
 docker-%:
 	$(call thorch_docker_run,make $* IMAGE="$(IMAGE)" DEVICE="$(DEVICE)" ROCKNIX_REF="$(ROCKNIX_REF)" BOOT_DIR="$(BOOT_DIR)" ROOT_DIR="$(ROOT_DIR)" KERNEL_REF="$(KERNEL_REF)")
+
+doctor:
+	./scripts/doctor.sh
+
+ci:
+	./scripts/ci.sh
 
 audit:
 	./scripts/audit-release.sh

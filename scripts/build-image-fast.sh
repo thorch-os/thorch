@@ -43,7 +43,8 @@ done
 require_root
 
 root="$(repo_root)"
-rootfs_dir="${root}/${THORCH_BUILD_DIR}/image-rootfs"
+build_dir="$(resolve_thorch_build_dir "${root}" "${THORCH_BUILD_DIR}")"
+rootfs_dir="${build_dir}/image-rootfs"
 repo_dir="${root}/${THORCH_LOCAL_REPO_DIR}"
 
 rootfs_reusable() {
@@ -51,17 +52,32 @@ rootfs_reusable() {
 }
 
 package_in_repo() {
-  local pkg="$1"
-  local -a matches
+  local pkg="$1" match
+  local -a matches=()
 
   shopt -s nullglob
-  matches=("${repo_dir}/${pkg}-"*.pkg.tar.*)
+  for match in "${repo_dir}/${pkg}-"*.pkg.tar.*; do
+    [[ "${match}" != *.sig ]] && matches+=("${match}")
+  done
   shopt -u nullglob
   [[ "${#matches[@]}" -gt 0 ]]
 }
 
-read -r -a image_packages <<< "${THORCH_IMAGE_PACKAGES}"
-[[ "${#image_packages[@]}" -gt 0 ]] || die "THORCH_IMAGE_PACKAGES must contain at least one package"
+manifest_cli="${script_dir}/package-manifest.py"
+if [[ -n "${THORCH_IMAGE_PACKAGES}" ]]; then
+  read -r -a requested_image_packages <<< "${THORCH_IMAGE_PACKAGES}"
+  requested_image_csv="$(IFS=,; printf '%s' "${requested_image_packages[*]}")"
+  image_package_selection="$(
+    python3 "${manifest_cli}" --repo "${root}" select \
+      --profile image --packages "${requested_image_csv}"
+  )"
+else
+  image_package_selection="$(
+    python3 "${manifest_cli}" --repo "${root}" profile image
+  )"
+fi
+[[ -n "${image_package_selection}" ]] || die "image package profile is empty"
+mapfile -t image_packages <<< "${image_package_selection}"
 
 packages_to_refresh=()
 for pkg in "${image_packages[@]}"; do
@@ -77,7 +93,7 @@ done
 
 if [[ "${#packages_to_refresh[@]}" -gt 0 ]]; then
   image_packages_csv="$(IFS=,; printf '%s' "${packages_to_refresh[*]}")"
-  "${script_dir}/build-packages.sh" --skip-fresh --trust-existing --packages "${image_packages_csv}"
+  "${script_dir}/build-packages.sh" --skip-fresh --packages "${image_packages_csv}"
 else
   log "no local packages selected for refresh"
 fi

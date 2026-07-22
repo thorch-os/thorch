@@ -1,0 +1,12 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = linux-thorch
+Target = mkinitcpio
+Target = thorch-bsp
+
+[Action]
+Description = Building and validating the updated Thorch boot payload...
+When = PostTransaction
+Exec = /usr/lib/thorch/boot-transaction commit

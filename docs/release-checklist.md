@@ -33,8 +33,11 @@ Use this before publishing the repository or building public images.
 
 ## Public Image Builds
 
-- Confirm the intended `THORCH_PASSWORD` for the image build; it defaults to
-  `1234` unless overridden.
+- Confirm `THORCH_PASSWORD` is empty, both initial accounts are locked, and
+  `sshd.service` cannot accept password authentication until firstboot
+  provisions the owner's password. Never publish a shared build-time
+  credential. Set `THORCH_ENABLE_SSH=0` only for images intended to keep the
+  daemon disabled after firstboot.
 - Record the intended `THORCH_ROOT_FSTYPE`, Btrfs mount options when applicable,
   image headroom, and cache tmpfs size. Exercise both ext4 and Btrfs before
   changing the default.
@@ -57,7 +60,11 @@ Use this before publishing the repository or building public images.
 ## Nightly Publication
 
 - Confirm the builder image workflow builds on pull requests and publishes
-  `latest` plus commit-SHA tags only from the default branch.
+  `latest` plus full commit-SHA tags only from the default branch.
+- Confirm the nightly can pull its exact builder digest with `packages: read`,
+  and that the package's repository linkage and Actions access are configured.
+- Confirm the required partitioned-image integration test mounted its FAT and
+  ext4 fixtures and preserved `mount(8)` stderr for the negative fixture.
 - Confirm the nightly uses a GitHub-hosted Ubuntu runner and records the selected
   root filesystem in its release notes.
 - Confirm the `.img.zst`, matching `.sha256`, source commit, requested ROCKNIX

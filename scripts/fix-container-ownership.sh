@@ -25,9 +25,9 @@ workspace="${3:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 owner="${host_uid}:${host_gid}"
 
-# image-rootfs and pkg-root are chroots. Their internal ownership is image
-# metadata, so changing it to the host user corrupts both generated images and
-# subsequent --reuse-rootfs builds.
+# image-rootfs, pkg-base-root, and pkg-root are chroots. Their internal
+# ownership is image metadata, so changing it to the host user corrupts both
+# generated images and subsequent package or --reuse-rootfs builds.
 if [[ -d "${workspace}/build" ]]; then
   chown "${owner}" -- "${workspace}/build"
   while IFS= read -r -d '' path; do
@@ -35,6 +35,7 @@ if [[ -d "${workspace}/build" ]]; then
   done < <(
     find "${workspace}/build" -mindepth 1 -maxdepth 1 \
       ! -name image-rootfs \
+      ! -name pkg-base-root \
       ! -name pkg-root \
       -print0
   )

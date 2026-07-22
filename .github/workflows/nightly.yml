@@ -20,9 +20,9 @@ on:
         required: true
         type: choice
         options:
-          - ext4
           - btrfs
-        default: "ext4"
+          - ext4
+        default: "btrfs"
       publish_release:
         description: "Create or update a GitHub prerelease"
         required: true
@@ -33,6 +33,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 concurrency:
   group: thorch-nightly-${{ github.ref }}
@@ -44,12 +45,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      THORCH_DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/thorch-build:latest
+      # Published by Builder Image run 29105361823. Update this digest only
+      # after the replacement builder workflow reports and verifies its digest.
+      THORCH_BUILDER_DIGEST: sha256:47dafaf2248f956431fd8b6b1dd3318b2a1c90cd0db77c9e68cfc4d1f67dba63
+      THORCH_DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/thorch-build@sha256:47dafaf2248f956431fd8b6b1dd3318b2a1c90cd0db77c9e68cfc4d1f67dba63
+      THORCH_DOCKER_RUN_ARGS: --env THORCH_REQUIRE_MOUNT_INTEGRATION=1
       ROCKNIX_REF: ${{ inputs.rocknix_ref || 'next' }}
       ROCKNIX_KERNEL_SOURCE: nightly
       ROCKNIX_KERNEL_RELEASE: ${{ inputs.rocknix_kernel_release || 'latest' }}
       THORCH_IMAGE_SIZE: ${{ inputs.image_size || 'auto' }}
-      THORCH_ROOT_FSTYPE: ${{ inputs.root_fstype || 'ext4' }}
+      THORCH_ROOT_FSTYPE: ${{ inputs.root_fstype || 'btrfs' }}
       THORCH_OUTPUT_DIR: output
       THORCH_BUILD_DIR: build
       THORCH_ROOTFS_RUNNER: chroot
@@ -59,7 +64,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Prepare host runner
         run: |
@@ -70,11 +75,26 @@ jobs:
           command -v docker
           command -v gh
 
-      - name: Prepare Thorch builder image
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull immutable Thorch builder image
         run: |
           set -euo pipefail
-          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin || true
-          make docker-image-pull || make docker-image-build
+          if ! make docker-image-pull; then
+            echo '::error::Unable to pull the pinned builder. The job has packages:read; verify the GHCR package is linked to this repository and grants it Actions read access.'
+            exit 1
+          fi
+          repo_digests="$(docker image inspect "${THORCH_DOCKER_IMAGE}" --format '{{json .RepoDigests}}')"
+          printf 'builder repo digests: %s\n' "${repo_digests}"
+          grep -Fq "@${THORCH_BUILDER_DIGEST}" <<< "${repo_digests}" || {
+            echo "::error::Pulled builder did not report the required digest ${THORCH_BUILDER_DIGEST}"
+            exit 1
+          }
 
       - name: Build and validate in Thorch builder
         run: |
@@ -123,6 +143,7 @@ jobs:
             printf -- '- ROCKNIX_KERNEL_SOURCE: `%s`\n' "${ROCKNIX_KERNEL_SOURCE}"
             printf -- '- ROCKNIX_KERNEL_RELEASE request: `%s`\n' "${ROCKNIX_KERNEL_RELEASE}"
             printf -- '- THORCH_ROOT_FSTYPE: `%s`\n' "${THORCH_ROOT_FSTYPE}"
+            printf -- '- Builder: `%s`\n' "${THORCH_DOCKER_IMAGE}"
             printf -- '- Image asset: `%s`\n\n' "$(basename "${asset}")"
             if [[ -f "${THORCH_ROCKNIX_KERNEL_DIR:-vendor/rocknix-kernel}/PROVENANCE" ]]; then
               printf '## Kernel Provenance\n\n```text\n'

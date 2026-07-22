@@ -1,0 +1,239 @@
+diff --git a/kcm/plasmakeyboardkcm.cpp b/kcm/plasmakeyboardkcm.cpp
+index e9d64eb..6d8b454 100644
+--- a/kcm/plasmakeyboardkcm.cpp
++++ b/kcm/plasmakeyboardkcm.cpp
+@@ -9,8 +9,24 @@
+ #include "../src/layoutpathhelper.h"
+
+ #include <algorithm>
++#include <KConfigGroup>
++#include <KSharedConfig>
+ #include <qqml.h>
+
++namespace
++{
++QString normalizedPanelPlacement(const QString &placement)
++{
++    if (placement.compare(QLatin1StringView("Top"), Qt::CaseInsensitive) == 0) {
++        return QStringLiteral("Top");
++    }
++    if (placement.compare(QLatin1StringView("Bottom"), Qt::CaseInsensitive) == 0) {
++        return QStringLiteral("Bottom");
++    }
++    return QStringLiteral("Auto");
++}
++}
++
+ K_PLUGIN_CLASS_WITH_JSON(PlasmaKeyboardKcm, "kcm_plasmakeyboard.json")
+
+ PlasmaKeyboardKcm::PlasmaKeyboardKcm(QObject *parent, const KPluginMetaData &metaData)
+@@ -168,6 +184,58 @@ void PlasmaKeyboardKcm::setPanelHeightPercent(int panelHeightPercent)
+     setNeedsSave(true);
+ }
+
++QString PlasmaKeyboardKcm::panelPlacement() const
++{
++    return m_panelPlacement;
++}
++
++void PlasmaKeyboardKcm::setPanelPlacement(const QString &panelPlacement)
++{
++    const QString normalizedPlacement = normalizedPanelPlacement(panelPlacement);
++    if (normalizedPlacement == m_panelPlacement) {
++        return;
++    }
++
++    m_panelPlacement = normalizedPlacement;
++    Q_EMIT panelPlacementChanged();
++
++    setNeedsSave(true);
++}
++
++bool PlasmaKeyboardKcm::showFunctionRow() const
++{
++    return m_showFunctionRow;
++}
++
++void PlasmaKeyboardKcm::setShowFunctionRow(bool showFunctionRow)
++{
++    if (showFunctionRow == m_showFunctionRow) {
++        return;
++    }
++
++    m_showFunctionRow = showFunctionRow;
++    Q_EMIT showFunctionRowChanged();
++
++    setNeedsSave(true);
++}
++
++bool PlasmaKeyboardKcm::showNumberRow() const
++{
++    return m_showNumberRow;
++}
++
++void PlasmaKeyboardKcm::setShowNumberRow(bool showNumberRow)
++{
++    if (showNumberRow == m_showNumberRow) {
++        return;
++    }
++
++    m_showNumberRow = showNumberRow;
++    Q_EMIT showNumberRowChanged();
++
++    setNeedsSave(true);
++}
++
+ void PlasmaKeyboardKcm::setDiacriticsPopupEnabled(bool enabled)
+ {
+     if (enabled == m_diacriticsPopupEnabled) {
+@@ -213,6 +281,10 @@ void PlasmaKeyboardKcm::load()
+     setAutoCapitalizationEnabled(PlasmaKeyboardSettings::self()->autoCapitalizationEnabled());
+     setPanelFillScreenWidth(PlasmaKeyboardSettings::self()->panelFillScreenWidth());
+     setPanelHeightPercent(PlasmaKeyboardSettings::self()->panelHeightPercent());
++    const KSharedConfig::Ptr kwinConfig = KSharedConfig::openConfig(QStringLiteral("kwinrc"));
++    setPanelPlacement(kwinConfig->group(QStringLiteral("Wayland")).readEntry("InputPanelPlacement", QStringLiteral("Auto")));
++    setShowFunctionRow(PlasmaKeyboardSettings::self()->showFunctionRow());
++    setShowNumberRow(PlasmaKeyboardSettings::self()->showNumberRow());
+     setDiacriticsPopupEnabled(PlasmaKeyboardSettings::self()->diacriticsPopupEnabled());
+     setDiacriticsHoldThresholdMs(PlasmaKeyboardSettings::self()->diacriticsHoldThresholdMs());
+
+@@ -228,10 +300,19 @@ void PlasmaKeyboardKcm::save()
+     PlasmaKeyboardSettings::self()->setAutoCapitalizationEnabled(m_autoCapitalizationEnabled);
+     PlasmaKeyboardSettings::self()->setPanelFillScreenWidth(m_panelFillScreenWidth);
+     PlasmaKeyboardSettings::self()->setPanelHeightPercent(m_panelHeightPercent);
++    PlasmaKeyboardSettings::self()->setShowFunctionRow(m_showFunctionRow);
++    PlasmaKeyboardSettings::self()->setShowNumberRow(m_showNumberRow);
+     PlasmaKeyboardSettings::self()->setDiacriticsPopupEnabled(m_diacriticsPopupEnabled);
+     PlasmaKeyboardSettings::self()->setDiacriticsHoldThresholdMs(m_diacriticsHoldThresholdMs);
+     PlasmaKeyboardSettings::self()->save();
+
++    const KSharedConfig::Ptr kwinConfig = KSharedConfig::openConfig(QStringLiteral("kwinrc"));
++    KConfigGroup waylandGroup = kwinConfig->group(QStringLiteral("Wayland"));
++    if (normalizedPanelPlacement(waylandGroup.readEntry("InputPanelPlacement", QStringLiteral("Auto"))) != m_panelPlacement) {
++        waylandGroup.writeEntry("InputPanelPlacement", m_panelPlacement, KConfig::Notify);
++        kwinConfig->sync();
++    }
++
+     setNeedsSave(false);
+ }
+
+diff --git a/kcm/plasmakeyboardkcm.h b/kcm/plasmakeyboardkcm.h
+index e875b79..f36f597 100644
+--- a/kcm/plasmakeyboardkcm.h
++++ b/kcm/plasmakeyboardkcm.h
+@@ -21,6 +21,9 @@ class PlasmaKeyboardKcm : public KQuickManagedConfigModule
+     Q_PROPERTY(bool autoCapitalizationEnabled READ autoCapitalizationEnabled WRITE setAutoCapitalizationEnabled NOTIFY autoCapitalizationEnabledChanged)
+     Q_PROPERTY(bool panelFillScreenWidth READ panelFillScreenWidth WRITE setPanelFillScreenWidth NOTIFY panelFillScreenWidthChanged)
+     Q_PROPERTY(int panelHeightPercent READ panelHeightPercent WRITE setPanelHeightPercent NOTIFY panelHeightPercentChanged)
++    Q_PROPERTY(QString panelPlacement READ panelPlacement WRITE setPanelPlacement NOTIFY panelPlacementChanged)
++    Q_PROPERTY(bool showFunctionRow READ showFunctionRow WRITE setShowFunctionRow NOTIFY showFunctionRowChanged)
++    Q_PROPERTY(bool showNumberRow READ showNumberRow WRITE setShowNumberRow NOTIFY showNumberRowChanged)
+     Q_PROPERTY(bool diacriticsPopupEnabled READ diacriticsPopupEnabled WRITE setDiacriticsPopupEnabled NOTIFY diacriticsPopupEnabledChanged)
+     Q_PROPERTY(int diacriticsHoldThresholdMs READ diacriticsHoldThresholdMs WRITE setDiacriticsHoldThresholdMs NOTIFY diacriticsHoldThresholdMsChanged)
+
+@@ -50,6 +53,16 @@ public:
+     int panelHeightPercent() const;
+     void setPanelHeightPercent(int panelHeightPercent);
+
++    QString panelPlacement() const;
++    void setPanelPlacement(const QString &panelPlacement);
++
++    bool showFunctionRow() const;
++    void setShowFunctionRow(bool showFunctionRow);
++
++    bool showNumberRow() const;
++    void setShowNumberRow(bool showNumberRow);
++
++
+     bool diacriticsPopupEnabled() const;
+     void setDiacriticsPopupEnabled(bool enabled);
+
+@@ -70,6 +83,9 @@ Q_SIGNALS:
+     void autoCapitalizationEnabledChanged();
+     void panelFillScreenWidthChanged();
+     void panelHeightPercentChanged();
++    void panelPlacementChanged();
++    void showFunctionRowChanged();
++    void showNumberRowChanged();
+     void diacriticsPopupEnabledChanged();
+     void diacriticsHoldThresholdMsChanged();
+
+@@ -80,6 +96,9 @@ private:
+     bool m_autoCapitalizationEnabled = true;
+     bool m_panelFillScreenWidth = true;
+     int m_panelHeightPercent = 100;
++    QString m_panelPlacement = QStringLiteral("Auto");
++    bool m_showFunctionRow = false;
++    bool m_showNumberRow = true;
+     bool m_diacriticsPopupEnabled = true;
+     int m_diacriticsHoldThresholdMs = 600;
+
+diff --git a/kcm/ui/main.qml b/kcm/ui/main.qml
+index 19a7b8a..9d272e4 100644
+--- a/kcm/ui/main.qml
++++ b/kcm/ui/main.qml
+@@ -74,6 +74,15 @@ KCM.ScrollViewKCM {
+             }
+         }
+
++        QQC2.ComboBox {
++            id: panelPlacement
++            Kirigami.FormData.label: i18n("Keyboard screen:")
++            model: [i18n("Auto (opposite text field)"), i18n("Top screen"), i18n("Bottom screen")]
++            currentIndex: kcm.panelPlacement === "Top" ? 1 : kcm.panelPlacement === "Bottom" ? 2 : 0
++
++            onActivated: kcm.panelPlacement = ["Auto", "Top", "Bottom"][currentIndex]
++        }
++
+         QQC2.ComboBox {
+             id: panelHeight
+             Kirigami.FormData.label: i18n("Keyboard height:")
+@@ -92,6 +101,29 @@ KCM.ScrollViewKCM {
+             onActivated: kcm.panelFillScreenWidth = currentIndex === 0
+         }
+
++        QQC2.CheckBox {
++            id: showFunctionRow
++            Kirigami.FormData.label: i18n("Layout:")
++            text: i18n("Show function-key row")
++
++            checked: kcm.showFunctionRow
++            onCheckedChanged: {
++                kcm.showFunctionRow = checked;
++                checked = Qt.binding(() => kcm.showFunctionRow);
++            }
++        }
++
++        QQC2.CheckBox {
++            id: showNumberRow
++            text: i18n("Show number row")
++
++            checked: kcm.showNumberRow
++            onCheckedChanged: {
++                kcm.showNumberRow = checked;
++                checked = Qt.binding(() => kcm.showNumberRow);
++            }
++        }
++
+         QQC2.CheckBox {
+             id: diacriticsCheckbox
+             Kirigami.FormData.label: i18n("Alternate characters:")
+diff --git a/src/plasmakeyboardsettings.kcfg b/src/plasmakeyboardsettings.kcfg
+index 6cad86d..746c3c2 100644
+--- a/src/plasmakeyboardsettings.kcfg
++++ b/src/plasmakeyboardsettings.kcfg
+@@ -39,6 +39,14 @@
+             <max>100</max>
+             <default>100</default>
+         </entry>
++        <entry key="showFunctionRow" type="bool">
++            <label>Whether the function-key row is shown.</label>
++            <default>false</default>
++        </entry>
++        <entry key="showNumberRow" type="bool">
++            <label>Whether the number row is shown.</label>
++            <default>true</default>
++        </entry>
+         <entry key="diacriticsPopupEnabled" type="bool">
+             <label>Whether holding a physical key shows diacritic options.</label>
+             <default>true</default>

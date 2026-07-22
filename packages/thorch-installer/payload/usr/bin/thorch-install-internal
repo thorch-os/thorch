@@ -223,21 +223,6 @@ format_root_device() {
   esac
 }
 
-ensure_mkinitcpio_module() {
-  local conf="$1" module="$2"
-
-  if ! grep -Eq '^#?MODULES=' "${conf}"; then
-    printf 'MODULES=(%s)\n' "${module}" >> "${conf}"
-    return
-  fi
-
-  if grep -Eq "^#?MODULES=.*(^|[[:space:](])${module}([[:space:])]|$)" "${conf}"; then
-    return
-  fi
-
-  sed -i -E "s/^#?MODULES=\(([^)]*)\)/MODULES=(\1 ${module})/" "${conf}"
-}
-
 partition_start() {
   local dev="$1" real sys start
   real="$(readlink -f "${dev}" 2>/dev/null || printf '%s\n' "${dev}")"
@@ -359,9 +344,9 @@ create_target_in_free_space_after_userdata() {
   before_nums="$(partition_numbers "${disk}")"
   parted -a optimal -s "${disk}" mkpart primary fat32 "${boot_start_mib}MiB" "${boot_end_mib}MiB"
   boot_num="$(new_partition_number_since "${disk}" "${before_nums}")"
-  parted -s "${disk}" name "${boot_num}" ROCKNIX
+  parted -s "${disk}" name "${boot_num}" system
   parted -s "${disk}" set "${boot_num}" msftdata on || true
-  parted -s "${disk}" set "${boot_num}" boot on || true
+  parted -s "${disk}" set "${boot_num}" legacy_boot on || true
 
   echo ":: thorch-install phase=create-root"
   before_nums="$(partition_numbers "${disk}")"
@@ -759,12 +744,16 @@ UUID=${boot_uuid} /boot vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,ioch
 ${cache_tmpfs_fstab_entries}
 EOF
 
-if [[ -f "${target}/usr/lib/initcpio/install/thorch-sd-prefer" ]] &&
-  ! grep -Eq '^HOOKS=.*(^|[[:space:](])thorch-sd-prefer([[:space:])]|$)' "${target}/etc/mkinitcpio.conf"; then
-  sed -i 's/\bthorch-firmware\b/thorch-firmware thorch-sd-prefer/' "${target}/etc/mkinitcpio.conf"
-fi
+thorch_mkinitcpio_conf="${target}/etc/mkinitcpio.conf.d/90-thorch.conf"
+[[ -f "${thorch_mkinitcpio_conf}" ]] ||
+  fail "installed root is missing package-owned Thorch mkinitcpio policy"
+grep -Eq '^HOOKS=.*(^|[[:space:](])thorch-sd-prefer([[:space:])]|$)' \
+  "${thorch_mkinitcpio_conf}" ||
+  fail "Thorch mkinitcpio policy is missing thorch-sd-prefer"
 if [[ "${root_fstype}" == "btrfs" ]]; then
-  ensure_mkinitcpio_module "${target}/etc/mkinitcpio.conf" btrfs
+  grep -Eq '^MODULES\+?=.*(^|[[:space:](])btrfs([[:space:])]|$)' \
+    "${thorch_mkinitcpio_conf}" ||
+    fail "Thorch mkinitcpio policy is missing btrfs root support"
 fi
 
 echo ":: thorch-install phase=mkinitcpio"
@@ -772,7 +761,7 @@ arch-chroot "${target}" mkinitcpio -P
 echo ":: thorch-install phase=rebuild-boot"
 thorch-rebuild-abl-kernel --boot-dir "${target}/boot" --root-uuid "${root_uuid}" --rootfstype "${root_fstype}"
 echo ":: thorch-install phase=check-boot"
-thorch-check-boot --boot-dir "${target}/boot"
+thorch-check-boot --boot-dir "${target}/boot" --root-uuid "${root_uuid}"
 
 echo ":: thorch-install phase=sync"
 sync

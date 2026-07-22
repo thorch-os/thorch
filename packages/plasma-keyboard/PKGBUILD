@@ -1,0 +1,102 @@
+# Maintainer: Thorch contributors
+
+pkgname=plasma-keyboard
+pkgver=6.7.3
+pkgrel=16
+pkgdesc='Thorch-tuned Plasma on-screen keyboard'
+arch=(aarch64)
+url='https://invent.kde.org/plasma/plasma-keyboard'
+license=(GPL-2.0-or-later GPL-3.0-only)
+depends=(glibc kcmutils kconfig kcoreaddons kcrash ki18n kirigami kirigami-addons kitemmodels libplasma libstdc++ libxkbcommon qt6-base qt6-declarative qt6-virtualkeyboard wayland)
+makedepends=(extra-cmake-modules qt6-wayland wayland-protocols)
+groups=(plasma)
+source=("https://download.kde.org/stable/plasma/${pkgver}/${pkgname}-${pkgver}.tar.xz"
+        0001-target-thorch-bottom-display.patch
+        0002-forward-sticky-modifier-chords.patch
+        0003-add-thorch-keyboard-settings-and-style.patch
+        0004-run-compositor-test-headless.patch
+        0005-expose-panel-width-setting.patch
+        0006-size-compact-mode-for-thorch.patch
+        0007-add-thorch-layout-settings.patch
+        0008-load-layout-smoke-test.patch
+        0009-refresh-thorch-keyboard-style.patch
+        0010-normalize-modifier-keysyms.patch
+        0011-forward-explicit-modifier-state.patch)
+sha256sums=('c371d98c4588db6672a93aa13b53d178f2dc383bdb580c8bed65d1849be7c97e'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP')
+
+prepare() {
+  cd "${pkgname}-${pkgver}"
+  patch -Np1 -i "${srcdir}/0001-target-thorch-bottom-display.patch"
+  patch -Np1 -i "${srcdir}/0002-forward-sticky-modifier-chords.patch"
+  patch -Np1 -i "${srcdir}/0003-add-thorch-keyboard-settings-and-style.patch"
+  patch -Np1 -i "${srcdir}/0004-run-compositor-test-headless.patch"
+  patch -Np1 -i "${srcdir}/0005-expose-panel-width-setting.patch"
+  patch -Np1 -i "${srcdir}/0006-size-compact-mode-for-thorch.patch"
+  patch -Np1 -i "${srcdir}/0007-add-thorch-layout-settings.patch"
+  patch -Np1 -i "${srcdir}/0008-load-layout-smoke-test.patch"
+  patch -Np1 -i "${srcdir}/0009-refresh-thorch-keyboard-style.patch"
+  patch -Np1 -i "${srcdir}/0010-normalize-modifier-keysyms.patch"
+  patch -Np1 -i "${srcdir}/0011-forward-explicit-modifier-state.patch"
+}
+
+build() {
+  cmake -B build -S "${pkgname}-${pkgver}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=ON
+  cmake --build build --parallel 4
+}
+
+check() {
+  local test_data="${srcdir}/thorch-test-data"
+  local test_layouts="${test_data}/plasma/keyboard/layouts"
+  local runtime_dir="${srcdir}/runtime-builder"
+
+  install -d "${test_layouts}"
+  install -d -m 0700 "${runtime_dir}"
+  cp -a "${pkgname}-${pkgver}/src/layouts/." "${test_layouts}/"
+  install -m644 "${startdir}"/layouts/*.qml "${test_layouts}/fallback/"
+
+  XDG_RUNTIME_DIR="${runtime_dir}" \
+    QT_QPA_PLATFORM=offscreen \
+    ctest --test-dir build --output-on-failure
+
+  XDG_RUNTIME_DIR="${runtime_dir}" \
+    LANG=C.UTF-8 \
+    PLASMA_KEYBOARD_TEST_QML="${startdir}/tests/ThorchLayoutSmoke.qml" \
+    QML_IMPORT_PATH="${srcdir}/build/bin" \
+    QT_FORCE_STDERR_LOGGING=1 \
+    QT_QPA_PLATFORM=offscreen \
+    QT_QUICK_BACKEND=software \
+    QT_IM_MODULE=qtvirtualkeyboard \
+    QT_VIRTUALKEYBOARD_FORCE_EVENTS_WITHOUT_FOCUS=1 \
+    QT_VIRTUALKEYBOARD_LAYOUT_PATH="${test_layouts}" \
+    QT_VIRTUALKEYBOARD_STYLE=default \
+    timeout 12 "${srcdir}/build/bin/plasma-keyboard"
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+
+  local layout_dir="${pkgdir}/usr/share/plasma/keyboard/layouts/fallback"
+  install -Dm644 "${startdir}/layouts/main.qml" "${layout_dir}/main.qml"
+  install -m644 \
+    "${startdir}/layouts/ThorchKey.qml" \
+    "${startdir}/layouts/ThorchModifierKey.qml" \
+    "${startdir}/layouts/ThorchShiftKey.qml" \
+    "${startdir}/layouts/ThorchPageKey.qml" \
+    "${startdir}/layouts/ThorchUtilityRow.qml" \
+    "${startdir}/layouts/ThorchSettingsKey.qml" \
+    "${startdir}/layouts/ThorchHideKey.qml" \
+    "${layout_dir}/"
+}

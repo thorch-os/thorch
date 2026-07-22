@@ -1,0 +1,18 @@
+# Maintainer: Thorch contributors
+
+pkgname=thorch-boot-bootstrap-ready
+pkgver=1
+pkgrel=1
+pkgdesc='Local proof that legacy Thorch boot hooks were activated before kernel updates'
+arch=(any)
+url='https://github.com/thorch-os/thorch'
+license=(GPL-2.0-only)
+depends=('thorch-bsp>=1-27')
+source=()
+sha256sums=()
+
+package() {
+  install -d "${pkgdir}/usr/share/thorch"
+  printf 'bootstrap_version=%s\n' "${pkgver}" > \
+    "${pkgdir}/usr/share/thorch/boot-bootstrap-ready"
+}

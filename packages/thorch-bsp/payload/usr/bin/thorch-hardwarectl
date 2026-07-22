@@ -9,8 +9,9 @@ kdialog_cmd="${THORCH_HARDWARE_KDIALOG:-kdialog}"
 legacy_dir="${THORCH_HARDWARE_LEGACY_DIR:-/etc/thorch}"
 
 cpu_boost="1"
+disable_cpu0_idle_state1="1"
 cpu_governor="performance"
-gpu_governor="performance"
+gpu_governor="simple_ondemand"
 fan_profile="moderate"
 fan_sensor_mode="max"
 rgb_mode="battery"
@@ -63,6 +64,7 @@ load_config() {
   fi
 
   cpu_boost="${THORCH_CPU_BOOST:-${cpu_boost}}"
+  disable_cpu0_idle_state1="${THORCH_DISABLE_CPU0_IDLE_STATE1:-${disable_cpu0_idle_state1}}"
   cpu_governor="${THORCH_CPU_GOVERNOR:-${cpu_governor}}"
   gpu_governor="${THORCH_GPU_GOVERNOR:-${gpu_governor}}"
   fan_profile="${THORCH_FAN_PROFILE:-${fan_profile}}"
@@ -221,6 +223,7 @@ require_root_for_set() {
 
 apply_hw_defaults() {
   THORCH_CPU_BOOST="${cpu_boost}" \
+  THORCH_DISABLE_CPU0_IDLE_STATE1="${disable_cpu0_idle_state1}" \
   THORCH_CPU_GOVERNOR="${cpu_governor}" \
   THORCH_GPU_GOVERNOR="${gpu_governor}" \
     "${hw_defaults_cmd}" apply
@@ -255,6 +258,7 @@ apply_rgb_mode() {
 print_status() {
   load_config
   printf 'cpu_boost: %s\n' "${cpu_boost}"
+  printf 'disable_cpu0_idle_state1: %s\n' "${disable_cpu0_idle_state1}"
   printf 'cpu_governor: %s\n' "${cpu_governor}"
   printf 'gpu_governor: %s\n' "${gpu_governor}"
   printf 'fan_profile: %s\n' "${fan_profile}"
@@ -266,26 +270,27 @@ print_status() {
 
 print_status_json() {
   load_config
-  python - "${cpu_boost}" "${cpu_governor}" "${gpu_governor}" "${fan_profile}" "${fan_sensor_mode}" "${rgb_mode}" "${rgb_brightness}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}" <<'PY'
+  python - "${cpu_boost}" "${disable_cpu0_idle_state1}" "${cpu_governor}" "${gpu_governor}" "${fan_profile}" "${fan_sensor_mode}" "${rgb_mode}" "${rgb_brightness}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}" <<'PY'
 import json
 import sys
 
-r = int(sys.argv[8])
-g = int(sys.argv[9])
-b = int(sys.argv[10])
-fan_profile = sys.argv[4]
+r = int(sys.argv[9])
+g = int(sys.argv[10])
+b = int(sys.argv[11])
+fan_profile = sys.argv[5]
 
 print(json.dumps({
     "cpu_boost": sys.argv[1],
     "cpu_boost_enabled": sys.argv[1] == "1",
-    "cpu_governor": sys.argv[2],
-    "gpu_governor": sys.argv[3],
-    "fan_profile": sys.argv[4],
+    "disable_cpu0_idle_state1": sys.argv[2],
+    "cpu_governor": sys.argv[3],
+    "gpu_governor": sys.argv[4],
+    "fan_profile": sys.argv[5],
     "fan_profile_effective": "moderate" if fan_profile == "auto" else fan_profile,
-    "fan_sensor_mode": sys.argv[5],
-    "rgb_mode": sys.argv[6],
-    "rgb_enabled": sys.argv[6] != "off",
-    "rgb_brightness": int(sys.argv[7]),
+    "fan_sensor_mode": sys.argv[6],
+    "rgb_mode": sys.argv[7],
+    "rgb_enabled": sys.argv[7] != "off",
+    "rgb_brightness": int(sys.argv[8]),
     "rgb_static_r": r,
     "rgb_static_g": g,
     "rgb_static_b": b,

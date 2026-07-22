@@ -1,3 +1,14 @@
+[Effect-overview]
+TouchBorderActivate=6
+
+[Plugins]
+gamecontrollerEnabled=true
+
+[TouchEdges]
+Right=KRunner
+
 [Wayland]
 InputMethod=/usr/share/applications/thorch-plasma-keyboard.desktop
+InputPanelPlacement=Auto
 VirtualKeyboardEnabled=true
+VirtualKeyboardMode=2

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Package/bootstrap protocol shared by the updater, marker creator, and
+# transaction coordinator. Package recipes duplicate these values only where
+# pacman metadata must remain statically parseable; CI checks exact parity.
+THORCH_BOOTSTRAP_MARKER_PACKAGE=thorch-boot-bootstrap-ready
+THORCH_BOOTSTRAP_MARKER_PKGVER=1
+THORCH_BOOTSTRAP_MARKER_PKGREL=1
+THORCH_BOOTSTRAP_MARKER_REQUIREMENT='thorch-boot-bootstrap-ready>=1-1'
+THORCH_BOOTSTRAP_BSP_REQUIREMENT='thorch-bsp>=1-27'

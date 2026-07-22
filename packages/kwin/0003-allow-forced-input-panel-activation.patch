@@ -1,0 +1,60 @@
+diff --git a/autotests/integration/inputmethod_test.cpp b/autotests/integration/inputmethod_test.cpp
+index 0b84e95..380b92c 100644
+--- a/autotests/integration/inputmethod_test.cpp
++++ b/autotests/integration/inputmethod_test.cpp
+@@ -65,0 +66 @@ private Q_SLOTS:
++    void testForceActivate();
+@@ -273,0 +275,28 @@ void InputMethodTest::testInputPanelPlacement()
++void InputMethodTest::testForceActivate()
++{
++    // Xwayland clients cannot advertise text-input-v2/v3 support. The mobile
++    // navigation panel must still be able to force the keyboard open even if
++    // automatic virtual-keyboard activation is disabled.
++    std::unique_ptr<KWayland::Client::Surface> surface(Test::createSurface());
++    std::unique_ptr<Test::XdgToplevel> shellSurface(Test::createXdgToplevelSurface(surface.get()));
++    Window *window = Test::renderAndWaitForShown(surface.get(), QSize(800, 600), Qt::red);
++    QVERIFY(window);
++    QVERIFY(!kwinApp()->inputMethod()->activeClientSupportsTextInput());
++
++    kwinApp()->inputMethod()->setMode(InputMethod::VirtualKeyboardVisibility::Never);
++    QSignalSpy activateSpy(Test::inputMethod(), &Test::MockInputMethod::activate);
++    kwinApp()->inputMethod()->forceActivate();
++
++    QVERIFY(activateSpy.count() || activateSpy.wait());
++    QTRY_VERIFY(kwinApp()->inputMethod()->panel());
++    Window *keyboardClient = kwinApp()->inputMethod()->panel();
++    QVERIFY(keyboardClient);
++    QVERIFY(keyboardClient->isInputMethod());
++    QTRY_VERIFY(kwinApp()->inputMethod()->isVisible());
++
++    kwinApp()->inputMethod()->setActive(false);
++    QTRY_VERIFY(!kwinApp()->inputMethod()->isVisible());
++    shellSurface.reset();
++    QVERIFY(Test::waitForWindowClosed(window));
++}
++
+diff --git a/src/inputmethod.cpp b/src/inputmethod.cpp
+index f380597..a8b1447 100644
+--- a/src/inputmethod.cpp
++++ b/src/inputmethod.cpp
+@@ -163,0 +164 @@ void InputMethod::hide()
++    m_forceShowPanel = false;
+@@ -256,0 +258,4 @@ void InputMethod::setActive(bool active)
++    const bool wasForced = m_forceShowPanel;
++    if (!active) {
++        m_forceShowPanel = false;
++    }
+@@ -266,0 +272,2 @@ void InputMethod::setActive(bool active)
++    } else if (wasForced) {
++        hide();
+@@ -800 +807 @@ void InputMethod::updateInputPanelState()
+-    if (m_panel && shouldShowOnActive()) {
++    if (m_panel && (m_forceShowPanel || shouldShowOnActive())) {
+@@ -971,0 +979 @@ void InputMethod::forceActivate()
++    m_forceShowPanel = true;
+diff --git a/src/inputmethod.h b/src/inputmethod.h
+index fa6806b..1984224 100644
+--- a/src/inputmethod.h
++++ b/src/inputmethod.h
+@@ -168,0 +169 @@ private:
++    bool m_forceShowPanel = false;

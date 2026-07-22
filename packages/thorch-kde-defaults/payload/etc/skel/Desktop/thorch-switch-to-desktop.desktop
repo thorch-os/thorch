@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Switch to Desktop
-Comment=Reboot into Plasma Desktop
-Exec=/usr/bin/thorch-switch-session desktop
-Icon=computer
-Terminal=false
-Categories=System;

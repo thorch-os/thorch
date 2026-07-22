@@ -44,29 +44,40 @@ app_dir="${HOME}/.local/share/applications"
 install -d "${bin_dir}" "${app_dir}"
 
 install_steam_launcher() {
-  local launcher_source setup_source
+  local helper source
+  local -a helpers=(
+    thorch-setup-steam-arm64
+    thorch-start-steam-arm64
+    thorch-repair-steam-arm64
+    thorch-install-proton-community
+  )
 
-  setup_source="${THORCH_STEAM_SETUP_SOURCE:-/usr/bin/thorch-setup-steam-arm64}"
-  launcher_source="${THORCH_STEAM_LAUNCHER_SOURCE:-/usr/bin/thorch-start-steam-arm64}"
-  if [[ ! -x "${setup_source}" ]]; then
-    echo "Missing ${setup_source}; install the thorch-gaming-installers package first." >&2
-    exit 1
-  fi
-  if [[ ! -x "${launcher_source}" ]]; then
-    echo "Missing ${launcher_source}; install the thorch-gaming-installers package first." >&2
-    exit 1
-  fi
-
-  if [[ "$(readlink -f "${setup_source}")" != "$(readlink -m "${bin_dir}/thorch-setup-steam-arm64")" ]]; then
-    install -m 0755 "${setup_source}" "${bin_dir}/thorch-setup-steam-arm64"
-  fi
-  if [[ "$(readlink -f "${launcher_source}")" != "$(readlink -m "${bin_dir}/thorch-start-steam-arm64")" ]]; then
-    install -m 0755 "${launcher_source}" "${bin_dir}/thorch-start-steam-arm64"
-  fi
+  for helper in "${helpers[@]}"; do
+    case "${helper}" in
+      thorch-setup-steam-arm64)
+        source="${THORCH_STEAM_SETUP_SOURCE:-/usr/bin/${helper}}"
+        ;;
+      thorch-start-steam-arm64)
+        source="${THORCH_STEAM_LAUNCHER_SOURCE:-/usr/bin/${helper}}"
+        ;;
+      *)
+        source="/usr/bin/${helper}"
+        ;;
+    esac
+    if [[ ! -x "${source}" ]]; then
+      [[ "${helper}" == thorch-setup-steam-arm64 || "${helper}" == thorch-start-steam-arm64 ]] || continue
+      echo "Missing ${source}; install the thorch-gaming-installers package first." >&2
+      exit 1
+    fi
+    if ! cmp -s "${source}" "${bin_dir}/${helper}"; then
+      install -m 0755 "${source}" "${bin_dir}/${helper}"
+    fi
+  done
 }
 
 install_steam_launcher
 "${bin_dir}/thorch-setup-steam-arm64"
+"${bin_dir}/thorch-install-proton-community"
 
 rm -f \
   "${bin_dir}/thorch-start-steam-arm64-gamescope" \

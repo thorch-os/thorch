@@ -1,0 +1,967 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Installed kernel/boot transaction coordinator. Environment overrides prefixed
+# THORCH_BOOT_ are intentionally supported so the complete failure path can be
+# exercised against disposable directories without touching a host system.
+
+usage() {
+  cat >&2 <<'EOF'
+usage: boot-transaction prepare|commit|restore|confirm|migrate|activate|status
+
+  prepare  Validate and retain the current boot payload and matching modules.
+  commit   Build/validate the new payload, restoring the retained state on error.
+  restore  Restore the retained boot payload and module tree.
+  confirm  Confirm the pending payload after a successful reboot.
+  migrate  Remove legacy hook masks without marking kernel updates ready.
+  activate Verify the local readiness package and enable guarded updates.
+  status   Print the last transaction state.
+EOF
+}
+
+log() {
+  printf ':: thorch-boot-transaction %s\n' "$*" >&2
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  return 1
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+protocol="${THORCH_BOOT_PROTOCOL_FILE:-${script_dir}/boot-bootstrap-protocol}"
+[[ -r "${protocol}" ]] || {
+  fail "missing boot bootstrap protocol: ${protocol}"
+  exit 1
+}
+# shellcheck source=boot-bootstrap-protocol
+source "${protocol}"
+root_prefix="${THORCH_BOOT_ROOT:-}"
+boot_dir="${THORCH_BOOT_DIR:-${root_prefix}/boot}"
+modules_root="${THORCH_BOOT_MODULES_DIR:-${root_prefix}/usr/lib/modules}"
+state_dir="${THORCH_BOOT_STATE_DIR:-${root_prefix}/var/lib/thorch/boot-transaction}"
+lock_dir="${THORCH_BOOT_LOCK_DIR:-${root_prefix}/run/thorch-boot-transaction.lock}"
+boot_tool="${THORCH_BOOT_IMAGE_TOOL:-${script_dir}/boot_image.py}"
+rebuild_command="${THORCH_BOOT_REBUILD_COMMAND:-${root_prefix}/usr/bin/thorch-rebuild-abl-kernel}"
+check_command="${THORCH_BOOT_CHECK_COMMAND:-${root_prefix}/usr/bin/thorch-check-boot}"
+mkinitcpio_command="${THORCH_BOOT_MKINITCPIO_COMMAND:-${root_prefix}/usr/bin/mkinitcpio}"
+rollback_dir="${state_dir}/rollback"
+status_file="${state_dir}/status"
+ready_file="${state_dir}/bootstrap.ready"
+
+require_privilege() {
+  if [[ "${THORCH_BOOT_ALLOW_UNPRIVILEGED:-0}" != "1" && "$(id -u)" -ne 0 ]]; then
+    fail "this operation must run as root"
+  fi
+}
+
+acquire_lock() {
+  install -d "$(dirname "${lock_dir}")"
+  if ! mkdir "${lock_dir}" 2>/dev/null; then
+    fail "another boot transaction is active: ${lock_dir}"
+  fi
+  trap 'rmdir "${lock_dir}" >/dev/null 2>&1 || true' EXIT
+}
+
+write_status() {
+  python3 - "${state_dir}" "${status_file}" "$1" "${2:-}" <<'PY'
+import datetime
+import os
+import pathlib
+import sys
+import tempfile
+
+directory = pathlib.Path(sys.argv[1])
+destination = pathlib.Path(sys.argv[2])
+state = sys.argv[3]
+detail = sys.argv[4].replace("\n", " ")
+directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+descriptor, temporary_name = tempfile.mkstemp(prefix=".status.", dir=directory)
+temporary = pathlib.Path(temporary_name)
+try:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write(f"state={state}\ndetail={detail}\n")
+        output.write(f"updated_at={datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n")
+        output.flush()
+        os.fsync(output.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, destination)
+    directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+finally:
+    temporary.unlink(missing_ok=True)
+PY
+}
+
+write_pending_reboot() {
+  python3 - "${state_dir}" "$1" <<'PY'
+import datetime
+import os
+import pathlib
+import shlex
+import sys
+import tempfile
+
+directory = pathlib.Path(sys.argv[1])
+release = sys.argv[2]
+destination = directory / "pending-reboot"
+directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+descriptor, temporary_name = tempfile.mkstemp(prefix=".pending-reboot.", dir=directory)
+temporary = pathlib.Path(temporary_name)
+try:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write(f"TARGET_RELEASE={shlex.quote(release)}\n")
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        output.write(f"COMMITTED_AT={shlex.quote(timestamp)}\n")
+        output.flush()
+        os.fsync(output.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, destination)
+    directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+finally:
+    temporary.unlink(missing_ok=True)
+PY
+}
+
+fsync_directory() {
+  python3 - "$1" <<'PY'
+import os
+import pathlib
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+}
+
+fsync_tree() {
+  python3 - "$1" <<'PY'
+import os
+import pathlib
+import stat
+import sys
+
+root = pathlib.Path(sys.argv[1])
+if not root.is_dir() or root.is_symlink():
+    raise SystemExit(f"not a directory tree: {root}")
+
+for directory_name, directory_names, file_names in os.walk(root, topdown=False):
+    directory = pathlib.Path(directory_name)
+    for name in file_names:
+        path = directory / name
+        mode = path.lstat().st_mode
+        if stat.S_ISLNK(mode):
+            continue
+        if not stat.S_ISREG(mode):
+            raise SystemExit(f"unsupported recovery entry: {path}")
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    for name in directory_names:
+        path = directory / name
+        if path.is_symlink():
+            continue
+    descriptor = os.open(
+        directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    )
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+PY
+}
+
+normalize_rollback_publication() {
+  local previous="${rollback_dir}.old" stale cleaned=0
+
+  if [[ -e "${rollback_dir}" || -L "${rollback_dir}" ]] && [[ ! -d "${rollback_dir}" || -L "${rollback_dir}" ]]; then
+    fail "rollback path is not a directory: ${rollback_dir}"
+    return 1
+  fi
+  if [[ -e "${previous}" || -L "${previous}" ]] && [[ ! -d "${previous}" || -L "${previous}" ]]; then
+    fail "prior rollback path is not a directory: ${previous}"
+    return 1
+  fi
+
+  if [[ ! -d "${rollback_dir}" && -d "${previous}" ]]; then
+    if ! mv "${previous}" "${rollback_dir}" || ! fsync_directory "${state_dir}"; then
+      fail "unable to recover an interrupted rollback publication"
+      return 1
+    fi
+    log "recovered the prior rollback generation after an interrupted publication"
+  elif [[ -d "${rollback_dir}" && -d "${previous}" ]]; then
+    # Both names can exist only after the new tree was renamed into place. Make
+    # the new tree and its parent entry durable again before deleting the old
+    # generation left by an interrupted cleanup.
+    if ! fsync_tree "${rollback_dir}" ||
+        ! fsync_directory "${state_dir}" ||
+        ! rm -rf "${previous}" ||
+        ! fsync_directory "${state_dir}"; then
+      fail "unable to finish an interrupted rollback publication"
+      return 1
+    fi
+    log "finished cleanup of an interrupted rollback publication"
+  fi
+
+  # A hard power loss before either rename can leave a fully or partially
+  # copied staging directory. The operation lock makes these entries stale.
+  shopt -s nullglob
+  for stale in "${state_dir}"/.rollback.*; do
+    if [[ ! -d "${stale}" || -L "${stale}" ]]; then
+      shopt -u nullglob
+      fail "stale rollback staging path is not a directory: ${stale}"
+      return 1
+    fi
+    if ! rm -rf "${stale}"; then
+      shopt -u nullglob
+      fail "unable to remove stale rollback staging directory: ${stale}"
+      return 1
+    fi
+    cleaned=1
+  done
+  shopt -u nullglob
+  if [[ "${cleaned}" -eq 1 ]] && ! fsync_directory "${state_dir}"; then
+    fail "unable to flush stale rollback staging cleanup"
+    return 1
+  fi
+}
+
+publication_failpoint() {
+  local point="$1"
+  if [[ "${THORCH_BOOT_ALLOW_UNPRIVILEGED:-0}" == "1" &&
+        "${THORCH_BOOT_TEST_PUBLICATION_FAILPOINT:-}" == "${point}" ]]; then
+    fail "injected rollback publication failure at ${point}"
+    return 1
+  fi
+}
+
+atomic_copy() {
+  local source="$1" destination="$2" temporary
+  if [[ ! -f "${source}" ]]; then
+    fail "missing recovery source: ${source}"
+    return 1
+  fi
+  if ! install -d "$(dirname "${destination}")"; then
+    fail "unable to create recovery destination directory"
+    return 1
+  fi
+  if ! temporary="$(mktemp "$(dirname "${destination}")/.$(basename "${destination}").XXXXXX")"; then
+    fail "unable to stage recovery copy for ${destination}"
+    return 1
+  fi
+  if ! cp -p "${source}" "${temporary}"; then
+    rm -f "${temporary}"
+    fail "unable to copy recovery source ${source}"
+    return 1
+  fi
+  if ! python3 - "${temporary}" "$(dirname "${destination}")" <<'PY'
+import os
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+with path.open("rb") as source:
+    os.fsync(source.fileno())
+PY
+  then
+    rm -f "${temporary}"
+    fail "unable to flush recovery copy for ${destination}"
+    return 1
+  fi
+  if ! mv -f "${temporary}" "${destination}"; then
+    rm -f "${temporary}"
+    fail "unable to publish recovery copy for ${destination}"
+    return 1
+  fi
+}
+
+replace_module_tree() {
+  local source="$1" destination="$2" staging previous had_previous=0
+
+  if [[ ! -d "${source}" ]]; then
+    fail "missing recovery module tree: ${source}"
+    return 1
+  fi
+  if ! install -d "${modules_root}"; then
+    fail "unable to create modules root ${modules_root}"
+    return 1
+  fi
+  staging="${modules_root}/.thorch-modules-stage.$$"
+  previous="${modules_root}/.thorch-modules-previous.$$"
+  rm -rf "${staging}" "${previous}"
+  if ! cp -a "${source}" "${staging}"; then
+    rm -rf "${staging}"
+    fail "unable to stage module recovery from ${source}"
+    return 1
+  fi
+  if [[ -e "${destination}" || -L "${destination}" ]]; then
+    if ! mv "${destination}" "${previous}"; then
+      rm -rf "${staging}"
+      fail "unable to retain current module tree ${destination}"
+      return 1
+    fi
+    had_previous=1
+  fi
+  if ! mv "${staging}" "${destination}"; then
+    if [[ "${had_previous}" -eq 1 ]]; then
+      mv "${previous}" "${destination}" >/dev/null 2>&1 || true
+    fi
+    rm -rf "${staging}"
+    fail "unable to publish recovered module tree ${destination}"
+    return 1
+  fi
+  rm -rf "${previous}"
+  sync
+}
+
+running_release() {
+  if [[ -n "${THORCH_BOOT_RUNNING_RELEASE:-}" ]]; then
+    printf '%s\n' "${THORCH_BOOT_RUNNING_RELEASE}"
+  else
+    uname -r
+  fi
+}
+
+target_release() {
+  if [[ -n "${THORCH_BOOT_TARGET_RELEASE:-}" ]]; then
+    printf '%s\n' "${THORCH_BOOT_TARGET_RELEASE}"
+    return
+  fi
+
+  local preset="${root_prefix}/etc/mkinitcpio.d/linux-thorch.preset" value
+  if [[ -f "${preset}" ]]; then
+    value="$(sed -n 's|^ALL_kver="\{0,1\}/usr/lib/modules/\([^/"[:space:]]*\)/Image"\{0,1\}$|\1|p' "${preset}" | head -n1)"
+    if [[ -n "${value}" ]]; then
+      printf '%s\n' "${value}"
+      return
+    fi
+  fi
+  find "${modules_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort -V | tail -n1
+}
+
+validate_boot_mount() {
+  local fstype options available required kernel_kb=0 initramfs_kb=0 path size probe
+  [[ "${THORCH_BOOT_SKIP_MOUNT_VERIFY:-0}" != "1" ]] || return 0
+  command -v mountpoint >/dev/null 2>&1 || {
+    fail "mountpoint is required to validate ${boot_dir}"
+    return 1
+  }
+  command -v findmnt >/dev/null 2>&1 || {
+    fail "findmnt is required to validate ${boot_dir}"
+    return 1
+  }
+  if ! mountpoint -q "${boot_dir}"; then
+    fail "boot path is not a mounted filesystem: ${boot_dir}"
+    return 1
+  fi
+  fstype="$(findmnt -nro FSTYPE --target "${boot_dir}" 2>/dev/null || true)"
+  case "${fstype}" in
+    vfat|msdos) ;;
+    *)
+      fail "boot path ${boot_dir} has unsupported filesystem ${fstype:-unknown}; expected vfat"
+      return 1
+      ;;
+  esac
+  options="$(findmnt -nro OPTIONS --target "${boot_dir}" 2>/dev/null || true)"
+  if [[ ",${options}," != *,rw,* ]]; then
+    fail "boot filesystem is not mounted read-write: ${boot_dir} (${options:-unknown})"
+    return 1
+  fi
+  if ! probe="$(mktemp "${boot_dir}/.thorch-write-test.XXXXXX")"; then
+    fail "boot filesystem cannot create a transaction candidate: ${boot_dir}"
+    return 1
+  fi
+  if ! rm -f "${probe}"; then
+    fail "unable to remove boot filesystem write probe: ${probe}"
+    return 1
+  fi
+
+  [[ -f "${boot_dir}/KERNEL" ]] && kernel_kb="$(du -k "${boot_dir}/KERNEL" | awk '{print $1}')"
+  for path in \
+    "${boot_dir}/initramfs-linux-thorch.img" \
+    "${boot_dir}/initramfs-linux-thorch-fallback.img"; do
+    [[ -f "${path}" ]] || continue
+    size="$(du -k "${path}" | awk '{print $1}')"
+    (( size > initramfs_kb )) && initramfs_kb="${size}"
+  done
+  required=$((kernel_kb * 2 + initramfs_kb + ${THORCH_BOOT_FS_HEADROOM_KB:-8192}))
+  available="$(df -Pk "${boot_dir}" | awk 'NR == 2 {print $4}')"
+  if [[ ! "${available}" =~ ^[0-9]+$ ]] || (( available < required )); then
+    fail "insufficient boot free space: need ${required} KiB, have ${available:-unknown} KiB"
+    return 1
+  fi
+}
+
+validate_current() {
+  local expected_root_uuid="${1:-}" check_args=(--boot-dir "${boot_dir}")
+  if ! validate_boot_mount; then
+    return 1
+  fi
+  if [[ ! -s "${boot_dir}/KERNEL" ]]; then
+    fail "missing current ${boot_dir}/KERNEL"
+    return 1
+  fi
+  if [[ ! -s "${boot_dir}/initramfs-linux-thorch.img" ]]; then
+    fail "missing current Thorch initramfs"
+    return 1
+  fi
+  if [[ ! -x "${check_command}" ]]; then
+    fail "missing boot checker: ${check_command}"
+    return 1
+  fi
+  if [[ -n "${expected_root_uuid}" ]]; then
+    check_args+=(--root-uuid "${expected_root_uuid}")
+  fi
+  if ! THORCH_BOOT_IMAGE_TOOL="${boot_tool}" \
+      "${check_command}" "${check_args[@]}"; then
+    return 1
+  fi
+}
+
+required_backup_kb() {
+  local release="$1" total=0 path size
+  path="${modules_root}/${release}"
+  if [[ -e "${path}" ]]; then
+    size="$(du -sk "${path}" | awk '{print $1}')"
+    # One copy is the rollback source; a second is republished at the live
+    # uname path after pacman installs the new release and before reboot.
+    total=$((total + size * 2))
+  fi
+  for path in \
+    "${boot_dir}/KERNEL" \
+    "${boot_dir}/initramfs-linux-thorch.img" \
+    "${boot_dir}/initramfs-linux-thorch-fallback.img"; do
+    [[ -e "${path}" ]] || continue
+    size="$(du -sk "${path}" | awk '{print $1}')"
+    total=$((total + size))
+  done
+  printf '%s\n' $((total + ${THORCH_BOOT_BACKUP_HEADROOM_KB:-65536}))
+}
+
+prepare_transaction() {
+  local release module_dir required available staging had_old=0
+  if [[ -f "${state_dir}/pending-reboot" ]]; then
+    fail "a boot update is still pending reboot confirmation; reboot, confirm, or restore it first"
+    return 1
+  fi
+  if [[ ! -f "${ready_file}" ]]; then
+    fail "boot-update bootstrap is not ready; run thorch-update-bootstrap before the kernel transaction"
+    return 1
+  fi
+  if ! validate_current; then
+    return 1
+  fi
+  if ! release="$(running_release)"; then
+    fail "unable to determine running kernel release"
+    return 1
+  fi
+  module_dir="${modules_root}/${release}"
+  if [[ ! -d "${module_dir}" ]]; then
+    fail "missing modules for running kernel ${release}"
+    return 1
+  fi
+
+  if ! install -d -m 0700 "${state_dir}"; then
+    return 1
+  fi
+  if ! normalize_rollback_publication; then
+    return 1
+  fi
+  if ! required="$(required_backup_kb "${release}")"; then
+    fail "unable to estimate rollback space"
+    return 1
+  fi
+  if ! available="$(df -Pk "${state_dir}" | awk 'NR == 2 {print $4}')" ||
+      [[ ! "${available}" =~ ^[0-9]+$ ]]; then
+    fail "unable to determine rollback free space"
+    return 1
+  fi
+  if (( available < required )); then
+    fail "insufficient rollback space: need ${required} KiB, have ${available} KiB"
+  fi
+
+  if ! staging="$(mktemp -d "${state_dir}/.rollback.XXXXXX")"; then
+    fail "unable to create rollback staging directory"
+    return 1
+  fi
+  trap 'rm -rf "${staging:-}"; rmdir "${lock_dir}" >/dev/null 2>&1 || true' EXIT
+  if ! install -d "${staging}/boot" "${staging}/modules" ||
+      ! cp -p "${boot_dir}/KERNEL" "${staging}/boot/KERNEL"; then
+    fail "unable to stage the current boot payload"
+    return 1
+  fi
+  for old in initramfs-linux-thorch.img initramfs-linux-thorch-fallback.img KERNEL.previous; do
+    if [[ -f "${boot_dir}/${old}" ]] &&
+        ! cp -p "${boot_dir}/${old}" "${staging}/boot/${old}"; then
+      fail "unable to retain ${boot_dir}/${old}"
+      return 1
+    fi
+  done
+  if ! cp -a "${module_dir}" "${staging}/modules/${release}"; then
+    fail "unable to retain modules for ${release}"
+    return 1
+  fi
+  if ! {
+    printf 'PREVIOUS_RELEASE=%q\n' "${release}"
+    printf 'PREPARED_AT=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "${staging}/metadata"; then
+    fail "unable to write rollback metadata"
+    return 1
+  fi
+
+  # A copied tree is not a recovery generation until every regular file and
+  # directory, plus the staging entry in state_dir, has reached stable storage.
+  if ! fsync_tree "${staging}" || ! fsync_directory "${state_dir}"; then
+    fail "unable to flush the staged recovery point"
+    return 1
+  fi
+
+  if [[ -d "${rollback_dir}" ]]; then
+    if ! mv "${rollback_dir}" "${rollback_dir}.old" ||
+        ! fsync_directory "${state_dir}"; then
+      fail "unable to stage the prior recovery point"
+      return 1
+    fi
+    had_old=1
+  elif [[ -e "${rollback_dir}" || -L "${rollback_dir}" ]]; then
+    fail "rollback path is not a directory: ${rollback_dir}"
+    return 1
+  fi
+  if ! publication_failpoint after-previous-renamed; then
+    return 1
+  fi
+  if ! mv "${staging}" "${rollback_dir}"; then
+    if [[ "${had_old}" -eq 1 ]]; then
+      if mv "${rollback_dir}.old" "${rollback_dir}" >/dev/null 2>&1; then
+        fsync_directory "${state_dir}" >/dev/null 2>&1 || true
+      fi
+    fi
+    fail "unable to publish the new recovery point"
+    return 1
+  fi
+  # Only after the new rollback name is itself durable may the former
+  # generation be deleted. A crash before cleanup leaves both generations;
+  # normalize_rollback_publication finishes that state on the next operation.
+  if ! fsync_directory "${state_dir}"; then
+    fail "unable to flush the new recovery point"
+    return 1
+  fi
+  if ! publication_failpoint after-new-published; then
+    return 1
+  fi
+  if [[ "${had_old}" -eq 1 ]] &&
+      { ! rm -rf "${rollback_dir}.old" || ! fsync_directory "${state_dir}"; }; then
+    fail "unable to remove the former recovery point"
+    return 1
+  fi
+  if ! write_status prepared "retained ${release} before package transaction"; then
+    return 1
+  fi
+  log "retained boot payload and modules for ${release}"
+}
+
+load_rollback_metadata() {
+  if ! normalize_rollback_publication; then
+    return 1
+  fi
+  if [[ ! -f "${rollback_dir}/metadata" ]]; then
+    fail "no retained boot transaction is available"
+    return 1
+  fi
+  # shellcheck disable=SC1090
+  if ! source "${rollback_dir}/metadata"; then
+    fail "unable to load rollback metadata"
+    return 1
+  fi
+  if [[ -z "${PREVIOUS_RELEASE:-}" ]]; then
+    fail "rollback metadata has no previous release"
+    return 1
+  fi
+}
+
+restore_transaction() {
+  local file restored_module
+  if ! validate_boot_mount; then
+    return 1
+  fi
+  if ! load_rollback_metadata; then
+    return 1
+  fi
+  restored_module="${modules_root}/${PREVIOUS_RELEASE}"
+  for file in KERNEL initramfs-linux-thorch.img; do
+    if [[ ! -f "${rollback_dir}/boot/${file}" ]]; then
+      fail "rollback is incomplete: missing boot/${file}"
+      return 1
+    fi
+  done
+  if [[ ! -d "${rollback_dir}/modules/${PREVIOUS_RELEASE}" ]]; then
+    fail "rollback is incomplete: missing modules/${PREVIOUS_RELEASE}"
+    return 1
+  fi
+
+  if ! replace_module_tree \
+      "${rollback_dir}/modules/${PREVIOUS_RELEASE}" "${restored_module}"; then
+    return 1
+  fi
+  # Restore KERNEL last, after its matching initramfs and modules are live.
+  for file in initramfs-linux-thorch.img initramfs-linux-thorch-fallback.img KERNEL.previous KERNEL; do
+    [[ -f "${rollback_dir}/boot/${file}" ]] || continue
+    if ! atomic_copy "${rollback_dir}/boot/${file}" "${boot_dir}/${file}"; then
+      return 1
+    fi
+  done
+  if ! sync; then
+    fail "unable to flush restored boot state"
+    return 1
+  fi
+  if ! rm -f "${state_dir}/pending-reboot"; then
+    fail "unable to clear stale pending-reboot state after recovery"
+    return 1
+  fi
+  if ! sync; then
+    fail "unable to flush cleared pending-reboot state"
+    return 1
+  fi
+  if ! write_status restored "restored ${PREVIOUS_RELEASE} after failed update"; then
+    return 1
+  fi
+  log "restored boot payload and modules for ${PREVIOUS_RELEASE}"
+}
+
+recover_after_failure() {
+  local detail="$1"
+  log "${detail}; restoring retained boot state"
+  if restore_transaction; then
+    write_status failed "${detail}; retained state restored" || true
+  else
+    write_status recovery-failed \
+      "${detail}; automatic restore failed, boot from SD recovery before rebooting" || true
+  fi
+  return 1
+}
+
+keep_running_modules_until_reboot() {
+  local target_release="$1" source destination
+
+  source="${rollback_dir}/modules/${PREVIOUS_RELEASE}"
+  destination="${modules_root}/${PREVIOUS_RELEASE}"
+  if [[ ! -d "${source}" ]]; then
+    fail "retained modules are missing for ${PREVIOUS_RELEASE}"
+    return 1
+  fi
+
+  if [[ "${PREVIOUS_RELEASE}" == "${target_release}" ]]; then
+    # A reinstall with the same uname release is safe only if the kernel Image
+    # and module tree are byte-identical. Different ABIs cannot coexist at the
+    # one path used by modprobe, so fail closed and restore the old payload.
+    if [[ ! -d "${destination}" ]] || ! diff -qr "${source}" "${destination}" >/dev/null; then
+      return 1
+    fi
+    return 0
+  fi
+
+  # Pacman removes the former package-owned directory during a versioned
+  # kernel upgrade. The old kernel continues running until reboot and must
+  # retain working module lookup during that interval.
+  replace_module_tree "${source}" "${destination}"
+}
+
+root_identity() {
+  local uuid="${THORCH_BOOT_ROOT_UUID:-}" fstype="${THORCH_BOOT_ROOT_FSTYPE:-}"
+  if [[ -z "${uuid}" ]] && command -v findmnt >/dev/null 2>&1; then
+    uuid="$(findmnt -nro UUID / 2>/dev/null || true)"
+  fi
+  if [[ -z "${fstype}" ]] && command -v findmnt >/dev/null 2>&1; then
+    fstype="$(findmnt -nro FSTYPE / 2>/dev/null || true)"
+  fi
+  if [[ -z "${uuid}" ]]; then
+    local cmdline
+    cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+    if [[ "${cmdline}" =~ root=UUID=([^[:space:]]+) ]]; then
+      uuid="${BASH_REMATCH[1]}"
+    fi
+  fi
+  if [[ -z "${uuid}" ]]; then
+    fail "unable to determine root UUID"
+    return 1
+  fi
+  case "${fstype}" in
+    ext4|btrfs) ;;
+    *)
+      fail "unsupported or unknown root filesystem: ${fstype:-unset}"
+      return 1
+      ;;
+  esac
+  printf '%s\n%s\n' "${uuid}" "${fstype}"
+}
+
+commit_transaction() {
+  local identity root_uuid root_fstype release failure=""
+  if [[ ! -f "${ready_file}" ]]; then
+    fail "boot-update bootstrap is not ready; run thorch-update-bootstrap before the kernel transaction"
+    return 1
+  fi
+  if ! load_rollback_metadata; then
+    return 1
+  fi
+  if ! validate_boot_mount; then
+    recover_after_failure "boot filesystem preflight failed" || true
+    return 1
+  fi
+  if ! identity="$(root_identity)"; then
+    recover_after_failure "unable to determine root filesystem identity" || true
+    return 1
+  fi
+  root_uuid="${identity%%$'\n'*}"
+  root_fstype="${identity#*$'\n'}"
+
+  if [[ ! -x "${mkinitcpio_command}" ]]; then
+    failure="missing mkinitcpio command: ${mkinitcpio_command}"
+  elif ! "${mkinitcpio_command}" -P; then
+    failure="mkinitcpio failed"
+  elif [[ ! -x "${rebuild_command}" ]]; then
+    failure="missing boot repacker: ${rebuild_command}"
+  elif ! THORCH_BOOT_IMAGE_TOOL="${boot_tool}" "${rebuild_command}" \
+    --boot-dir "${boot_dir}" \
+    --root-uuid "${root_uuid}" \
+    --rootfstype "${root_fstype}"; then
+    failure="boot payload rebuild failed"
+  elif ! validate_current "${root_uuid}"; then
+    failure="boot payload validation failed"
+  fi
+
+  if [[ -n "${failure}" ]]; then
+    recover_after_failure "${failure}" || true
+    return 1
+  fi
+
+  release="$(target_release)"
+  if [[ -z "${release}" ]]; then
+    failure="unable to determine target kernel release"
+  elif ! keep_running_modules_until_reboot "${release}"; then
+    failure="target reuses ${PREVIOUS_RELEASE} with changed modules, or running modules could not be retained"
+  fi
+  if [[ -n "${failure}" ]]; then
+    recover_after_failure "${failure}" || true
+    return 1
+  fi
+  if ! write_pending_reboot "${release}"; then
+    recover_after_failure "unable to persist pending-reboot metadata" || true
+    return 1
+  fi
+  if ! write_status pending-reboot "boot payload for ${release} awaits confirmation"; then
+    return 1
+  fi
+  log "boot payload for ${release} validated; reboot required"
+}
+
+confirm_transaction() {
+  local actual
+  [[ -f "${state_dir}/pending-reboot" ]] || {
+    log "no pending boot transaction"
+    return 0
+  }
+  # shellcheck disable=SC1090
+  if ! source "${state_dir}/pending-reboot" || [[ -z "${TARGET_RELEASE:-}" ]]; then
+    fail "pending-reboot metadata is invalid"
+    return 1
+  fi
+  if ! actual="$(running_release)"; then
+    fail "unable to determine running kernel release"
+    return 1
+  fi
+  if [[ "${actual}" != "${TARGET_RELEASE}" ]]; then
+    fail "running ${actual}; pending payload expects ${TARGET_RELEASE}"
+    return 1
+  fi
+  if ! validate_current; then
+    return 1
+  fi
+  if [[ ! -s "${modules_root}/${actual}/Image" ]]; then
+    fail "confirmed kernel has no installed Image at ${modules_root}/${actual}/Image"
+    return 1
+  fi
+  if ! load_rollback_metadata; then
+    return 1
+  fi
+  if [[ ! -d "${rollback_dir}/modules/${PREVIOUS_RELEASE}" ]]; then
+    fail "cannot confirm without retained modules for ${PREVIOUS_RELEASE}"
+    return 1
+  fi
+  if [[ "${PREVIOUS_RELEASE}" != "${actual}" ]]; then
+    if ! rm -rf "${modules_root:?}/${PREVIOUS_RELEASE}" || ! sync; then
+      fail "unable to remove the former live module tree"
+      return 1
+    fi
+  fi
+  if ! rm -f "${state_dir}/pending-reboot" || ! sync; then
+    fail "unable to clear confirmed pending-reboot state"
+    return 1
+  fi
+  if ! write_status confirmed "successfully booted ${actual}; prior recovery retained"; then
+    return 1
+  fi
+  log "confirmed successful boot of ${actual}"
+}
+
+migrate_legacy() {
+  local hooks_dir="${root_prefix}/etc/pacman.d/hooks" hook target
+  local pacman_lock="${THORCH_BOOT_PACMAN_DB_LOCK:-${root_prefix}/var/lib/pacman/db.lck}"
+
+  if [[ -e "${pacman_lock}" ]]; then
+    fail "refusing bootstrap migration while a pacman transaction is active"
+    return 1
+  fi
+  rm -f "${ready_file}"
+  if ! install -d -m 0700 "${state_dir}"; then
+    return 1
+  fi
+  for hook in 60-mkinitcpio-remove.hook 90-mkinitcpio-install.hook; do
+    target="${hooks_dir}/${hook}"
+    if [[ -L "${target}" && "$(readlink "${target}")" == "/dev/null" ]]; then
+      if ! rm -f "${target}"; then
+        fail "unable to remove legacy hook mask ${target}"
+        return 1
+      fi
+      log "removed legacy hook mask ${target}"
+    elif [[ -e "${target}" || -L "${target}" ]]; then
+      fail "refusing to replace non-Thorch hook override: ${target}"
+      return 1
+    fi
+  done
+  if [[ "${THORCH_BOOT_SKIP_HOOK_VERIFY:-0}" != "1" ]]; then
+    for hook in \
+      "${root_prefix}/usr/share/libalpm/hooks/60-thorch-boot-transaction-prepare.hook" \
+      "${root_prefix}/usr/share/libalpm/hooks/95-thorch-boot-transaction-commit.hook"; do
+      if [[ ! -f "${hook}" ]]; then
+        fail "missing installed transaction hook: ${hook}"
+        return 1
+      fi
+    done
+  fi
+  if ! write_status bootstrap-hooks-installed \
+      "legacy masks removed; local readiness package is still required"; then
+    return 1
+  fi
+}
+
+activate_bootstrap() {
+  local pacman_lock="${THORCH_BOOT_PACMAN_DB_LOCK:-${root_prefix}/var/lib/pacman/db.lck}"
+  local hooks_dir="${root_prefix}/etc/pacman.d/hooks" hook temporary
+
+  if [[ -e "${pacman_lock}" ]]; then
+    fail "refusing bootstrap activation while a pacman transaction is active"
+    return 1
+  fi
+  for hook in 60-mkinitcpio-remove.hook 90-mkinitcpio-install.hook; do
+    if [[ -e "${hooks_dir}/${hook}" || -L "${hooks_dir}/${hook}" ]]; then
+      fail "legacy hook mask still exists: ${hooks_dir}/${hook}"
+      return 1
+    fi
+  done
+  for hook in \
+    "${root_prefix}/usr/share/libalpm/hooks/60-thorch-boot-transaction-prepare.hook" \
+    "${root_prefix}/usr/share/libalpm/hooks/95-thorch-boot-transaction-commit.hook"; do
+    if [[ ! -f "${hook}" ]]; then
+      fail "missing installed transaction hook: ${hook}"
+      return 1
+    fi
+  done
+  if [[ "${THORCH_BOOT_SKIP_MARKER_VERIFY:-0}" != "1" ]]; then
+    command -v pacman >/dev/null 2>&1 || {
+      fail "pacman is required to verify bootstrap readiness"
+      return 1
+    }
+    if [[ -n "${root_prefix}" ]]; then
+      if ! pacman --root "${root_prefix}" -T \
+          "${THORCH_BOOTSTRAP_MARKER_REQUIREMENT}" >/dev/null 2>&1; then
+        fail "required local package is not installed: ${THORCH_BOOTSTRAP_MARKER_REQUIREMENT}"
+        return 1
+      fi
+    else
+      if ! pacman -T "${THORCH_BOOTSTRAP_MARKER_REQUIREMENT}" >/dev/null 2>&1; then
+        fail "required local package is not installed: ${THORCH_BOOTSTRAP_MARKER_REQUIREMENT}"
+        return 1
+      fi
+    fi
+  fi
+
+  temporary="$(mktemp "${state_dir}/.bootstrap.ready.XXXXXX")"
+  printf 'ready_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${temporary}"
+  chmod 0600 "${temporary}"
+  if ! python3 - "${temporary}" "${ready_file}" <<'PY'
+import os
+import pathlib
+import sys
+
+temporary = pathlib.Path(sys.argv[1])
+destination = pathlib.Path(sys.argv[2])
+with temporary.open("rb") as source:
+    os.fsync(source.fileno())
+os.replace(temporary, destination)
+descriptor = os.open(destination.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+  then
+    rm -f "${temporary}"
+    fail "unable to persist boot-update bootstrap state"
+    return 1
+  fi
+  if ! write_status bootstrap-ready \
+      "hooks activated and local readiness package verified"; then
+    return 1
+  fi
+}
+
+show_status() {
+  if [[ -f "${status_file}" ]]; then
+    cat "${status_file}"
+  else
+    printf 'state=uninitialized\n'
+  fi
+  [[ -f "${ready_file}" ]] && printf 'bootstrap=ready\n' || printf 'bootstrap=required\n'
+  [[ -d "${rollback_dir}" ]] && printf 'rollback=available\n' || printf 'rollback=unavailable\n'
+}
+
+command="${1:-}"
+[[ "$#" -le 1 ]] || { usage; exit 2; }
+case "${command}" in
+  status)
+    show_status
+    ;;
+  prepare|commit|restore|confirm|migrate|activate)
+    require_privilege
+    acquire_lock
+    case "${command}" in
+      prepare) prepare_transaction ;;
+      commit) commit_transaction ;;
+      restore) restore_transaction ;;
+      confirm) confirm_transaction ;;
+      migrate) migrate_legacy ;;
+      activate) activate_bootstrap ;;
+    esac
+    ;;
+  -h|--help)
+    usage
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

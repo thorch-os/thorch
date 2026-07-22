@@ -1,0 +1,251 @@
+diff --git a/kcm/plasmakeyboardkcm.cpp b/kcm/plasmakeyboardkcm.cpp
+index d04e451..6ac75d8 100644
+--- a/kcm/plasmakeyboardkcm.cpp
++++ b/kcm/plasmakeyboardkcm.cpp
+@@ -8,6 +8,7 @@
+ #include "plasmakeyboardkcm.h"
+ #include "../src/layoutpathhelper.h"
+
++#include <algorithm>
+ #include <qqml.h>
+
+ K_PLUGIN_CLASS_WITH_JSON(PlasmaKeyboardKcm, "kcm_plasmakeyboard.json")
+@@ -132,6 +133,24 @@ bool PlasmaKeyboardKcm::diacriticsPopupEnabled() const
+     return m_diacriticsPopupEnabled;
+ }
+
++int PlasmaKeyboardKcm::panelHeightPercent() const
++{
++    return m_panelHeightPercent;
++}
++
++void PlasmaKeyboardKcm::setPanelHeightPercent(int panelHeightPercent)
++{
++    panelHeightPercent = std::clamp(panelHeightPercent, 50, 100);
++    if (panelHeightPercent == m_panelHeightPercent) {
++        return;
++    }
++
++    m_panelHeightPercent = panelHeightPercent;
++    Q_EMIT panelHeightPercentChanged();
++
++    setNeedsSave(true);
++}
++
+ void PlasmaKeyboardKcm::setDiacriticsPopupEnabled(bool enabled)
+ {
+     if (enabled == m_diacriticsPopupEnabled) {
+@@ -175,6 +194,7 @@ void PlasmaKeyboardKcm::load()
+     Q_EMIT enabledLocalesChanged();
+     setKeyboardNavigationEnabled(PlasmaKeyboardSettings::self()->keyboardNavigationEnabled());
+     setAutoCapitalizationEnabled(PlasmaKeyboardSettings::self()->autoCapitalizationEnabled());
++    setPanelHeightPercent(PlasmaKeyboardSettings::self()->panelHeightPercent());
+     setDiacriticsPopupEnabled(PlasmaKeyboardSettings::self()->diacriticsPopupEnabled());
+     setDiacriticsHoldThresholdMs(PlasmaKeyboardSettings::self()->diacriticsHoldThresholdMs());
+
+@@ -188,6 +208,7 @@ void PlasmaKeyboardKcm::save()
+     PlasmaKeyboardSettings::self()->setEnabledLocales(m_enabledLocales);
+     PlasmaKeyboardSettings::self()->setKeyboardNavigationEnabled(m_keyboardNavigationEnabled);
+     PlasmaKeyboardSettings::self()->setAutoCapitalizationEnabled(m_autoCapitalizationEnabled);
++    PlasmaKeyboardSettings::self()->setPanelHeightPercent(m_panelHeightPercent);
+     PlasmaKeyboardSettings::self()->setDiacriticsPopupEnabled(m_diacriticsPopupEnabled);
+     PlasmaKeyboardSettings::self()->setDiacriticsHoldThresholdMs(m_diacriticsHoldThresholdMs);
+     PlasmaKeyboardSettings::self()->save();
+diff --git a/kcm/plasmakeyboardkcm.h b/kcm/plasmakeyboardkcm.h
+index 469bcd6..25ef5ea 100644
+--- a/kcm/plasmakeyboardkcm.h
++++ b/kcm/plasmakeyboardkcm.h
+@@ -19,6 +19,7 @@ class PlasmaKeyboardKcm : public KQuickManagedConfigModule
+     Q_PROPERTY(QStringList enabledLocales READ enabledLocales NOTIFY enabledLocalesChanged)
+     Q_PROPERTY(bool keyboardNavigationEnabled READ keyboardNavigationEnabled WRITE setKeyboardNavigationEnabled NOTIFY keyboardNavigationEnabledChanged)
+     Q_PROPERTY(bool autoCapitalizationEnabled READ autoCapitalizationEnabled WRITE setAutoCapitalizationEnabled NOTIFY autoCapitalizationEnabledChanged)
++    Q_PROPERTY(int panelHeightPercent READ panelHeightPercent WRITE setPanelHeightPercent NOTIFY panelHeightPercentChanged)
+     Q_PROPERTY(bool diacriticsPopupEnabled READ diacriticsPopupEnabled WRITE setDiacriticsPopupEnabled NOTIFY diacriticsPopupEnabledChanged)
+     Q_PROPERTY(int diacriticsHoldThresholdMs READ diacriticsHoldThresholdMs WRITE setDiacriticsHoldThresholdMs NOTIFY diacriticsHoldThresholdMsChanged)
+
+@@ -42,6 +43,9 @@ public:
+     bool autoCapitalizationEnabled() const;
+     void setAutoCapitalizationEnabled(bool autoCapitalizationEnabled);
+
++    int panelHeightPercent() const;
++    void setPanelHeightPercent(int panelHeightPercent);
++
+     bool diacriticsPopupEnabled() const;
+     void setDiacriticsPopupEnabled(bool enabled);
+
+@@ -60,6 +64,7 @@ Q_SIGNALS:
+     void enabledLocalesChanged();
+     void keyboardNavigationEnabledChanged();
+     void autoCapitalizationEnabledChanged();
++    void panelHeightPercentChanged();
+     void diacriticsPopupEnabledChanged();
+     void diacriticsHoldThresholdMsChanged();
+
+@@ -68,6 +73,7 @@ private:
+     bool m_vibrationEnabled = true;
+     bool m_keyboardNavigationEnabled = false;
+     bool m_autoCapitalizationEnabled = true;
++    int m_panelHeightPercent = 100;
+     bool m_diacriticsPopupEnabled = true;
+     int m_diacriticsHoldThresholdMs = 600;
+
+diff --git a/kcm/ui/main.qml b/kcm/ui/main.qml
+index 00ae6de..2b8a43d 100644
+--- a/kcm/ui/main.qml
++++ b/kcm/ui/main.qml
+@@ -74,6 +74,15 @@ KCM.ScrollViewKCM {
+             }
+         }
+
++        QQC2.ComboBox {
++            id: panelHeight
++            Kirigami.FormData.label: i18n("Keyboard height:")
++            model: [i18n("100%"), i18n("65%"), i18n("50%")]
++            currentIndex: kcm.panelHeightPercent === 65 ? 1 : kcm.panelHeightPercent === 50 ? 2 : 0
++
++            onActivated: kcm.panelHeightPercent = [100, 65, 50][currentIndex]
++        }
++
+         QQC2.CheckBox {
+             id: diacriticsCheckbox
+             Kirigami.FormData.label: i18n("Alternate characters:")
+diff --git a/src/plasmakeyboardsettings.kcfg b/src/plasmakeyboardsettings.kcfg
+index 54dd245..6cad86d 100644
+--- a/src/plasmakeyboardsettings.kcfg
++++ b/src/plasmakeyboardsettings.kcfg
+@@ -33,6 +33,12 @@
+             <label>Whether the keyboard panel fills the screen width.</label>
+             <default>true</default>
+         </entry>
++        <entry key="panelHeightPercent" type="int">
++            <label>Percentage of the output height occupied by the keyboard panel.</label>
++            <min>50</min>
++            <max>100</max>
++            <default>100</default>
++        </entry>
+         <entry key="diacriticsPopupEnabled" type="bool">
+             <label>Whether holding a physical key shows diacritic options.</label>
+             <default>true</default>
+diff --git a/src/qmlplugin/BreezeConstants.qml b/src/qmlplugin/BreezeConstants.qml
+index 5385d62..44c824b 100644
+--- a/src/qmlplugin/BreezeConstants.qml
++++ b/src/qmlplugin/BreezeConstants.qml
+@@ -12,23 +12,25 @@ QtObject {
+     property real scaleHint
+
+     readonly property string fontFamily: Kirigami.Theme.defaultFont.family
+-    readonly property real keyBackgroundMargin: Math.round(8 * scaleHint)
+-    readonly property real keyContentMargin: Math.round(40 * scaleHint)
++    readonly property real keyBackgroundMargin: Math.max(1, Math.round(3 * scaleHint))
++    readonly property real keyContentMargin: Math.round(16 * scaleHint)
+     readonly property real keyIconScale: scaleHint * 0.8
+
+-    property color primaryColor: Kirigami.Theme.backgroundColor
+-    property color primaryLightColor: Qt.lighter(primaryColor, 1.3)
+-    property color primaryDarkColor: Qt.darker(primaryColor, 1.3)
+-    property color textOnPrimaryColor: Kirigami.Theme.textColor
+-    property color secondaryColor: Kirigami.Theme.backgroundColor
+-    property color secondaryLightColor: Qt.lighter(secondaryColor, 1.3)
+-    property color secondaryDarkColor: Qt.darker(secondaryColor, 1.3)
+-    property color textOnSecondaryColor: Kirigami.Theme.textColor
++    property color primaryColor: "#1c1c2a"
++    property color primaryLightColor: "#3d3e5a"
++    property color primaryDarkColor: "#565878"
++    property color textOnPrimaryColor: "#f4f3fa"
++    property color secondaryColor: "#4a304e"
++    property color secondaryLightColor: "#68476d"
++    property color secondaryDarkColor: "#352239"
++    property color textOnSecondaryColor: "#f4f3fa"
+
+     property color keyboardBackgroundColor: primaryColor
+     property color normalKeyBackgroundColor: primaryLightColor
+     property color normalKeyPressedBackgroundColor: primaryDarkColor
+-    property color highlightedKeyBackgroundColor: primaryLightColor
++    property color highlightedKeyBackgroundColor: secondaryLightColor
++    property color modifierKeyBackgroundColor: secondaryColor
++    property color actionKeyBackgroundColor: "#294953"
+     property color capsLockKeyAccentColor: secondaryColor
+     property color modeKeyAccentColor: textOnPrimaryColor
+     property color keyTextColor: textOnPrimaryColor
+@@ -45,6 +47,6 @@ QtObject {
+     property color navigationHighlightColor: Qt.rgba(navigationHighlightBorderColor.r, navigationHighlightBorderColor.g, navigationHighlightBorderColor.b, 0.3)
+     property color navigationHighlightBorderColor: Kirigami.Theme.highlightColor
+
+-    readonly property real buttonRadius: Kirigami.Units.cornerRadius
++    readonly property real buttonRadius: Math.max(Kirigami.Units.cornerRadius, Math.round(10 * scaleHint))
+     readonly property real popupRadius: Kirigami.Units.cornerRadius
+ }
+diff --git a/src/qmlplugin/BreezeKeyPanel.qml b/src/qmlplugin/BreezeKeyPanel.qml
+index 0078f80..dbc7710 100644
+--- a/src/qmlplugin/BreezeKeyPanel.qml
++++ b/src/qmlplugin/BreezeKeyPanel.qml
+@@ -20,11 +20,17 @@ KeyPanel {
+
+     property real radius: BreezeConstants.buttonRadius
+
++    readonly property int accent: control && control.thorchAccent !== undefined ? control.thorchAccent : 0
++
+     property color color: {
+         if (control && control.pressed) {
+             return BreezeConstants.normalKeyPressedBackgroundColor;
+         } else if (control && control.highlighted) {
+             return BreezeConstants.highlightedKeyBackgroundColor;
++        } else if (accent === 1) {
++            return BreezeConstants.modifierKeyBackgroundColor;
++        } else if (accent === 2) {
++            return BreezeConstants.actionKeyBackgroundColor;
+         }
+         return BreezeConstants.normalKeyBackgroundColor;
+     }
+@@ -42,7 +48,7 @@ KeyPanel {
+
+             // Shadow
+             shadow.color: Qt.rgba(0, 0, 0, 0.2)
+-            shadow.size: 3
++            shadow.size: 2
+             shadow.yOffset: 1
+         }
+     }
+diff --git a/src/styles/breeze/style.qml b/src/styles/breeze/style.qml
+index 3c31aef..5258156 100644
+--- a/src/styles/breeze/style.qml
++++ b/src/styles/breeze/style.qml
+@@ -50,8 +50,16 @@ KeyboardStyle {
+         }
+     }
+
+-    // Always have the keyboard panel be 30% of the screen height, or 150px (whichever is larger)
+-    readonly property real targetKeyboardHeight: Math.max(Screen.height * 0.3, 150)
++    // Thorch uses the second panel as a dedicated keyboard surface by default.
++    // The top display owns Plasma's desktop panel. Size the keyboard against
++    // that output's usable area so full-height mode does not sit under it.
++    readonly property real thorchAvailableScreenHeight: Screen.name === "DSI-2"
++        ? Screen.desktopAvailableHeight
++        : Screen.height
++    readonly property real targetKeyboardHeight: Math.min(
++        thorchAvailableScreenHeight,
++        Math.max(thorchAvailableScreenHeight * PlasmaKeyboardSettings.panelHeightPercent / 100.0, 200)
++    )
+
+     // The value to multiply the height by to get the width
+     readonly property real aspectRatio: {
+@@ -130,12 +138,15 @@ KeyboardStyle {
+                 text: control.displayText
+                 color: theme.keyTextColor
+                 horizontalAlignment: Text.AlignHCenter
+-                verticalAlignment: control.displayText.length > 1 ? Text.AlignVCenter : Text.AlignBottom
+-                anchors.centerIn: parent
++                verticalAlignment: Text.AlignVCenter
++                anchors.fill: parent
++                anchors.margins: 6 * scaleHint
++                fontSizeMode: Text.Fit
++                minimumPixelSize: Math.max(10, 16 * scaleHint)
+                 font {
+                     family: theme.fontFamily
+-                    weight: Font.Light
+-                    pixelSize: 60 * scaleHint
++                    weight: Font.DemiBold
++                    pixelSize: 44 * scaleHint
+                     capitalization: control.uppercased ? Font.AllUppercase : Font.MixedCase
+                 }
+             }

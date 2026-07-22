@@ -165,9 +165,15 @@ fn parse_name_set(env_names: &[&str], defaults: &[&str]) -> HashSet<String> {
 
 impl Config {
     fn load() -> Self {
-        let repeat_seconds = env_or(&["THORCH_INPUTD_REPEAT_SECONDS", "THORCH_HWCONTROLD_REPEAT_SECONDS"], "0.08")
-            .parse::<f64>()
-            .unwrap_or(0.08);
+        let repeat_seconds = env_or(
+            &[
+                "THORCH_INPUTD_REPEAT_SECONDS",
+                "THORCH_HWCONTROLD_REPEAT_SECONDS",
+            ],
+            "0.08",
+        )
+        .parse::<f64>()
+        .unwrap_or(0.08);
 
         Self {
             input_root: PathBuf::from(env_or(
@@ -179,7 +185,10 @@ impl Config {
                 "/dev/input",
             )),
             device_names: parse_name_set(
-                &["THORCH_INPUTD_DEVICE_NAMES", "THORCH_HWCONTROLD_DEVICE_NAMES"],
+                &[
+                    "THORCH_INPUTD_DEVICE_NAMES",
+                    "THORCH_HWCONTROLD_DEVICE_NAMES",
+                ],
                 &[
                     "gpio-keys",
                     "gpio-keys-ayn",
@@ -191,21 +200,33 @@ impl Config {
                 ],
             ),
             brightness_modifiers: parse_key_set(
-                &["THORCH_INPUTD_BRIGHTNESS_MODIFIERS", "THORCH_HWCONTROLD_MODIFIERS"],
+                &[
+                    "THORCH_INPUTD_BRIGHTNESS_MODIFIERS",
+                    "THORCH_HWCONTROLD_MODIFIERS",
+                ],
                 &["BTN_MODE"],
             ),
             led_modifiers: parse_key_set(
-                &["THORCH_INPUTD_LED_MODIFIERS", "THORCH_HWCONTROLD_LED_MODIFIERS"],
+                &[
+                    "THORCH_INPUTD_LED_MODIFIERS",
+                    "THORCH_HWCONTROLD_LED_MODIFIERS",
+                ],
                 &["BTN_START"],
             ),
-            rocknix_hotkey_modifiers: parse_key_set(&["THORCH_INPUTD_HOTKEY_A_MODIFIERS"], &["BTN_TL"]),
+            rocknix_hotkey_modifiers: parse_key_set(
+                &["THORCH_INPUTD_HOTKEY_A_MODIFIERS"],
+                &["BTN_TL"],
+            ),
             repeat_delay: Duration::from_secs_f64(repeat_seconds),
             backlight: env_or(
                 &["THORCH_INPUTD_BACKLIGHT", "THORCH_HWCONTROLD_BACKLIGHT"],
                 "/usr/bin/thorch-backlight",
             ),
             brightness_target: env_or(
-                &["THORCH_INPUTD_BRIGHTNESS_TARGET", "THORCH_HWCONTROLD_BRIGHTNESS_TARGET"],
+                &[
+                    "THORCH_INPUTD_BRIGHTNESS_TARGET",
+                    "THORCH_HWCONTROLD_BRIGHTNESS_TARGET",
+                ],
                 "all",
             ),
             brightness_step: env_or(
@@ -215,16 +236,28 @@ impl Config {
                 ],
                 "5",
             ),
-            rgb: env_or(&["THORCH_INPUTD_RGB", "THORCH_HWCONTROLD_RGB"], "/usr/bin/thorch-rgb"),
-            rfkill: env_or(&["THORCH_INPUTD_RFKILL", "THORCH_HWCONTROLD_RFKILL"], "/usr/bin/rfkill"),
-            nmcli: env_or(&["THORCH_INPUTD_NMCLI", "THORCH_HWCONTROLD_NMCLI"], "/usr/bin/nmcli"),
+            rgb: env_or(
+                &["THORCH_INPUTD_RGB", "THORCH_HWCONTROLD_RGB"],
+                "/usr/bin/thorch-rgb",
+            ),
+            rfkill: env_or(
+                &["THORCH_INPUTD_RFKILL", "THORCH_HWCONTROLD_RFKILL"],
+                "/usr/bin/rfkill",
+            ),
+            nmcli: env_or(
+                &["THORCH_INPUTD_NMCLI", "THORCH_HWCONTROLD_NMCLI"],
+                "/usr/bin/nmcli",
+            ),
             volume: env_or(&["THORCH_INPUTD_VOLUME"], "/usr/bin/pactl"),
             screenshot: env_or(&["THORCH_INPUTD_SCREENSHOT"], "/usr/bin/rocknix-screenshot"),
             mangohud: env_or(&["THORCH_INPUTD_MANGOHUD"], "/usr/bin/mangohud_set"),
             screen_switch: env_or(&["THORCH_INPUTD_SCREEN_SWITCH"], "/usr/bin/screen_switch"),
             game_guide: env_or(&["THORCH_INPUTD_GAME_GUIDE"], "/usr/bin/game-guides-tool"),
             keyboard_signal: env_or(&["THORCH_INPUTD_KEYBOARD_SIGNAL"], "/usr/bin/pkill"),
-            kill_data: PathBuf::from(env_or(&["THORCH_INPUTD_KILL_DATA"], "/tmp/.process-kill-data")),
+            kill_data: PathBuf::from(env_or(
+                &["THORCH_INPUTD_KILL_DATA"],
+                "/tmp/.process-kill-data",
+            )),
             dpad_events: env_bool(&["THORCH_INPUTD_DPAD_EVENTS"], true),
             touch_events: env_bool(&["THORCH_INPUTD_TOUCH_EVENTS"], false),
             f24_relay: env_bool(&["THORCH_INPUTD_F24_RELAY"], true),
@@ -353,7 +386,9 @@ fn run_as_user(program: &str, args: &[&str]) -> bool {
         .arg("env")
         .arg(format!("HOME={home}"))
         .arg(format!("XDG_RUNTIME_DIR=/run/user/{uid}"))
-        .arg(format!("DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus"))
+        .arg(format!(
+            "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus"
+        ))
         .arg(program)
         .args(args)
         .status()
@@ -364,7 +399,11 @@ fn run_as_user(program: &str, args: &[&str]) -> bool {
 fn run_backlight(config: &Config, direction: &str) {
     run_command(
         &config.backlight,
-        &[direction, &config.brightness_target, &config.brightness_step],
+        &[
+            direction,
+            &config.brightness_target,
+            &config.brightness_step,
+        ],
     );
 }
 
@@ -483,12 +522,18 @@ fn write_input_event(file: &mut File, event_type: u16, code: u16, value: i32) ->
     file.write_all(&data)
 }
 
-fn should_relay_f24(enabled: bool, device_name: &str, event_type: u16, code: u16, value: i32) -> bool {
+fn should_relay_f24(
+    enabled: bool,
+    device_name: &str,
+    event_type: u16,
+    code: u16,
+    value: i32,
+) -> bool {
     enabled
         && matches!(device_name, "gpio-keys" | "gpio-keys-ayn")
         && event_type == EV_KEY
         && code == KEY_F24
-        && matches!(value, 0 | 1 | 2)
+        && matches!(value, 0..=2)
 }
 
 fn read_event(file: &mut File) -> io::Result<(u16, u16, i32)> {
@@ -559,7 +604,10 @@ fn open_new_devices(
             continue;
         }
 
-        let event_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let event_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
         let device_name = input_device_name(config, event_name);
         let Ok(file) = File::open(&path) else {
             continue;
@@ -599,7 +647,11 @@ fn remove_device(
         opened_paths.remove(&opened.path);
         modifier_fds.remove(&fd);
         pressed.clear();
-        log(&format!("removed {} ({}) after {reason}", opened.path.display(), opened.name));
+        log(&format!(
+            "removed {} ({}) after {reason}",
+            opened.path.display(),
+            opened.name
+        ));
     }
 }
 
@@ -757,17 +809,18 @@ fn main() {
                     (ABS_HAT0X, -1) => Some("left"),
                     _ => None,
                 };
-                if direction.is_some()
-                    && pressed
+                if let Some(direction) = direction {
+                    if pressed
                         .iter()
                         .any(|pressed_code| config.brightness_modifiers.contains(pressed_code))
-                {
-                    match direction.unwrap() {
-                        "up" => run_volume(&config, "up"),
-                        "down" => run_volume(&config, "down"),
-                        "right" => run_backlight(&config, "up"),
-                        "left" => run_backlight(&config, "down"),
-                        _ => {}
+                    {
+                        match direction {
+                            "up" => run_volume(&config, "up"),
+                            "down" => run_volume(&config, "down"),
+                            "right" => run_backlight(&config, "up"),
+                            "left" => run_backlight(&config, "down"),
+                            _ => {}
+                        }
                     }
                 }
                 continue;
@@ -807,7 +860,10 @@ fn main() {
                     .iter()
                     .any(|modifier| pressed.contains(modifier))
             {
-                if matches!(code, BTN_EAST | BTN_WEST | BTN_BACK | KEY_RECORD | BTN_NORTH) {
+                if matches!(
+                    code,
+                    BTN_EAST | BTN_WEST | BTN_BACK | KEY_RECORD | BTN_NORTH
+                ) {
                     run_hotkey_command(&config, code);
                 } else if config.touch_events && code == BTN_TOUCH {
                     toggle_keyboard(&config);
@@ -817,7 +873,8 @@ fn main() {
                     .iter()
                     .filter(|modifier| pressed.contains(modifier))
                     .count();
-                if hotkey_count > 0 && pressed.contains(&BTN_SELECT) && pressed.contains(&BTN_START) {
+                if hotkey_count > 0 && pressed.contains(&BTN_SELECT) && pressed.contains(&BTN_START)
+                {
                     execute_kill(&config);
                 }
             }
@@ -846,7 +903,9 @@ fn main() {
             let has_brightness_modifier = pressed
                 .iter()
                 .any(|code| config.brightness_modifiers.contains(code));
-            let has_led_modifier = pressed.iter().any(|code| config.led_modifiers.contains(code));
+            let has_led_modifier = pressed
+                .iter()
+                .any(|code| config.led_modifiers.contains(code));
             let now = Instant::now();
             if value == 2 {
                 if let Some(last) = last_adjust.get(&code) {
@@ -947,13 +1006,19 @@ mod tests {
 
         env::set_var("THORCH_HWCONTROLD_TEST_KEYS", "BTN_START");
         assert_eq!(
-            parse_key_set(&["THORCH_INPUTD_TEST_KEYS", "THORCH_HWCONTROLD_TEST_KEYS"], &["BTN_MODE"]),
+            parse_key_set(
+                &["THORCH_INPUTD_TEST_KEYS", "THORCH_HWCONTROLD_TEST_KEYS"],
+                &["BTN_MODE"]
+            ),
             HashSet::from([BTN_START])
         );
 
         env::set_var("THORCH_INPUTD_TEST_KEYS", "BTN_MODE KEY_VOLUMEUP 999");
         assert_eq!(
-            parse_key_set(&["THORCH_INPUTD_TEST_KEYS", "THORCH_HWCONTROLD_TEST_KEYS"], &[]),
+            parse_key_set(
+                &["THORCH_INPUTD_TEST_KEYS", "THORCH_HWCONTROLD_TEST_KEYS"],
+                &[]
+            ),
             HashSet::from([BTN_MODE, KEY_VOLUMEUP, 999])
         );
 
@@ -979,7 +1044,10 @@ mod tests {
     #[test]
     fn default_device_names_own_volume_keys_without_grabbing_power_key() {
         let _guard = env_lock().lock().unwrap();
-        clear_env(&["THORCH_INPUTD_DEVICE_NAMES", "THORCH_HWCONTROLD_DEVICE_NAMES"]);
+        clear_env(&[
+            "THORCH_INPUTD_DEVICE_NAMES",
+            "THORCH_HWCONTROLD_DEVICE_NAMES",
+        ]);
 
         let config = Config::load();
 
@@ -1052,10 +1120,22 @@ mod tests {
         assert!(should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 2));
         assert!(should_relay_f24(true, "gpio-keys-ayn", EV_KEY, KEY_F24, 1));
         assert!(!should_relay_f24(false, "gpio-keys", EV_KEY, KEY_F24, 1));
-        assert!(!should_relay_f24(true, "InputPlumber Keyboard", EV_KEY, KEY_F24, 1));
+        assert!(!should_relay_f24(
+            true,
+            "InputPlumber Keyboard",
+            EV_KEY,
+            KEY_F24,
+            1
+        ));
         assert!(!should_relay_f24(true, "gpio-keys", EV_SW, SW_LID, 1));
         assert!(!should_relay_f24(true, "gpio-keys-lid", EV_SW, SW_LID, 1));
-        assert!(!should_relay_f24(true, "gpio-keys", EV_KEY, KEY_VOLUMEUP, 1));
+        assert!(!should_relay_f24(
+            true,
+            "gpio-keys",
+            EV_KEY,
+            KEY_VOLUMEUP,
+            1
+        ));
         assert!(!should_relay_f24(true, "gpio-keys", EV_KEY, KEY_F24, 3));
     }
 

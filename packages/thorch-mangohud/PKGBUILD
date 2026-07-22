@@ -2,7 +2,7 @@
 
 pkgname=thorch-mangohud
 pkgver=0.8.3_rocknix
-pkgrel=5
+pkgrel=7
 _commit=330c42a5956e005a4d102473f5782bb0e3d94b6f
 _imgui_ver=1.91.6
 _implot_ver=0.16
@@ -27,12 +27,17 @@ depends=(
 )
 makedepends=(
   cmake
+  fmt
   git
   glslang
+  libxkbcommon
+  libxrandr
   meson
   ninja
   python-mako
+  spdlog
   vulkan-headers
+  wayland-protocols
 )
 provides=(mangohud)
 conflicts=(mangohud)

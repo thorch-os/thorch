@@ -11,10 +11,35 @@ gamescope_backend="${THORCH_STEAM_GAMESCOPE_BACKEND:-nested}"
 mangohud="${THORCH_STEAM_MANGOHUD:-auto}"
 mangohud_config="${THORCH_STEAM_MANGOHUD_CONFIG:-}"
 support_bin_dir="${steam_root}/thorch-steamos-bin"
+runtime_bin_dir=""
 mangoapp_args=()
-steam_system_dir="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
-proton_arm_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
 preflight="${THORCH_STEAM_PREFLIGHT:-1}"
+binfmt_helper_override="${THORCH_FEX_BINFMT_HELPER:-}"
+binfmt_helper="${binfmt_helper_override:-/usr/bin/thorch-fex-binfmt}"
+
+build_runtime_path() {
+  local candidate
+  local -a entries=(
+    "${support_bin_dir}"
+    "${HOME}/.local/bin"
+    "${steam_root}/steamrtarm64"
+    "${steam_root}/steamrtarm64/bin"
+    "/usr/share/steam/fex"
+    "/usr/share/steam/fex/usr/bin"
+  )
+
+  runtime_bin_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/pressure-vessel/bin' -type d -print -quit 2>/dev/null || true)"
+  [[ -z "${runtime_bin_dir}" ]] || entries+=("${runtime_bin_dir}")
+
+  for candidate in "${entries[@]}"; do
+    [[ -d "${candidate}" ]] || continue
+    case ":${PATH}:" in
+      *":${candidate}:"*) ;;
+      *) PATH="${candidate}:${PATH}" ;;
+    esac
+  done
+  export PATH
+}
 
 configure_mangohud() {
   local config_dir config_file system_config user_config
@@ -80,15 +105,60 @@ gamescope_supports_option() {
   gamescope --help 2>&1 | grep -q -- "${option}"
 }
 
-stage_proton_arm_manifest() {
-  local proton_dir source_manifest
+repair_steam_install() {
+  if [[ -x "${HOME}/.local/bin/thorch-setup-steam-arm64" ]]; then
+    "${HOME}/.local/bin/thorch-setup-steam-arm64" --repair-runtime-links || true
+  elif command -v thorch-setup-steam-arm64 >/dev/null 2>&1; then
+    thorch-setup-steam-arm64 --repair-runtime-links || true
+  fi
+  if [[ -x "${HOME}/.local/bin/thorch-repair-steam-arm64" ]]; then
+    "${HOME}/.local/bin/thorch-repair-steam-arm64" || true
+  elif command -v thorch-repair-steam-arm64 >/dev/null 2>&1; then
+    thorch-repair-steam-arm64 || true
+  fi
+}
 
-  source_manifest="${steam_system_dir}/toolmanifest.vdf"
-  [[ -f "${source_manifest}" ]] || return 0
+run_with_fex_binfmt_suspended() {
+  local child_pid="" rc=0
+  local -a control=()
 
-  proton_dir="${steam_root}/steamapps/common/${proton_arm_name}"
-  mkdir -p "${proton_dir}"
-  cp -f "${source_manifest}" "${proton_dir}/toolmanifest.vdf"
+  if [[ -n "${binfmt_helper_override}" && -x "${binfmt_helper}" ]]; then
+    control=("${binfmt_helper}")
+  elif [[ "${EUID}" -eq 0 && -x "${binfmt_helper}" ]]; then
+    control=("${binfmt_helper}")
+  elif [[ -x "${binfmt_helper}" ]] && command -v sudo >/dev/null 2>&1; then
+    control=(sudo -n "${binfmt_helper}")
+  fi
+
+  # Native ARM Steam must leave x86 game execution to Proton ARM's FEX
+  # integration. System-wide binfmt remains enabled for normal Thorch use and
+  # is restored as soon as this Steam process exits, including failures.
+  if [[ "${#control[@]}" -eq 0 ]] || ! "${control[@]}" disable; then
+    exec "$@"
+  fi
+
+  forward_signal() {
+    local signal="$1"
+    [[ -z "${child_pid}" ]] || kill -s "${signal}" "${child_pid}" 2>/dev/null || true
+  }
+  trap 'forward_signal TERM' TERM
+  trap 'forward_signal INT' INT
+  trap 'forward_signal HUP' HUP
+
+  "$@" &
+  child_pid=$!
+  if wait "${child_pid}"; then
+    rc=0
+  else
+    rc=$?
+  fi
+
+  trap - TERM INT HUP
+  "${control[@]}" enable || {
+    echo "Warning: failed to restore FEX binfmt handlers." >&2
+    [[ "${rc}" -ne 0 ]] || rc=1
+  }
+  return "${rc}"
 }
 
 if [[ ! -x "${steam_root}/steamrtarm64/steam" ]]; then
@@ -96,30 +166,26 @@ if [[ ! -x "${steam_root}/steamrtarm64/steam" ]]; then
   exit 1
 fi
 
-if [[ -x "${HOME}/.local/bin/thorch-setup-steam-arm64" ]]; then
-  "${HOME}/.local/bin/thorch-setup-steam-arm64" --repair-proton-beta-runtime-links || true
-elif command -v thorch-setup-steam-arm64 >/dev/null 2>&1; then
-  thorch-setup-steam-arm64 --repair-proton-beta-runtime-links || true
-fi
-if [[ -x "${HOME}/.local/bin/thorch-repair-steam-arm64" ]]; then
-  "${HOME}/.local/bin/thorch-repair-steam-arm64" || true
-elif command -v thorch-repair-steam-arm64 >/dev/null 2>&1; then
-  thorch-repair-steam-arm64 || true
-fi
+repair_steam_install
 
 configure_mangohud
 export LD_LIBRARY_PATH="${steam_root}/lib/aarch64-linux-gnu"
-export PATH="${support_bin_dir}:${PATH}"
+build_runtime_path
 export STEAM_BASE_FOLDER="${steam_root}"
 export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 cd "${steam_root}/steamrtarm64"
 
-stage_proton_arm_manifest
 case "${preflight,,}" in
   1|true|yes|on|enabled)
-    ./steam -steamdeck -exitsteam || true
-    stage_proton_arm_manifest
+    # Preflight only prepares the selected client branch. Passing -steamdeck
+    # here rewrites publicbeta to steamdeck_stable even for desktop and Big
+    # Picture launches, before the mode-specific command is evaluated.
+    ./steam -exitsteam || true
+    # Steam's preflight can refresh its managed steamrtarm64 directory and
+    # remove the launch-wrapper compatibility link. Repair it again before the
+    # long-running client starts or every Proton launch exits with status 127.
+    repair_steam_install
     ;;
 esac
 
@@ -162,9 +228,11 @@ if command -v gamescope >/dev/null 2>&1 && [[ "${use_gamescope}" == 1 ]]; then
     if gamescope_supports_option "--use-rotation-shader"; then
       gamescope_args+=(--use-rotation-shader)
     fi
-    exec env -u WAYLAND_DISPLAY gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+    run_with_fex_binfmt_suspended env -u WAYLAND_DISPLAY gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+    exit $?
   fi
-  exec gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+  run_with_fex_binfmt_suspended gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+  exit $?
 fi
 
-exec ./steam "${steam_args[@]}" "$@"
+run_with_fex_binfmt_suspended ./steam "${steam_args[@]}" "$@"

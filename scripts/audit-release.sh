@@ -36,7 +36,9 @@ source_files() {
   if [[ -d "${root}/.git" ]]; then
     (
       cd "${root}"
-      git ls-files --cached --others --exclude-standard
+      while IFS= read -r rel; do
+        [[ -f "${rel}" ]] && printf '%s\n' "${rel}"
+      done < <(git ls-files --cached --others --exclude-standard)
     ) | sed "s#^#${root}/#" | sort
     return
   fi
@@ -172,6 +174,16 @@ PY
       ;;
   esac
 done < <(source_files)
+
+note "checking package transaction safeguards"
+if grep -Eq -- '--nodeps([=[:space:]]|$)|\.thorch-build-pacman-deps' \
+    "${root}/scripts/build-packages.sh"; then
+  fail_audit "package builds bypass declared dependency checks"
+fi
+if grep -Eq -- '(^|[[:space:]])-Rdd([[:space:]]|$)|--overwrite([=[:space:]]|$)|pacman[[:space:]]+-U([[:space:]]|$)' \
+    "${root}/scripts/build-packages.sh" "${root}/scripts/build-image.sh"; then
+  fail_audit "image or package builds bypass repository transactions"
+fi
 
 note "checking desktop entries"
 if command -v desktop-file-validate >/dev/null 2>&1; then

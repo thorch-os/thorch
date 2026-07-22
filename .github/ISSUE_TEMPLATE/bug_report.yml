@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a reproducible Thorch defect.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: input
+    id: revision
+    attributes:
+      label: Thorch revision or image
+      placeholder: Commit, tag, or image filename
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Device, install location, root filesystem, and relevant configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics and recovery
+      description: Attach relevant logs and say whether recovery or reinstall was needed.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I removed credentials, keys, serial numbers, and personal data.
+          required: true

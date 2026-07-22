@@ -1,0 +1,102 @@
+diff --git a/kcm/plasmakeyboardkcm.cpp b/kcm/plasmakeyboardkcm.cpp
+index 6ac75d8..e9d64eb 100644
+--- a/kcm/plasmakeyboardkcm.cpp
++++ b/kcm/plasmakeyboardkcm.cpp
+@@ -133,6 +133,23 @@ bool PlasmaKeyboardKcm::diacriticsPopupEnabled() const
+     return m_diacriticsPopupEnabled;
+ }
+
++bool PlasmaKeyboardKcm::panelFillScreenWidth() const
++{
++    return m_panelFillScreenWidth;
++}
++
++void PlasmaKeyboardKcm::setPanelFillScreenWidth(bool panelFillScreenWidth)
++{
++    if (panelFillScreenWidth == m_panelFillScreenWidth) {
++        return;
++    }
++
++    m_panelFillScreenWidth = panelFillScreenWidth;
++    Q_EMIT panelFillScreenWidthChanged();
++
++    setNeedsSave(true);
++}
++
+ int PlasmaKeyboardKcm::panelHeightPercent() const
+ {
+     return m_panelHeightPercent;
+@@ -194,6 +211,7 @@ void PlasmaKeyboardKcm::load()
+     Q_EMIT enabledLocalesChanged();
+     setKeyboardNavigationEnabled(PlasmaKeyboardSettings::self()->keyboardNavigationEnabled());
+     setAutoCapitalizationEnabled(PlasmaKeyboardSettings::self()->autoCapitalizationEnabled());
++    setPanelFillScreenWidth(PlasmaKeyboardSettings::self()->panelFillScreenWidth());
+     setPanelHeightPercent(PlasmaKeyboardSettings::self()->panelHeightPercent());
+     setDiacriticsPopupEnabled(PlasmaKeyboardSettings::self()->diacriticsPopupEnabled());
+     setDiacriticsHoldThresholdMs(PlasmaKeyboardSettings::self()->diacriticsHoldThresholdMs());
+@@ -208,6 +226,7 @@ void PlasmaKeyboardKcm::save()
+     PlasmaKeyboardSettings::self()->setEnabledLocales(m_enabledLocales);
+     PlasmaKeyboardSettings::self()->setKeyboardNavigationEnabled(m_keyboardNavigationEnabled);
+     PlasmaKeyboardSettings::self()->setAutoCapitalizationEnabled(m_autoCapitalizationEnabled);
++    PlasmaKeyboardSettings::self()->setPanelFillScreenWidth(m_panelFillScreenWidth);
+     PlasmaKeyboardSettings::self()->setPanelHeightPercent(m_panelHeightPercent);
+     PlasmaKeyboardSettings::self()->setDiacriticsPopupEnabled(m_diacriticsPopupEnabled);
+     PlasmaKeyboardSettings::self()->setDiacriticsHoldThresholdMs(m_diacriticsHoldThresholdMs);
+diff --git a/kcm/plasmakeyboardkcm.h b/kcm/plasmakeyboardkcm.h
+index 25ef5ea..e875b79 100644
+--- a/kcm/plasmakeyboardkcm.h
++++ b/kcm/plasmakeyboardkcm.h
+@@ -19,6 +19,7 @@ class PlasmaKeyboardKcm : public KQuickManagedConfigModule
+     Q_PROPERTY(QStringList enabledLocales READ enabledLocales NOTIFY enabledLocalesChanged)
+     Q_PROPERTY(bool keyboardNavigationEnabled READ keyboardNavigationEnabled WRITE setKeyboardNavigationEnabled NOTIFY keyboardNavigationEnabledChanged)
+     Q_PROPERTY(bool autoCapitalizationEnabled READ autoCapitalizationEnabled WRITE setAutoCapitalizationEnabled NOTIFY autoCapitalizationEnabledChanged)
++    Q_PROPERTY(bool panelFillScreenWidth READ panelFillScreenWidth WRITE setPanelFillScreenWidth NOTIFY panelFillScreenWidthChanged)
+     Q_PROPERTY(int panelHeightPercent READ panelHeightPercent WRITE setPanelHeightPercent NOTIFY panelHeightPercentChanged)
+     Q_PROPERTY(bool diacriticsPopupEnabled READ diacriticsPopupEnabled WRITE setDiacriticsPopupEnabled NOTIFY diacriticsPopupEnabledChanged)
+     Q_PROPERTY(int diacriticsHoldThresholdMs READ diacriticsHoldThresholdMs WRITE setDiacriticsHoldThresholdMs NOTIFY diacriticsHoldThresholdMsChanged)
+@@ -43,6 +44,9 @@ public:
+     bool autoCapitalizationEnabled() const;
+     void setAutoCapitalizationEnabled(bool autoCapitalizationEnabled);
+
++    bool panelFillScreenWidth() const;
++    void setPanelFillScreenWidth(bool panelFillScreenWidth);
++
+     int panelHeightPercent() const;
+     void setPanelHeightPercent(int panelHeightPercent);
+
+@@ -64,6 +68,7 @@ Q_SIGNALS:
+     void enabledLocalesChanged();
+     void keyboardNavigationEnabledChanged();
+     void autoCapitalizationEnabledChanged();
++    void panelFillScreenWidthChanged();
+     void panelHeightPercentChanged();
+     void diacriticsPopupEnabledChanged();
+     void diacriticsHoldThresholdMsChanged();
+@@ -73,6 +78,7 @@ private:
+     bool m_vibrationEnabled = true;
+     bool m_keyboardNavigationEnabled = false;
+     bool m_autoCapitalizationEnabled = true;
++    bool m_panelFillScreenWidth = true;
+     int m_panelHeightPercent = 100;
+     bool m_diacriticsPopupEnabled = true;
+     int m_diacriticsHoldThresholdMs = 600;
+diff --git a/kcm/ui/main.qml b/kcm/ui/main.qml
+index 2b8a43d..19a7b8a 100644
+--- a/kcm/ui/main.qml
++++ b/kcm/ui/main.qml
+@@ -83,6 +83,15 @@ KCM.ScrollViewKCM {
+             onActivated: kcm.panelHeightPercent = currentIndex === 1 ? 50 : 100
+         }
+
++        QQC2.ComboBox {
++            id: panelWidth
++            Kirigami.FormData.label: i18n("Keyboard width:")
++            model: [i18n("Full display"), i18n("Compact centered")]
++            currentIndex: kcm.panelFillScreenWidth ? 0 : 1
++
++            onActivated: kcm.panelFillScreenWidth = currentIndex === 0
++        }
++
+         QQC2.CheckBox {
+             id: diacriticsCheckbox
+             Kirigami.FormData.label: i18n("Alternate characters:")

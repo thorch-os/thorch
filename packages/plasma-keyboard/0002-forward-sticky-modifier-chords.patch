@@ -1,0 +1,180 @@
+diff --git a/src/inputlisteneritem.cpp b/src/inputlisteneritem.cpp
+index ca6bb6a..2fd6ccd 100644
+--- a/src/inputlisteneritem.cpp
++++ b/src/inputlisteneritem.cpp
+@@ -336,6 +336,10 @@ void InputListenerItem::keyPressEvent(QKeyEvent *event)
+         return;
+     }
+
++    if (forwardModifiedKeyEvent(event, InputPlugin::Pressed)) {
++        return;
++    }
++
+     const QList<xkb_keysym_t> keys = QXkbCommon::toKeysym(event);
+     for (auto key : keys) {
+         // Simulate key press only if it's not textual
+@@ -351,6 +355,10 @@ void InputListenerItem::keyReleaseEvent(QKeyEvent *event)
+         return;
+     }
+
++    if (forwardModifiedKeyEvent(event, InputPlugin::Released)) {
++        return;
++    }
++
+     const QList<xkb_keysym_t> keys = QXkbCommon::toKeysym(event);
+     for (auto key : keys) {
+         if (event->text().isEmpty() || key == XKB_KEY_Return) { // (return is technically "\n")
+@@ -363,6 +371,43 @@ void InputListenerItem::keyReleaseEvent(QKeyEvent *event)
+     }
+ }
+
++bool InputListenerItem::forwardModifiedKeyEvent(QKeyEvent *event, InputPlugin::KeyState state)
++{
++    constexpr Qt::KeyboardModifiers chordModifiers =
++        Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier | Qt::GroupSwitchModifier;
++    if (!(event->modifiers() & chordModifiers)) {
++        return false;
++    }
++
++    const QList<xkb_keysym_t> keySymbols = QXkbCommon::toKeysym(event);
++    QList<quint32> keyCodes;
++    keyCodes.reserve(keySymbols.size());
++
++    for (const xkb_keysym_t symbol : keySymbols) {
++        const auto code = m_input.keyCodeForKeysym(symbol);
++        if (!code) {
++            return false;
++        }
++        keyCodes.append(*code);
++    }
++
++    if (state == InputPlugin::Pressed) {
++        if (!m_input.setModifiers(event->modifiers() & chordModifiers)) {
++            return false;
++        }
++        for (const quint32 code : keyCodes) {
++            m_input.key(InputPlugin::Pressed, code);
++        }
++    } else {
++        for (auto code = keyCodes.crbegin(); code != keyCodes.crend(); ++code) {
++            m_input.key(InputPlugin::Released, *code);
++        }
++        m_input.setModifiers(Qt::NoModifier);
++    }
++
++    return true;
++}
++
+ void InputListenerItem::inputMethodEvent(QInputMethodEvent *event)
+ {
+     // Don't forward events from Qt VKBD to KWin if the keyboard window isn't open
+diff --git a/src/inputlisteneritem.h b/src/inputlisteneritem.h
+index 1478c67..69c4fd7 100644
+--- a/src/inputlisteneritem.h
++++ b/src/inputlisteneritem.h
+@@ -55,6 +55,8 @@ Q_SIGNALS:
+     void keyNavigationReleased(int key);
+
+ private:
++    bool forwardModifiedKeyEvent(QKeyEvent *event, InputPlugin::KeyState state);
++
+     InputPlugin m_input;
+     OverlayController *m_overlayController = nullptr;
+     bool m_keyboardNavigationActive = false;
+diff --git a/src/inputmethod.cpp b/src/inputmethod.cpp
+index 22abf2f..fdc7dfc 100644
+--- a/src/inputmethod.cpp
++++ b/src/inputmethod.cpp
+@@ -115,6 +115,32 @@ Keyboard::~Keyboard()
+     //        release();
+ }
+
++std::optional<uint32_t> Keyboard::keyCodeForKeysym(xkb_keysym_t keysym) const
++{
++    if (!mXkbKeymap || !mXkbState) {
++        return std::nullopt;
++    }
++
++    const xkb_layout_index_t layout = xkb_state_serialize_layout(mXkbState.get(), XKB_STATE_LAYOUT_EFFECTIVE);
++    const xkb_keycode_t minKeycode = xkb_keymap_min_keycode(mXkbKeymap.get());
++    const xkb_keycode_t maxKeycode = xkb_keymap_max_keycode(mXkbKeymap.get());
++
++    for (xkb_keycode_t keycode = minKeycode; keycode <= maxKeycode; ++keycode) {
++        const xkb_level_index_t levelCount = xkb_keymap_num_levels_for_key(mXkbKeymap.get(), keycode, layout);
++        for (xkb_level_index_t level = 0; level < levelCount; ++level) {
++            const xkb_keysym_t *symbols = nullptr;
++            const int symbolCount = xkb_keymap_key_get_syms_by_level(mXkbKeymap.get(), keycode, layout, level, &symbols);
++            for (int index = 0; index < symbolCount; ++index) {
++                if (symbols[index] == keysym && keycode >= 8) {
++                    return keycode - 8;
++                }
++            }
++        }
++    }
++
++    return std::nullopt;
++}
++
+ void Keyboard::keyboard_keymap(uint32_t format, int32_t fd, uint32_t size)
+ {
+     mKeymapFormat = format;
+diff --git a/src/inputmethod_p.h b/src/inputmethod_p.h
+index 91bfab1..e4f28f9 100644
+--- a/src/inputmethod_p.h
++++ b/src/inputmethod_p.h
+@@ -12,6 +12,7 @@
+ #include <QtWaylandClient/QWaylandClientExtensionTemplate>
+
+ #include <memory>
++#include <optional>
+ #include <qwayland-input-method-unstable-v1.h>
+ #include <qwayland-wayland.h>
+
+@@ -94,6 +95,8 @@ public:
+     Keyboard(::wl_keyboard *keyboard, InputMethodContext *parent);
+     ~Keyboard();
+
++    std::optional<uint32_t> keyCodeForKeysym(xkb_keysym_t keysym) const;
++
+ Q_SIGNALS:
+     void keyPressed(QKeyEvent *keyEvent);
+     void keyReleased(QKeyEvent *keyEvent);
+diff --git a/src/inputplugin.cpp b/src/inputplugin.cpp
+index 426fff5..4fa3b89 100644
+--- a/src/inputplugin.cpp
++++ b/src/inputplugin.cpp
+@@ -114,6 +114,14 @@ void InputPlugin::key(KeyState state, quint32 scancode)
+     m_context->key(m_context->m_lastKeyboardSerial, m_context->m_lastKeyboardTime, scancode, static_cast<uint32_t>(state));
+ }
+
++std::optional<quint32> InputPlugin::keyCodeForKeysym(quint32 keysym) const
++{
++    if (!m_keyboard) {
++        return std::nullopt;
++    }
++    return m_keyboard->keyCodeForKeysym(keysym);
++}
++
+ InputPlugin::ContentHint InputPlugin::contentHint() const
+ {
+     if (!m_context) {
+diff --git a/src/inputplugin.h b/src/inputplugin.h
+index 9a51153..be20dd3 100644
+--- a/src/inputplugin.h
++++ b/src/inputplugin.h
+@@ -10,6 +10,7 @@
+ #include <QKeyEvent>
+ #include <QObject>
+ #include <memory>
++#include <optional>
+
+ class InputMethod;
+ class Keyboard;
+@@ -78,6 +79,7 @@ public:
+     };
+     void keysym(uint timestamp, uint sym, KeyState state, uint modifiers);
+     void key(KeyState state, quint32 scancode);
++    std::optional<quint32> keyCodeForKeysym(quint32 keysym) const;
+
+     ContentHint contentHint() const;
+     ContentPurpose contentPurpose() const;

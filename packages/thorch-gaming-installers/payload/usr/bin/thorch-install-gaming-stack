@@ -12,6 +12,7 @@ EOF
 install_root_packages() {
   local packages=()
   local pkg
+  local install_ok=0
 
   for pkg in thorch-gamescope thorch-mangohud thorch-gamepadcalibration lsb-release vulkan-tools xorg-xwininfo; do
     if pacman -Si "${pkg}" >/dev/null 2>&1 && ! pacman -Q "${pkg}" >/dev/null 2>&1; then
@@ -23,14 +24,27 @@ install_root_packages() {
 
   echo "Installing optional system packages: ${packages[*]}"
   if [[ "${EUID}" -eq 0 ]]; then
-    pacman -S --needed --noconfirm "${packages[@]}"
+    if pacman -S --needed --noconfirm "${packages[@]}"; then
+      install_ok=1
+    fi
   elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    sudo pacman -S --needed --noconfirm "${packages[@]}"
+    if sudo pacman -S --needed --noconfirm "${packages[@]}"; then
+      install_ok=1
+    fi
+  elif command -v sudo >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
+    if sudo pacman -S --needed --noconfirm "${packages[@]}"; then
+      install_ok=1
+    fi
   elif command -v pkexec >/dev/null 2>&1; then
-    pkexec pacman -S --needed --noconfirm "${packages[@]}"
-  else
+    if pkexec pacman -S --needed --noconfirm "${packages[@]}"; then
+      install_ok=1
+    fi
+  fi
+
+  if [[ "${install_ok}" -ne 1 ]]; then
     cat >&2 <<EOF
-Could not install optional system packages automatically.
+Warning: optional gaming packages could not be installed automatically.
+The FEX and Steam client setup will continue.
 
 Run this later as root:
   pacman -S --needed --noconfirm ${packages[*]}
@@ -51,6 +65,7 @@ if command -v thorch-install-steam-arm64 >/dev/null 2>&1; then
   thorch-install-steam-arm64 --yes
 else
   echo "thorch-install-steam-arm64 is missing." >&2
+  exit 1
 fi
 
 echo

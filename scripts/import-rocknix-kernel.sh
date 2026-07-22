@@ -91,9 +91,11 @@ fi
   die "provide --from-dir or both --boot-dir and --root-dir"
 }
 
-require_cmd find install rsync
+require_cmd find install python3 rsync
 
 root="$(repo_root)"
+boot_tool="${root}/packages/thorch-bsp/payload/usr/lib/thorch/boot_image.py"
+[[ -f "${boot_tool}" ]] || die "missing canonical boot-image tool: ${boot_tool}"
 if [[ "${dest}" == /* ]]; then
   dest_abs="$(abspath "${dest}")"
 else
@@ -197,60 +199,8 @@ find_runtime_icd() {
 
 extract_android_boot_image() {
   local kernel_boot="$1" image_out="$2"
-  python3 - "${kernel_boot}" "${image_out}" <<'PY'
-import pathlib
-import struct
-import sys
-import zlib
-
-boot_path = pathlib.Path(sys.argv[1])
-image_out = pathlib.Path(sys.argv[2])
-data = boot_path.read_bytes()
-if data[:8] != b"ANDROID!":
-    raise SystemExit(f"{boot_path} is not an Android boot image")
-
-kernel_size = struct.unpack_from("<I", data, 8)[0]
-page_size = struct.unpack_from("<I", data, 36)[0]
-kernel_offset = page_size
-kernel = data[kernel_offset:kernel_offset + kernel_size]
-if len(kernel) != kernel_size:
-    raise SystemExit("truncated Android boot kernel payload")
-
-dtb_magic = b"\xd0\r\xfe\xed"
-try:
-    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
-    image = decompressor.decompress(kernel) + decompressor.flush()
-    trailer = decompressor.unused_data
-except zlib.error:
-    dtb_at = kernel.find(dtb_magic)
-    if dtb_at < 0:
-        raise
-    image = kernel[:dtb_at]
-    trailer = kernel[dtb_at:]
-
-pos = 0
-has_thor_dtb = False
-while True:
-    dtb_at = trailer.find(dtb_magic, pos)
-    if dtb_at < 0:
-        break
-    if len(trailer) < dtb_at + 8:
-        raise SystemExit("appended DTB is truncated")
-    dtb_size = struct.unpack_from(">I", trailer, dtb_at + 4)[0]
-    if dtb_size < 8 or len(trailer) < dtb_at + dtb_size:
-        raise SystemExit("appended DTB is truncated")
-    dtb = trailer[dtb_at:dtb_at + dtb_size]
-    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb:
-        has_thor_dtb = True
-        break
-    pos = dtb_at + dtb_size
-
-if not has_thor_dtb:
-    raise SystemExit("Android boot kernel payload does not contain an AYN Thor DTB")
-
-image_out.parent.mkdir(parents=True, exist_ok=True)
-image_out.write_bytes(image)
-PY
+  python3 "${boot_tool}" extract-kernel \
+    "${kernel_boot}" "${image_out}" --require-thor
 }
 
 freedreno_lib="$(find_runtime_path usr/lib/libvulkan_freedreno.so || true)"

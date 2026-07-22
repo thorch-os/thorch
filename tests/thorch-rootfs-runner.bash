@@ -32,6 +32,54 @@ grep -q 'unmount_path_if_mounted "${rootfs}/proc"' "${common}" ||
 grep -q 'cleanup_build_mounts_on_exit' "${image_builder}" ||
   fail "image builder does not clean temporary mounts on exit"
 
+hook_fixture="$(mktemp -d)"
+# shellcheck source=../scripts/lib/common.sh
+source "${common}"
+mask_chroot_stock_kernel_hooks "${hook_fixture}"
+for hook in \
+  60-mkinitcpio-remove.hook \
+  60-thorch-boot-transaction-prepare.hook \
+  90-mkinitcpio-install.hook \
+  95-thorch-boot-transaction-commit.hook; do
+  target="${hook_fixture}/etc/pacman.d/hooks/${hook}"
+  [[ -L "${target}" && "$(readlink "${target}")" == /dev/null ]] ||
+    fail "package root did not mask kernel hook ${hook}"
+done
+rm -rf "${hook_fixture}"
+
+fake_removal_seen=0
+fake_query_log="$(mktemp)"
+fake_installed_packages=(
+  linux-firmware
+  linux-firmware-qcom
+  thorch-firmware-rocknix
+)
+run_aarch64_rootfs_cmd() {
+  if [[ "$4" == -Qq ]]; then
+    printf 'query\n' >> "${fake_query_log}"
+    printf '%s\n' "${fake_installed_packages[@]}"
+    return 0
+  fi
+
+  [[ "$*" == "/fake/root fake-machine /usr/bin/pacman -R --noconfirm -- linux-firmware linux-firmware-qcom" ]] ||
+    fail "chroot package removal did not contain exactly the installed packages"
+  fake_removal_seen=1
+}
+remove_chroot_packages_if_installed \
+  /fake/root fake-machine \
+  linux-firmware linux-firmware-amdgpu linux-firmware-qcom
+[[ "$(wc -l < "${fake_query_log}")" -eq 1 && "${fake_removal_seen}" -eq 1 ]] ||
+  fail "chroot package removal did not query and remove installed packages"
+
+: > "${fake_query_log}"
+fake_removal_seen=0
+fake_installed_packages=(thorch-firmware-rocknix)
+remove_chroot_packages_if_installed \
+  /fake/root fake-machine linux-firmware
+[[ "$(wc -l < "${fake_query_log}")" -eq 1 && "${fake_removal_seen}" -eq 0 ]] ||
+  fail "chroot package removal did not leave an already-clean root unchanged"
+rm -f "${fake_query_log}"
+
 if (( EUID == 0 )); then
   mount_fixture="$(mktemp -d)"
   cleanup_mount_fixture() {

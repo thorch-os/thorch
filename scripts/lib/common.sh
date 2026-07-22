@@ -43,8 +43,11 @@ require_root() {
 abspath() {
   local path="$1"
   if command -v realpath >/dev/null 2>&1; then
-    realpath -m "${path}"
-    return
+    local resolved
+    if resolved="$(realpath -m "${path}" 2>/dev/null)"; then
+      printf '%s\n' "${resolved}"
+      return
+    fi
   fi
   if [[ -d "${path}" ]]; then
     (cd "${path}" && pwd)
@@ -55,6 +58,25 @@ abspath() {
     mkdir -p "${parent}"
     printf '%s/%s\n' "$(cd "${parent}" && pwd)" "${base}"
   fi
+}
+
+resolve_thorch_build_dir() {
+  local root="$1" configured="$2" canonical_root resolved
+
+  [[ -n "${configured}" ]] || die "THORCH_BUILD_DIR must not be empty"
+  canonical_root="$(abspath "${root}")"
+  if [[ "${configured}" = /* ]]; then
+    resolved="$(abspath "${configured}")"
+  else
+    resolved="$(abspath "${canonical_root}/${configured}")"
+    case "${resolved}" in
+      "${canonical_root}"/*) ;;
+      *) die "THORCH_BUILD_DIR escapes ${canonical_root}: ${configured}" ;;
+    esac
+  fi
+  [[ "${resolved}" != / ]] || \
+    die "THORCH_BUILD_DIR must not resolve to the filesystem root"
+  printf '%s\n' "${resolved}"
 }
 
 nspawn_machine_name() {
@@ -82,10 +104,12 @@ rootfs_runner() {
 require_rootfs_runner() {
   case "$(rootfs_runner)" in
     chroot)
-      require_cmd chroot mknod mount mountpoint qemu-aarch64-static umount unshare
+      require_cmd chroot mknod mount mountpoint umount unshare
+      [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]] || require_cmd qemu-aarch64-static
       ;;
     systemd-nspawn)
-      require_cmd qemu-aarch64-static systemd-nspawn
+      require_cmd systemd-nspawn
+      [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]] || require_cmd qemu-aarch64-static
       ;;
   esac
 }
@@ -159,7 +183,11 @@ run_plain_chroot_cmd() {
       trap "exit 143" TERM
       mount -t proc proc "${rootfs}/proc"
       mounted_proc=1
-      chroot "${rootfs}" /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
+      if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+        chroot "${rootfs}" /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
+      else
+        chroot "${rootfs}" /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@" || status=$?
+      fi
       exit "${status}"
     ' bash "${rootfs}" "$@"
 }
@@ -175,13 +203,15 @@ run_aarch64_rootfs_cmd() {
       ;;
     systemd-nspawn)
       rm -rf "${rootfs}/run/systemd/nspawn"
-      systemd-nspawn \
-        --quiet \
-        --pipe \
-        --machine="${machine}" \
-        --register=no \
-        --directory="${rootfs}" \
-        /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
+      if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+        systemd-nspawn \
+          --quiet --pipe --machine="${machine}" --register=no --directory="${rootfs}" \
+          /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
+      else
+        systemd-nspawn \
+          --quiet --pipe --machine="${machine}" --register=no --directory="${rootfs}" \
+          /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
+      fi
       ;;
   esac
 }
@@ -340,14 +370,19 @@ configure_alarm_pacman() {
 
   install -d "${rootfs}/etc/pacman.d"
   : > "${rootfs}/etc/pacman.d/mirrorlist"
-  for mirror in ${ALARM_MIRRORS:-${ALARM_MIRROR:-http://mirror.archlinuxarm.org}}; do
+  for mirror in ${ALARM_MIRRORS:-${ALARM_MIRROR:-https://ca.us.mirror.archlinuxarm.org}}; do
     printf 'Server = %s/$arch/$repo\n' "${mirror%/}" >> "${rootfs}/etc/pacman.d/mirrorlist"
   done
+}
 
-  if ! grep -q '^DisableSandbox' "${rootfs}/etc/pacman.conf"; then
-    sed -i '/^\[options\]/a DisableSandbox' "${rootfs}/etc/pacman.conf"
+configure_pacman_for_emulated_build() {
+  local config="$1"
+
+  [[ -f "${config}" ]] || die "missing pacman configuration: ${config}"
+  if ! grep -q '^DisableSandbox$' "${config}"; then
+    sed -i '/^\[options\]/a DisableSandbox' "${config}"
   fi
-  sed -i 's/^CheckSpace/#CheckSpace/' "${rootfs}/etc/pacman.conf"
+  sed -i 's/^CheckSpace$/#CheckSpace/' "${config}"
 }
 
 configure_chroot_resolver() {
@@ -362,35 +397,69 @@ configure_chroot_resolver() {
   cp -L "${source}" "${rootfs}/etc/resolv.conf"
 }
 
+thorch_stock_firmware_packages() {
+  printf '%s\n' \
+    linux-firmware \
+    linux-firmware-amdgpu \
+    linux-firmware-atheros \
+    linux-firmware-broadcom \
+    linux-firmware-cirrus \
+    linux-firmware-intel \
+    linux-firmware-liquidio \
+    linux-firmware-marvell \
+    linux-firmware-mediatek \
+    linux-firmware-mellanox \
+    linux-firmware-nfp \
+    linux-firmware-nvidia \
+    linux-firmware-other \
+    linux-firmware-qcom \
+    linux-firmware-qlogic \
+    linux-firmware-radeon \
+    linux-firmware-realtek \
+    linux-firmware-whence
+}
+
+remove_chroot_packages_if_installed() {
+  local rootfs="$1" machine="$2" package installed_package installed_output
+  local -a installed=()
+  shift 2
+
+  installed_output="$(
+    run_aarch64_rootfs_cmd "${rootfs}" "${machine}" /usr/bin/pacman -Qq
+  )"
+  for package in "$@"; do
+    while IFS= read -r installed_package; do
+      if [[ "${installed_package}" == "${package}" ]]; then
+        installed+=("${package}")
+        break
+      fi
+    done <<< "${installed_output}"
+  done
+  (( ${#installed[@]} > 0 )) || return 0
+
+  log "removing packages from ephemeral chroot: ${installed[*]}"
+  run_aarch64_rootfs_cmd \
+    "${rootfs}" "${machine}" /usr/bin/pacman -R --noconfirm -- "${installed[@]}"
+}
+
 mask_chroot_stock_kernel_hooks() {
   local rootfs="$1"
 
   install -d "${rootfs}/etc/pacman.d/hooks"
   ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/60-mkinitcpio-remove.hook"
+  ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/60-thorch-boot-transaction-prepare.hook"
   ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/90-mkinitcpio-install.hook"
+  ln -sf /dev/null "${rootfs}/etc/pacman.d/hooks/95-thorch-boot-transaction-commit.hook"
 }
 
-extract_alarm_rootfs_without_stock_kernel_firmware() {
+extract_alarm_rootfs() {
   local rootfs_tar="$1"
   local dest="$2"
 
-  bsdtar -xpf "${rootfs_tar}" -C "${dest}" \
-    --exclude './boot/*' \
-    --exclude 'boot/*' \
-    --exclude './etc/mkinitcpio.d/linux-aarch64.preset' \
-    --exclude 'etc/mkinitcpio.d/linux-aarch64.preset' \
-    --exclude './usr/lib/firmware/*' \
-    --exclude 'usr/lib/firmware/*' \
-    --exclude './usr/lib/modules/*' \
-    --exclude 'usr/lib/modules/*' \
-    --exclude './usr/share/licenses/linux-aarch64*' \
-    --exclude 'usr/share/licenses/linux-aarch64*' \
-    --exclude './usr/share/licenses/linux-firmware*' \
-    --exclude 'usr/share/licenses/linux-firmware*' \
-    --exclude './var/lib/pacman/local/linux-aarch64-*' \
-    --exclude 'var/lib/pacman/local/linux-aarch64-*' \
-    --exclude './var/lib/pacman/local/linux-firmware*' \
-    --exclude 'var/lib/pacman/local/linux-firmware*'
+  # Keep the rootfs package database and owned files coherent. Thorch's kernel
+  # and firmware packages replace the stock packages through normal pacman
+  # provides/conflicts/replaces metadata during the image transaction.
+  bsdtar -xpf "${rootfs_tar}" -C "${dest}"
 }
 
 repair_alarm_usrmerge_links() {
@@ -420,6 +489,7 @@ repair_alarm_usrmerge_links() {
 
 validate_rocknix_kernel_provenance() {
   local kernel_dir="$1"
+  local expected_kernel_release="${2:-$(linux_thorch_expected_kernel_release)}"
   local provenance="${kernel_dir}/PROVENANCE"
   local expected_kernel_ref="${THORCH_KERNEL_REF:-}"
   local firmware provenance_ref="" provenance_release="" module_releases
@@ -439,6 +509,9 @@ validate_rocknix_kernel_provenance() {
 
   module_releases="$(find "${kernel_dir}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd, -)"
   [[ -n "${module_releases}" ]] || die "ROCKNIX kernel artifacts are missing /usr/lib/modules; run make kernel"
+  if [[ "${module_releases}" != "${expected_kernel_release}" ]]; then
+    die "ROCKNIX kernel modules are ${module_releases}, but linux-thorch requires ${expected_kernel_release}; run make kernel"
+  fi
   if [[ -n "${provenance_release}" ]] &&
     ! tr ',' '\n' <<<"${module_releases}" | grep -Fxq -- "${provenance_release}"; then
     die "ROCKNIX kernel modules are ${module_releases}, but provenance records ${provenance_release}; run make kernel"
@@ -451,6 +524,34 @@ validate_rocknix_kernel_provenance() {
     [[ -f "${kernel_dir}/usr/lib/firmware/${firmware}" ]] || \
       die "ROCKNIX kernel artifacts are missing firmware ${firmware}; re-import from a ROCKNIX image with /SYSTEM"
   done
+}
+
+linux_thorch_expected_kernel_release() {
+  local pkgbuild="${1:-$(repo_root)/packages/linux-thorch/PKGBUILD}"
+  local pkgver pkgrel
+
+  [[ -f "${pkgbuild}" ]] || die "missing linux-thorch PKGBUILD: ${pkgbuild}"
+  pkgver="$(sed -n 's/^pkgver=//p' "${pkgbuild}" | head -n1)"
+  pkgrel="$(sed -n 's/^pkgrel=//p' "${pkgbuild}" | head -n1)"
+  [[ "${pkgver}" =~ ^[0-9][0-9A-Za-z._+-]*$ ]] || \
+    die "unable to derive linux-thorch pkgver from ${pkgbuild}"
+  [[ "${pkgrel}" =~ ^[1-9][0-9]*$ ]] || \
+    die "unable to derive linux-thorch pkgrel from ${pkgbuild}"
+  printf '%s-thorch%s\n' "${pkgver}" "${pkgrel}"
+}
+
+rocknix_kernel_artifacts_current() {
+  local kernel_dir="$1"
+  local expected_kernel_release="${2:-$(linux_thorch_expected_kernel_release)}"
+  local provenance_release module_releases
+
+  [[ -f "${kernel_dir}/boot/Image" ]] || return 1
+  [[ -f "${kernel_dir}/boot/KERNEL" ]] || return 1
+  [[ -f "${kernel_dir}/PROVENANCE" ]] || return 1
+  provenance_release="$(awk -F= '$1 == "THORCH_KERNEL_RELEASE" {print substr($0, index($0, "=") + 1); exit}' "${kernel_dir}/PROVENANCE" 2>/dev/null || true)"
+  [[ "${provenance_release}" == "${expected_kernel_release}" ]] || return 1
+  module_releases="$(find "${kernel_dir}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd, -)"
+  [[ "${module_releases}" == "${expected_kernel_release}" ]]
 }
 
 validate_rocknix_runtime_provenance() {

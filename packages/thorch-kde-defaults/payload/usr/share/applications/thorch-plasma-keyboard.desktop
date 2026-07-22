@@ -7,7 +7,7 @@
 #
 [Desktop Entry]
 Name=Thorch Plasma Keyboard
-Exec=env QT_IM_MODULES=qtvirtualkeyboard QT_QPA_PLATFORM=wayland /usr/bin/plasma-keyboard
+Exec=env PLASMA_KEYBOARD_OUTPUT=DSI-1 QT_IM_MODULES=qtvirtualkeyboard QT_QPA_PLATFORM=wayland /usr/bin/plasma-keyboard
 Type=Application
 X-KDE-Wayland-VirtualKeyboard=true
 Icon=input-keyboard-virtual

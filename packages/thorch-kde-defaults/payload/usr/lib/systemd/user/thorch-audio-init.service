@@ -1,11 +1,13 @@
 [Unit]
 Description=Initialize Thorch speaker audio routing
+Wants=pipewire.service wireplumber.service pipewire-pulse.service
 After=pipewire.service wireplumber.service pipewire-pulse.service
 
 [Service]
-Type=oneshot
+# Audio objects appear asynchronously after PipeWire starts. Do not serialize
+# the graphical session behind the routing helper's bounded retry loop.
+Type=exec
 ExecStart=/usr/bin/thorch-audio-init
 
 [Install]
 WantedBy=default.target
-

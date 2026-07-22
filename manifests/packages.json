@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "aliases": {
+    "thorch-fex": "thorch-fex-bin"
+  },
+  "packages": [
+    {
+      "name": "thorch-bsp",
+      "path": "packages/thorch-bsp",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "thorch-boot-bootstrap-ready",
+      "path": "packages/thorch-boot-bootstrap-ready",
+      "profiles": ["build", "image"],
+      "build_inputs": []
+    },
+    {
+      "name": "linux-thorch",
+      "path": "packages/linux-thorch",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": ["THORCH_ROCKNIX_KERNEL_DIR"]
+    },
+    {
+      "name": "thorch-firmware-rocknix",
+      "path": "packages/thorch-firmware-rocknix",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": ["THORCH_FIRMWARE_DIR", "THORCH_ROCKNIX_KERNEL_DIR"]
+    },
+    {
+      "name": "kwin",
+      "path": "packages/kwin",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "plasma-keyboard",
+      "path": "packages/plasma-keyboard",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "thorch-kde-defaults",
+      "path": "packages/thorch-kde-defaults",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "thorch-firstboot",
+      "path": "packages/thorch-firstboot",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "thorch-installer",
+      "path": "packages/thorch-installer",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "thorch-fex-bin",
+      "path": "packages/thorch-fex-bin",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": ["THORCH_ROCKNIX_RUNTIME_DIR"]
+    },
+    {
+      "name": "thorch-gamescope",
+      "path": "packages/thorch-gamescope",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": ["THORCH_ROCKNIX_DIR/packages/apps/gamescope/patches"]
+    },
+    {
+      "name": "thorch-gaming-installers",
+      "path": "packages/thorch-gaming-installers",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "thorch-waydroid-installer",
+      "path": "packages/thorch-waydroid-installer",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "thorch-inputplumber",
+      "path": "packages/thorch-inputplumber",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
+      "name": "thorch-rocknix-quirks",
+      "path": "packages/thorch-rocknix-quirks",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": ["THORCH_ROCKNIX_DIR/packages/hardware/quirks/platforms/SM8550"]
+    },
+    {
+      "name": "thorch-mangohud",
+      "path": "packages/thorch-mangohud",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": [
+        "THORCH_ROCKNIX_DIR/packages/apps/mangohud/patches/SM8550",
+        "THORCH_ROCKNIX_DIR/packages/apps/mangohud/config"
+      ]
+    },
+    {
+      "name": "thorch-gamepadcalibration",
+      "path": "packages/thorch-gamepadcalibration",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    }
+  ]
+}

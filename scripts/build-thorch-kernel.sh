@@ -54,9 +54,16 @@ path_abs() {
 }
 
 root="$(repo_root)"
+boot_tool="${root}/packages/thorch-bsp/payload/usr/lib/thorch/boot_image.py"
+[[ -f "${boot_tool}" ]] || die "missing canonical boot-image tool: ${boot_tool}"
+linux_pkgbuild="${root}/packages/linux-thorch/PKGBUILD"
+expected_kernel_release="$(linux_thorch_expected_kernel_release "${linux_pkgbuild}")"
 source_repo="${THORCH_KERNEL_REPO:-https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git}"
 source_ref="${THORCH_KERNEL_REF:-v7.1.2}"
 source_version="${source_ref#v}"
+[[ "${expected_kernel_release}" == "${source_version}"-thorch* ]] || \
+  die "linux-thorch expects ${expected_kernel_release}, but THORCH_KERNEL_REF resolves to ${source_version}"
+kernel_localversion="${expected_kernel_release#"${source_version}"}"
 source_major="${source_version%%.*}"
 tarball_url="${THORCH_KERNEL_TARBALL_URL:-https://www.kernel.org/pub/linux/kernel/v${source_major}.x/linux-${source_version}.tar.xz}"
 tarball_sha256="${THORCH_KERNEL_TARBALL_SHA256:-}"
@@ -70,7 +77,13 @@ read -r -a dts_patch_dirs <<< "${THORCH_KERNEL_DTS_PATCH_DIRS:-packages/linux-th
 dest="${THORCH_ROCKNIX_KERNEL_DIR}"
 template=""
 jobs="${THORCH_KERNEL_JOBS:-$(nproc)}"
-cross_compile="${THORCH_KERNEL_CROSS_COMPILE:-aarch64-linux-gnu-}"
+if [[ -n "${THORCH_KERNEL_CROSS_COMPILE+x}" ]]; then
+  cross_compile="${THORCH_KERNEL_CROSS_COMPILE}"
+elif [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+  cross_compile=""
+else
+  cross_compile="aarch64-linux-gnu-"
+fi
 fetch=1
 reuse_build_dir="${THORCH_KERNEL_REUSE_BUILD_DIR:-0}"
 skip_kernel_patches=0
@@ -208,8 +221,12 @@ if [[ -n "${tarball_url}" && "${fetch}" -eq 1 ]]; then
   tarball_path="${cache_dir}/${tarball_name}"
 
   install -d "${cache_dir}"
-  log "downloading ROCKNIX kernel base tarball ${tarball_name}"
-  curl -fL --continue-at - -o "${tarball_path}" "${tarball_url}"
+  if [[ -f "${tarball_path}" ]] && tar -tf "${tarball_path}" >/dev/null 2>&1; then
+    log "using cached ROCKNIX kernel base tarball ${tarball_name}"
+  else
+    log "downloading ROCKNIX kernel base tarball ${tarball_name}"
+    curl -fL --continue-at - -o "${tarball_path}" "${tarball_url}"
+  fi
   if [[ -n "${tarball_sha256}" ]]; then
     printf '%s  %s\n' "${tarball_sha256}" "${tarball_path}" | sha256sum -c -
   fi
@@ -379,7 +396,7 @@ apply_config_line "CONFIG_IKCONFIG=y"
 apply_config_line "CONFIG_IKCONFIG_PROC=y"
 apply_config_line 'CONFIG_INITRAMFS_SOURCE=""'
 apply_config_line 'CONFIG_DEFAULT_HOSTNAME="Thorch"'
-apply_config_line 'CONFIG_LOCALVERSION=""'
+apply_config_line "CONFIG_LOCALVERSION=\"${kernel_localversion}\""
 apply_config_line "CONFIG_LOCALVERSION_AUTO=n"
 
 make_args=(
@@ -402,6 +419,8 @@ log "building Thor kernel, ${#dtb_targets[@]} ROCKNIX SM8550 DTBs, and modules"
 make "${make_args[@]}" -j"${jobs}" DTC_FLAGS=-@ Image "${dtb_targets[@]}" modules
 kernver="$(make "${make_args[@]}" -s kernelrelease)"
 [[ -n "${kernver}" ]] || die "unable to determine built kernel release"
+[[ "${kernver}" == "${expected_kernel_release}" ]] || \
+  die "built kernel release is ${kernver}, expected ${expected_kernel_release}"
 
 image="${build_abs}/arch/arm64/boot/Image"
 [[ -f "${image}" ]] || die "kernel build did not produce ${image}"
@@ -420,123 +439,14 @@ make "${make_args[@]}" INSTALL_MOD_PATH="${modules_stage}" INSTALL_MOD_STRIP=1 D
 depmod -b "${modules_stage}" "${kernver}"
 [[ -d "${modules_stage}/lib/modules/${kernver}" ]] || die "modules_install did not produce lib/modules/${kernver}"
 
-boot_tmp="${build_abs}/KERNEL"
+boot_tmp="${build_abs}/thorch-boot.img"
 log "repacking Android boot template with source-built kernel and ROCKNIX SM8550 DTBs"
-python3 - "${template_abs}" "${image}" "${boot_tmp}" "${dtb_paths[@]}" <<'PY'
-import gzip
-import pathlib
-import struct
-import sys
-
-template_path = pathlib.Path(sys.argv[1])
-image_path = pathlib.Path(sys.argv[2])
-out_path = pathlib.Path(sys.argv[3])
-dtb_paths = [pathlib.Path(path) for path in sys.argv[4:]]
-if not dtb_paths:
-    raise SystemExit("no ROCKNIX SM8550 DTBs were supplied")
-print(f"appending {len(dtb_paths)} DTB(s): {', '.join(p.name for p in dtb_paths)}", file=sys.stderr)
-
-data = template_path.read_bytes()
-if data[:8] != b"ANDROID!":
-    raise SystemExit(f"{template_path} is not an Android boot image")
-if len(data) < 40:
-    raise SystemExit(f"{template_path} is truncated")
-
-def u32(offset):
-    return struct.unpack_from("<I", data, offset)[0]
-
-def align(value, page_size):
-    return (value + page_size - 1) // page_size * page_size
-
-kernel_size = u32(8)
-ramdisk_size = u32(16)
-second_size = u32(24)
-page_size = u32(36)
-if page_size <= 0 or page_size > 65536:
-    raise SystemExit(f"{template_path} has invalid page size {page_size}")
-if len(data) < page_size:
-    raise SystemExit(f"{template_path} is smaller than its header page")
-
-kernel_offset = page_size
-ramdisk_offset = align(kernel_offset + kernel_size, page_size)
-second_offset = align(ramdisk_offset + ramdisk_size, page_size)
-tail_offset = align(second_offset + second_size, page_size)
-if len(data) < tail_offset:
-    raise SystemExit(f"{template_path} is truncated")
-
-ramdisk = data[ramdisk_offset:ramdisk_offset + ramdisk_size]
-second = data[second_offset:second_offset + second_size]
-tail = data[tail_offset:]
-
-dtb_blob = b""
-for dtb_path in dtb_paths:
-    dtb = dtb_path.read_bytes()
-    if not dtb.startswith(b"\xd0\r\xfe\xed"):
-        raise SystemExit(f"{dtb_path} is not a flattened device tree")
-    if b"__symbols__\x00" not in dtb:
-        raise SystemExit(f"{dtb_path} is missing the ROCKNIX overlay symbol table")
-    dtb_blob += dtb
-
-payload = gzip.compress(image_path.read_bytes(), compresslevel=9, mtime=0) + dtb_blob
-header = bytearray(data[:page_size])
-struct.pack_into("<I", header, 8, len(payload))
-
-def pad(blob):
-    return blob + (b"\0" * ((page_size - len(blob) % page_size) % page_size))
-
-out_path.write_bytes(header + pad(payload) + pad(ramdisk) + pad(second) + tail)
-PY
+printf 'appending %s DTB(s): %s\n' "${#dtb_paths[@]}" "$(basename -a "${dtb_paths[@]}" | paste -sd ', ' -)" >&2
+python3 "${boot_tool}" replace-kernel \
+  "${template_abs}" "${image}" "${boot_tmp}" "${dtb_paths[@]}"
 
 log "verifying embedded BinderFS kernel config"
-python3 - "${image}" "${fragment_abs}" <<'PY'
-import gzip
-import pathlib
-import sys
-
-image = pathlib.Path(sys.argv[1]).read_bytes()
-required_path = pathlib.Path(sys.argv[2])
-
-start = image.find(b"IKCFG_ST")
-end = image.find(b"IKCFG_ED", start)
-if start < 0 or end < 0:
-    raise SystemExit(f"{sys.argv[1]} does not embed a kernel config")
-
-blob = image[start + len(b"IKCFG_ST"):end].lstrip(b"\x00\n")
-try:
-    config_text = gzip.decompress(blob).decode("utf-8", "replace")
-except OSError as exc:
-    raise SystemExit(f"could not decompress embedded kernel config: {exc}")
-
-config = {}
-for line in config_text.splitlines():
-    if line.startswith("CONFIG_") and "=" in line:
-        key, value = line.split("=", 1)
-        config[key] = value
-    elif line.startswith("# CONFIG_") and line.endswith(" is not set"):
-        key = line.split()[1]
-        config[key] = "n"
-
-missing = []
-for raw in required_path.read_text(encoding="utf-8").splitlines():
-    raw = raw.strip()
-    if raw.startswith("# CONFIG_") and raw.endswith(" is not set"):
-        key = raw.split()[1]
-        value = "n"
-    else:
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
-        key, value = line.split("=", 1)
-
-    if (config.get(key, "n") if value == "n" else config.get(key)) != value:
-        missing.append(f"{key}={value}")
-
-if missing:
-    raise SystemExit(
-        "source-built Thor kernel is missing required Waydroid support:\n  "
-        + "\n  ".join(missing)
-    )
-PY
+python3 "${boot_tool}" check-config "${image}" "${fragment_abs}"
 
 log "installing source-built Thor kernel artifacts into ${dest_abs}"
 rm -rf "${dest_abs}/usr/lib/modules" "${dest_abs}/boot/dtb/qcom"

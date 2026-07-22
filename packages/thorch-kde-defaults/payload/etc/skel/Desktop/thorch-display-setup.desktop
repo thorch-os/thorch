@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Reset Thorch Display
-Comment=Restore the AYN Thor display and touch layout
-Exec=/usr/bin/thorch-display-setup
-Icon=video-display
-Terminal=false
-Categories=Settings;

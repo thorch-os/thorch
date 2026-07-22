@@ -8,17 +8,18 @@ write_rule() {
 # SPDX-License-Identifier: GPL-2.0
 # Thorch AYN Thor touch routing hints for KDE/KWin.
 #
-# The session mapper applies KWin's runtime outputName, matrix, and orientation
-# properties by stable /dev/input/by-path names. Keep udev hints minimal so
-# libinput does not pre-transform coordinates before KWin maps the devices.
+# Apply the panel's fixed 90-degree clockwise mounting transform as libinput's
+# default. KWin otherwise resets a runtime orientation when outputs change.
 
 SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHSCREEN}=="1", \
  ENV{ID_PATH}=="platform-a90000.i2c", \
- ENV{WL_OUTPUT}="DSI-2"
+ ENV{WL_OUTPUT}="DSI-2", \
+ ENV{LIBINPUT_CALIBRATION_MATRIX}="0 -1 1 1 0 0"
 
 SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHSCREEN}=="1", \
  ENV{ID_PATH}=="platform-98c000.i2c", \
- ENV{WL_OUTPUT}="DSI-1"
+ ENV{WL_OUTPUT}="DSI-1", \
+ ENV{LIBINPUT_CALIBRATION_MATRIX}="0 -1 1 1 0 0"
 EOF
 	chmod 0644 "${path}"
 }

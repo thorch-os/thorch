@@ -1,0 +1,50 @@
+name: Hardware compatibility report
+description: Share results from a tested device configuration.
+title: "hardware: "
+body:
+  - type: input
+    id: revision
+    attributes:
+      label: Thorch revision or image
+      placeholder: Commit, tag, or image filename
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and hardware revision
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Test setup
+      description: Boot media, root filesystem, session, and relevant configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Results
+      description: Report pass, fail, or not tested for the features you exercised.
+      placeholder: |
+        Cold boot:
+        Display and touch:
+        Controls:
+        Audio and networking:
+        Suspend and resume:
+        Recovery:
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics or media
+      description: Attach redacted logs, photos, or video when useful.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I removed credentials, serial numbers, and personal data.
+          required: true

@@ -2,30 +2,41 @@
 set -euo pipefail
 
 steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
-proton_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
-proton_dir="${steam_root}/steamapps/common/${proton_name}"
 steam_branch="${THORCH_STEAM_BRANCH:-}"
 runtime_lib_dir=""
 support_bin_dir="${steam_root}/thorch-steamos-bin"
+wget_retry=(
+  -c
+  --tries=20
+  --waitretry=15
+  --retry-connrefused
+  --read-timeout=30
+  --timeout=30
+  --retry-on-http-error=408,429,500,502,503,504
+)
 mkdir -p "${steam_root}" "${steam_root}/package" "${HOME}/.steam"
 if [[ -z "${steam_branch}" ]]; then
   steam_branch="publicbeta"
 fi
 echo "${steam_branch}" > "${steam_root}/package/beta"
 
-install_rocknix_steam_compat_assets() {
-  local system_steam
+replace_symlink() {
+  local link="$2" target="$1"
+
+  [[ ! -e "${link}" || -L "${link}" ]] || return 1
+  rm -f -- "${link}"
+  ln -s -- "${target}" "${link}"
+}
+
+install_steam_registry() {
+  local registry system_steam
 
   system_steam="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
-  [[ -f "${system_steam}/compatibilitytool.vdf" && -f "${system_steam}/toolmanifest.vdf" ]] || return 0
-
-  # Register the ARM Proton metadata only; users install the tool payload from Steam.
-  mkdir -p "${steam_root}/compatibilitytools.d" "${proton_dir}" "${HOME}/.steam"
-  ln -sfnT "${proton_dir}" "${steam_root}/compatibilitytools.d/Proton11ARM"
-  cp -f "${system_steam}/compatibilitytool.vdf" "${steam_root}/compatibilitytools.d/"
-  cp -f "${system_steam}/toolmanifest.vdf" "${proton_dir}/"
-  if [[ -f "${system_steam}/registry.vdf" ]]; then
-    python - "${system_steam}/registry.vdf" "${HOME}/.steam/registry.vdf" "${steam_root}" <<'PY'
+  [[ -f "${system_steam}/registry.vdf" ]] || return 0
+  registry="${HOME}/.steam/registry.vdf"
+  [[ ! -e "${registry}" && ! -L "${registry}" ]] || return 0
+  mkdir -p "${HOME}/.steam"
+  python3 - "${system_steam}/registry.vdf" "${registry}" "${steam_root}" <<'PY'
 import pathlib
 import sys
 
@@ -35,92 +46,6 @@ steam_root = sys.argv[3]
 text = src.read_text(encoding="utf-8").replace("@STEAM_LIBRARY@", steam_root)
 dst.write_text(text, encoding="utf-8")
 PY
-  fi
-}
-
-find_steam_runtime_compat_lib() {
-  local arch lib runtime_dir source
-
-  arch="$1"
-  lib="$2"
-  for runtime_dir in "${steam_root}/steamapps/common/SteamLinuxRuntime_4" "${steam_root}/steamapps/common/SteamLinuxRuntime_sniper"; do
-    [[ -d "${runtime_dir}" ]] || continue
-    for source in \
-      "*/files/lib/${arch}/${lib}" \
-      "*/files/lib/${arch}/${lib}."'*' \
-      "*/usr/lib/${arch}/${lib}" \
-      "*/usr/lib/${arch}/${lib}."'*' \
-      "*/usr/lib/${arch}/pulseaudio/${lib}" \
-      "*/usr/lib/${arch}/pulseaudio/${lib}."'*'; do
-      source="$(find "${runtime_dir}" -path "${source}" -print -quit 2>/dev/null || true)"
-      [[ -n "${source}" ]] && { printf '%s\n' "${source}"; return 0; }
-    done
-  done
-}
-
-link_steam_runtime_compat_lib() {
-  local arch dst lib real source
-
-  arch="$1"
-  lib="$2"
-  dst="$3"
-
-  [[ -e "${dst}/${lib}" && ! -L "${dst}/${lib}" ]] && return 0
-  source="$(find_steam_runtime_compat_lib "${arch}" "${lib}" || true)"
-  [[ -n "${source}" ]] || return 0
-
-  ln -sfnT "${source}" "${dst}/${lib}"
-  real="$(readlink -f "${source}" 2>/dev/null || true)"
-  if [[ -n "${real}" && -e "${real}" && ! -e "${dst}/$(basename "${real}")" ]]; then
-    ln -sfnT "${real}" "${dst}/$(basename "${real}")"
-  fi
-}
-
-repair_proton_beta_runtime_links() {
-  local arch dst lib proton_base
-  local -a libs=(
-    libSDL3.so.0
-    libXss.so.1
-    libXtst.so.6
-    libpulse.so.0
-    libpulsecommon-17.0.so
-    libsndfile.so.1
-    libasyncns.so.0
-    libdbus-1.so.3
-    libsystemd.so.0
-    libX11-xcb.so.1
-    libxcb.so.1
-    libxcb-render.so.0
-    libxcb-shm.so.0
-    libxcb-dri3.so.0
-    libxcb-present.so.0
-    libxcb-sync.so.1
-    libxcb-xfixes.so.0
-    libxcb-randr.so.0
-    libxcb-image.so.0
-    libxcb-keysyms.so.1
-    libxcb-util.so.1
-    libwayland-egl.so.1
-    libwayland-client.so.0
-    libwayland-cursor.so.0
-    libxkbcommon.so.0
-    libdecor-0.so.0
-    libfribidi.so.0
-  )
-
-  proton_base="${steam_root}/steamapps/common/Proton 11.0"
-  [[ -d "${proton_base}/files/lib" ]] || return 0
-
-  for arch in x86_64-linux-gnu i386-linux-gnu; do
-    dst="${proton_base}/files/lib/${arch}"
-    [[ -d "${dst}" ]] || continue
-    for lib in "${libs[@]}"; do
-      link_steam_runtime_compat_lib "${arch}" "${lib}" "${dst}"
-    done
-    if [[ -L "${dst}/libSDL3.so.0" ]]; then
-      ln -sfnT "${dst}/libSDL3.so.0" "${dst}/libSDL3.so"
-    fi
-  done
 }
 
 repair_steam_arm64_runtime_links() {
@@ -147,7 +72,7 @@ repair_steam_arm64_runtime_links() {
     for lib in "${runtime_libs[@]}"; do
       target="$(find "${runtime_lib_dir}" -maxdepth 1 -name "${lib}.*" -print -quit)"
       if [[ -n "${target}" ]]; then
-        ln -sfnT "${target}" "${dst}/${lib}"
+        replace_symlink "${target}" "${dst}/${lib}" || true
       fi
     done
   fi
@@ -155,7 +80,7 @@ repair_steam_arm64_runtime_links() {
   for lib in "${client_libs[@]}"; do
     target="${steam_root}/steamrtarm64/${lib}"
     if [[ -e "${target}" || -L "${target}" ]]; then
-      ln -sfnT "${target}" "${dst}/${lib}"
+      replace_symlink "${target}" "${dst}/${lib}" || true
     fi
   done
 }
@@ -186,19 +111,19 @@ link_first_existing() {
 
   for target in "$@"; do
     if [[ -e "${target}" || -L "${target}" ]]; then
-      ln -sfnT "${target}" "${link}"
+      replace_symlink "${target}" "${link}"
       return 0
     fi
   done
 
-  ln -sfnT "${fallback}" "${link}"
+  replace_symlink "${fallback}" "${link}"
 }
 
 ensure_steam_links() {
   mkdir -p "${HOME}/.steam" "${steam_root}/package"
 
-  ln -sfnT "${steam_root}" "${HOME}/.steam/steam"
-  ln -sfnT "${steam_root}" "${HOME}/.steam/root"
+  replace_symlink "${steam_root}" "${HOME}/.steam/steam" || true
+  replace_symlink "${steam_root}" "${HOME}/.steam/root" || true
   link_first_existing "${HOME}/.steam/sdkarm64" "${steam_root}/steamrtarm64" "${steam_root}/linuxarm64"
   link_first_existing "${HOME}/.steam/steamrtarm64" "${steam_root}/steamrtarm64" "${steam_root}/linuxarm64"
 }
@@ -438,16 +363,16 @@ PY
     gtk-update-icon-cache -q "${HOME}/.local/share/icons/hicolor" 2>/dev/null || true
 }
 
-if [[ "${1:-}" == "--repair-proton-beta-runtime-links" ]]; then
+if [[ "${1:-}" == "--repair-runtime-links" ]]; then
   ensure_steam_links
+  install_steam_registry
   repair_steam_arm64_runtime_links
   validate_steam_arm64_runtime_links
-  repair_proton_beta_runtime_links
   exit 0
 fi
 
 if [[ ! -d "${steam_root}/steam-runtime-steamrt-arm64" ]]; then
-  wget -c -t 5 -O "${steam_root}/steam-runtime-steamrt-arm64.tar.xz" \
+  wget "${wget_retry[@]}" -O "${steam_root}/steam-runtime-steamrt-arm64.tar.xz" \
     "https://repo.steampowered.com/steamrt3c/images/latest-public-beta/steam-runtime-steamrt-arm64.tar.xz"
   tar xvf "${steam_root}/steam-runtime-steamrt-arm64.tar.xz" -C "${steam_root}"
   rm -f "${steam_root}/steam-runtime-steamrt-arm64.tar.xz"
@@ -460,7 +385,7 @@ if [[ ! -d "${steam_root}/steamrtarm64" ]]; then
   manifest="$(curl -fsSL "${manifest_url}" | strings)"
   target_file="$(printf '%s\n' "${manifest}" | grep -Eo 'bins_linuxarm64_linuxarm64\.zip\.[^"]+' | grep -v '\.vz\.' | head -n1)"
   [[ -n "${target_file}" ]] || { echo "Could not find ARM64 Steam zip in Valve manifest" >&2; exit 1; }
-  wget -c -t 5 -O "${steam_root}/linuxarm64.zip" "https://client-update.steamstatic.com/${target_file}"
+  wget "${wget_retry[@]}" -O "${steam_root}/linuxarm64.zip" "https://client-update.steamstatic.com/${target_file}"
   unzip -o "${steam_root}/linuxarm64.zip" -d "${steam_root}"
   rm -f "${steam_root}/linuxarm64.zip"
   chmod +x "${steam_root}/steamrtarm64/steam"
@@ -469,20 +394,19 @@ fi
 repair_steam_arm64_runtime_links
 validate_steam_arm64_runtime_links
 ensure_steam_links
-install_rocknix_steam_compat_assets
+install_steam_registry
 mkdir -p "${steam_root}/steamrtarm64/bin"
 if [[ -x "${steam_root}/linuxarm64/steam-launch-wrapper" ]]; then
-  ln -sfnT ../linuxarm64/steam-launch-wrapper "${steam_root}/steamrtarm64/steam-launch-wrapper"
+  replace_symlink ../linuxarm64/steam-launch-wrapper "${steam_root}/steamrtarm64/steam-launch-wrapper" || true
 fi
 if [[ -x "${HOME}/.local/bin/thorch-repair-steam-arm64" ]]; then
   "${HOME}/.local/bin/thorch-repair-steam-arm64" || true
 elif command -v thorch-repair-steam-arm64 >/dev/null 2>&1; then
   thorch-repair-steam-arm64 || true
 fi
-ln -sfnT ../vgui2_s.so "${steam_root}/steamrtarm64/bin/vgui2_s.dll"
-ln -sfnT ../filesystem_stdio.so "${steam_root}/steamrtarm64/bin/FileSystem_Steam.dll"
+replace_symlink ../vgui2_s.so "${steam_root}/steamrtarm64/bin/vgui2_s.dll" || true
+replace_symlink ../filesystem_stdio.so "${steam_root}/steamrtarm64/bin/FileSystem_Steam.dll" || true
 install_steam_icon
 install_steamos_compat_stubs
 install_rocknix_guest_freedreno
-repair_proton_beta_runtime_links
 echo "Steam ARM64 setup complete."

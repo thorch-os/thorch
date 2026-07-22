@@ -13,6 +13,7 @@ fail() {
 
 cat > "${tmp}/hardware.conf" <<'EOF'
 THORCH_CPU_BOOST=1
+THORCH_DISABLE_CPU0_IDLE_STATE1=0
 THORCH_CPU_GOVERNOR=performance
 THORCH_GPU_GOVERNOR=performance
 THORCH_FAN_PROFILE=moderate
@@ -27,7 +28,7 @@ EOF
 cat > "${tmp}/hw-defaults" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'hw-defaults %s boost=%s cpu=%s gpu=%s\n' "$*" "${THORCH_CPU_BOOST:-unset}" "${THORCH_CPU_GOVERNOR:-unset}" "${THORCH_GPU_GOVERNOR:-unset}" >> "${THORCH_TEST_LOG:?}"
+printf 'hw-defaults %s boost=%s idle=%s cpu=%s gpu=%s\n' "$*" "${THORCH_CPU_BOOST:-unset}" "${THORCH_DISABLE_CPU0_IDLE_STATE1:-unset}" "${THORCH_CPU_GOVERNOR:-unset}" "${THORCH_GPU_GOVERNOR:-unset}" >> "${THORCH_TEST_LOG:?}"
 EOF
 
 cat > "${tmp}/systemctl" <<'EOF'
@@ -64,23 +65,23 @@ run_ctl() {
 
 run_ctl set cpu-boost off
 grep -qx 'THORCH_CPU_BOOST=0' "${tmp}/hardware.conf" || fail "cpu boost was not updated"
-grep -qx 'hw-defaults apply boost=0 cpu=performance gpu=performance' "${log}" || fail "cpu boost did not apply hardware defaults with saved config"
+grep -qx 'hw-defaults apply boost=0 idle=0 cpu=performance gpu=performance' "${log}" || fail "cpu boost did not apply hardware defaults with saved config"
 
 : > "${log}"
 run_ctl set governors schedutil simple_ondemand
 grep -qx 'THORCH_CPU_GOVERNOR=schedutil' "${tmp}/hardware.conf" || fail "cpu governor was not updated"
 grep -qx 'THORCH_GPU_GOVERNOR=simple_ondemand' "${tmp}/hardware.conf" || fail "gpu governor was not updated"
-grep -qx 'hw-defaults apply boost=0 cpu=schedutil gpu=simple_ondemand' "${log}" || fail "governors did not apply hardware defaults with saved config"
+grep -qx 'hw-defaults apply boost=0 idle=0 cpu=schedutil gpu=simple_ondemand' "${log}" || fail "governors did not apply hardware defaults with saved config"
 
 : > "${log}"
 run_ctl set cpu-governor powersave
 grep -qx 'THORCH_CPU_GOVERNOR=powersave' "${tmp}/hardware.conf" || fail "cpu governor was not updated by single-governor setter"
-grep -qx 'hw-defaults apply boost=0 cpu=powersave gpu=simple_ondemand' "${log}" || fail "cpu governor setter did not apply hardware defaults with saved config"
+grep -qx 'hw-defaults apply boost=0 idle=0 cpu=powersave gpu=simple_ondemand' "${log}" || fail "cpu governor setter did not apply hardware defaults with saved config"
 
 : > "${log}"
 run_ctl set gpu-governor auto
 grep -qx 'THORCH_GPU_GOVERNOR=auto' "${tmp}/hardware.conf" || fail "gpu governor was not updated by single-governor setter"
-grep -qx 'hw-defaults apply boost=0 cpu=powersave gpu=auto' "${log}" || fail "gpu governor setter did not apply hardware defaults with saved config"
+grep -qx 'hw-defaults apply boost=0 idle=0 cpu=powersave gpu=auto' "${log}" || fail "gpu governor setter did not apply hardware defaults with saved config"
 
 : > "${log}"
 run_ctl set fan-profile aggressive
@@ -104,6 +105,7 @@ grep -qx 'rgb set 1 2 3' "${log}" || fail "rgb static apply did not run"
 
 status_output="$(run_ctl status)"
 grep -q '^cpu_boost: 0$' <<< "${status_output}" || fail "status did not report cpu boost"
+grep -q '^disable_cpu0_idle_state1: 0$' <<< "${status_output}" || fail "status did not report CPU0 idle workaround"
 grep -q '^cpu_governor: powersave$' <<< "${status_output}" || fail "status did not report cpu governor"
 grep -q '^gpu_governor: auto$' <<< "${status_output}" || fail "status did not report gpu governor"
 grep -q '^fan_profile: quiet$' <<< "${status_output}" || fail "status did not report fan profile"
@@ -116,6 +118,7 @@ import sys
 
 data = json.loads(sys.argv[1])
 assert data["cpu_boost_enabled"] is False
+assert data["disable_cpu0_idle_state1"] == "0"
 assert data["cpu_governor"] == "powersave"
 assert data["gpu_governor"] == "auto"
 assert data["fan_profile"] == "quiet"
@@ -125,5 +128,11 @@ assert data["rgb_brightness"] == 200
 assert data["rgb_static"] == [1, 2, 3]
 assert data["rgb_static_hex"] == "#010203"
 PY
+
+default_config="${tmp}/default-hardware.conf"
+: > "${default_config}"
+default_status="$(THORCH_HARDWARE_CONFIG="${default_config}" "${script}" status)"
+grep -q '^gpu_governor: simple_ondemand$' <<< "${default_status}" ||
+  fail "hardware control default GPU governor was not simple_ondemand"
 
 printf 'ok\n'

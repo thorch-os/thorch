@@ -1,0 +1,153 @@
+diff --git a/autotests/integration/inputmethod_test.cpp b/autotests/integration/inputmethod_test.cpp
+index 4135ad0..9c10c4c 100644
+--- a/autotests/integration/inputmethod_test.cpp
++++ b/autotests/integration/inputmethod_test.cpp
+@@ -60,6 +60,7 @@ private Q_SLOTS:
+     void cleanup();
+
+     void testOpenClose();
++    void testRequestedOutput();
+     void testEnableDisableV3();
+     void testEnableActive();
+     void testHidePanel();
+@@ -187,6 +188,34 @@ void InputMethodTest::testOpenClose()
+     QVERIFY(Test::waitForWindowClosed(window));
+ }
+
++void InputMethodTest::testRequestedOutput()
++{
++    // Keep the focused window and active output on the first output while the
++    // input method explicitly requests the second output.
++    std::unique_ptr<KWayland::Client::Surface> surface(Test::createSurface());
++    std::unique_ptr<Test::XdgToplevel> shellSurface(Test::createXdgToplevelSurface(surface.get()));
++    Window *window = Test::renderAndWaitForShown(surface.get(), QSize(1280, 1024), Qt::red);
++    QVERIFY(window);
++    QCOMPARE(workspace()->activeOutput(), workspace()->outputs()[0]);
++
++    Test::inputMethod()->setOutputIndex(1);
++    std::unique_ptr<KWayland::Client::TextInput> textInput(Test::waylandTextInputManager()->createTextInput(Test::waylandSeat()));
++    QSignalSpy windowAddedSpy(workspace(), &Workspace::windowAdded);
++
++    textInput->enable(surface.get());
++    textInput->showInputPanel();
++    QVERIFY(windowAddedSpy.wait());
++
++    Window *keyboardClient = windowAddedSpy.last().first().value<Window *>();
++    QVERIFY(keyboardClient);
++    QVERIFY(keyboardClient->isInputMethod());
++    QCOMPARE(keyboardClient->output(), workspace()->outputs()[1]);
++    QCOMPARE(keyboardClient->frameGeometry(), RectF(1280, 624, 1280, 400));
++
++    shellSurface.reset();
++    QVERIFY(Test::waitForWindowClosed(window));
++}
++
+ void InputMethodTest::testEnableDisableV3()
+ {
+     // Create an xdg_toplevel surface and wait for the compositor to catch up.
+diff --git a/autotests/integration/kwin_wayland_test.h b/autotests/integration/kwin_wayland_test.h
+index 34a50a2..8951b3a 100644
+--- a/autotests/integration/kwin_wayland_test.h
++++ b/autotests/integration/kwin_wayland_test.h
+@@ -538,6 +538,7 @@ public:
+     }
+
+     void setMode(Mode mode);
++    void setOutputIndex(int outputIndex);
+
+ Q_SIGNALS:
+     void activate();
+@@ -551,6 +552,7 @@ private:
+     std::unique_ptr<QtWayland::zwp_input_panel_surface_v1> m_inputMethodSurface;
+     struct ::zwp_input_method_context_v1 *m_context = nullptr;
+     Mode m_mode = Mode::TopLevel;
++    int m_outputIndex = 0;
+ };
+
+ class FractionalScaleManagerV1 : public QObject, public QtWayland::wp_fractional_scale_manager_v1
+diff --git a/autotests/integration/test_helpers.cpp b/autotests/integration/test_helpers.cpp
+index e986797..af42fb5 100644
+--- a/autotests/integration/test_helpers.cpp
++++ b/autotests/integration/test_helpers.cpp
+@@ -321,7 +321,9 @@ void MockInputMethod::zwp_input_method_v1_activate(struct ::zwp_input_method_con
+ {
+     if (!m_inputSurface) {
+         m_inputSurface = Test::createSurface();
+-        m_inputMethodSurface = Test::createInputPanelSurfaceV1(m_inputSurface.get(), s_waylandConnection->outputs.first(), m_mode);
++        const auto output = Test::waylandOutput(workspace()->outputs().at(m_outputIndex)->name());
++        Q_ASSERT(output);
++        m_inputMethodSurface = Test::createInputPanelSurfaceV1(m_inputSurface.get(), output, m_mode);
+     }
+     m_context = context;
+
+@@ -342,11 +344,18 @@ void MockInputMethod::setMode(MockInputMethod::Mode mode)
+     m_mode = mode;
+ }
+
++void MockInputMethod::setOutputIndex(int outputIndex)
++{
++    Q_ASSERT(outputIndex >= 0 && outputIndex < s_waylandConnection->outputs.size());
++    m_outputIndex = outputIndex;
++}
++
+ void MockInputMethod::zwp_input_method_v1_deactivate(struct ::zwp_input_method_context_v1 *context)
+ {
+     QCOMPARE(context, m_context);
+     zwp_input_method_context_v1_destroy(context);
+     m_context = nullptr;
++    m_outputIndex = 0;
+
+     if (m_inputSurface) {
+         m_inputSurface->release();
+diff --git a/src/inputpanelv1window.cpp b/src/inputpanelv1window.cpp
+index 0ac008d..c3da480 100644
+--- a/src/inputpanelv1window.cpp
++++ b/src/inputpanelv1window.cpp
+@@ -63,6 +63,11 @@ void InputPanelV1Window::showOverlayPanel()
+
+ void InputPanelV1Window::showTopLevel(OutputInterface *output, InputPanelSurfaceV1Interface::Position position)
+ {
++    m_requestedOutput = output ? output->handle() : nullptr;
++    if (m_requestedOutput) {
++        setOutput(m_requestedOutput);
++        setMoveResizeOutput(m_requestedOutput);
++    }
+     m_mode = Mode::VirtualKeyboard;
+     maybeShow();
+ }
+@@ -98,12 +103,12 @@ void InputPanelV1Window::resetPosition()
+         // maliit creates a fullscreen overlay so use the input shape as the window geometry.
+         m_windowGeometry = surface()->input().boundingRect();
+
+-        const auto activeOutput = workspace()->activeOutput();
++        const auto targetOutput = m_requestedOutput ? m_requestedOutput.data() : workspace()->activeOutput();
+         RectF availableArea;
+         if (waylandServer()->isScreenLocked()) {
+-            availableArea = workspace()->clientArea(FullScreenArea, this, activeOutput);
++            availableArea = workspace()->clientArea(FullScreenArea, this, targetOutput);
+         } else {
+-            availableArea = workspace()->clientArea(MaximizeArea, this, activeOutput);
++            availableArea = workspace()->clientArea(MaximizeArea, this, targetOutput);
+         }
+
+         RectF geo = m_windowGeometry;
+@@ -112,7 +117,7 @@ void InputPanelV1Window::resetPosition()
+         if (geo.width() < availableArea.width()) {
+             geo.moveHorizontalCenter(availableArea.horizontalCenter());
+         } else { // otherwise align to be centred within the screen
+-            const RectF outputArea = activeOutput->geometry();
++            const RectF outputArea = targetOutput->geometry();
+             geo.moveHorizontalCenter(outputArea.horizontalCenter());
+         }
+
+diff --git a/src/inputpanelv1window.h b/src/inputpanelv1window.h
+index ecf10b4..fbb0376 100644
+--- a/src/inputpanelv1window.h
++++ b/src/inputpanelv1window.h
+@@ -101,6 +101,7 @@ private:
+     bool m_requestedToBeShown = false;
+     bool m_wasEverMapped = false;
+     const QPointer<InputPanelSurfaceV1Interface> m_panelSurface;
++    QPointer<LogicalOutput> m_requestedOutput;
+     QTimer m_rescalingTimer;
+ };

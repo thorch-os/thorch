@@ -1,4 +1,96 @@
+configure_boot_confirmation() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable thorch-boot-confirm.service >/dev/null 2>&1 || true
+  fi
+}
+
+configure_network_policy() {
+  local root="${THORCH_INSTALL_ROOT:-}"
+  local masks="${root}/etc/systemd/system"
+  local unit target
+  install -d "${masks}"
+  for unit in \
+    systemd-networkd.service \
+    systemd-networkd-wait-online.service \
+    systemd-networkd.socket \
+    systemd-networkd-varlink.socket \
+    systemd-networkd-varlink-metrics.socket \
+    systemd-networkd-resolve-hook.socket; do
+    target="${masks}/${unit}"
+    if [ -L "${target}" ] && [ "$(readlink "${target}")" = /dev/null ]; then
+      continue
+    fi
+    if [ -e "${target}" ] || [ -L "${target}" ]; then
+      echo "warning: preserving existing systemd unit override ${target}" >&2
+      continue
+    fi
+    ln -s /dev/null "${target}"
+  done
+}
+
+migrate_legacy_sudoers() {
+  local root="${THORCH_INSTALL_ROOT:-}"
+  local legacy="${root}/etc/sudoers.d/10-thorch-wheel"
+  local expected='%wheel ALL=(ALL:ALL) ALL'
+
+  [[ -e "${legacy}" || -L "${legacy}" ]] || return 0
+  if [[ -f "${legacy}" && ! -L "${legacy}" ]] &&
+      [[ "$(cat "${legacy}")" == "${expected}" ]]; then
+    rm -f "${legacy}"
+  else
+    echo "warning: preserving modified legacy sudo policy ${legacy}" >&2
+  fi
+}
+
+fix_gpu_governor() {
+  local old_version="${1:-}"
+  local root="${THORCH_INSTALL_ROOT:-}"
+  local config="${root}/etc/thorch/hardware.conf"
+  local rewritten
+  local version_comparison
+
+  # Version 1-32 corrected the two invalid devfreq governor values emitted by
+  # earlier Thorch packages. Pacman preserves the whole file after any user
+  # edit, so update only those exact values while upgrading from an older
+  # package.
+  [[ -n "${old_version}" && -f "${config}" ]] || return 0
+  version_comparison="$(vercmp "${old_version}" '1-32' 2>/dev/null)" || return 0
+  (( version_comparison < 0 )) || return 0
+  grep -Eq '^THORCH_GPU_GOVERNOR=(msm-adreno-tz|ondemand)$' "${config}" || return 0
+
+  rewritten="${config}.thorch-upgrade.$$"
+  sed -E 's/^THORCH_GPU_GOVERNOR=(msm-adreno-tz|ondemand)$/THORCH_GPU_GOVERNOR=simple_ondemand/' \
+    "${config}" >"${rewritten}" || { rm -f "${rewritten}"; return 0; }
+  cat "${rewritten}" >"${config}"
+  rm -f "${rewritten}"
+}
+
+remove_legacy_sleep_hooks() {
+  local root="${THORCH_INSTALL_ROOT:-}"
+
+  # Let the kernel and systemd own the s2idle transition. These hooks changed
+  # USB role, UFS clocks, CPU/GPU policy, and RGB state while devices were
+  # already entering suspend, which made the wake path needlessly stateful.
+  rm -f \
+    "${root}/usr/lib/systemd/system-sleep/thorch-powerkey-wake-guard" \
+    "${root}/usr/lib/systemd/system-sleep/thorch-rgb" \
+    "${root}/usr/lib/systemd/system-sleep/thorch-sleep-powersave" \
+    "${root}/usr/lib/systemd/system-sleep/thorch-usb-role-suspend"
+}
+
+report_bootstrap_required() {
+  if [ -x /usr/lib/thorch/boot-transaction ] &&
+      /usr/lib/thorch/boot-transaction status 2>/dev/null | grep -q '^bootstrap=required$'; then
+    echo "warning: run thorch-update-bootstrap as a separate transaction before upgrading linux-thorch" >&2
+  fi
+}
+
 post_install() {
+  configure_boot_confirmation
+  configure_network_policy
+  migrate_legacy_sudoers
+  remove_legacy_sleep_hooks
+  report_bootstrap_required
   /usr/bin/thorch-hardwarectl migrate >/dev/null 2>&1 || true
   /usr/lib/thorch/plasma-mobile-action-drawer-mode sync || true
   rm -f /etc/systemd/logind.conf.d/50-thorch-fake-suspend.conf \
@@ -12,6 +104,12 @@ post_install() {
 }
 
 post_upgrade() {
+  fix_gpu_governor "$2"
+  configure_boot_confirmation
+  configure_network_policy
+  migrate_legacy_sudoers
+  remove_legacy_sleep_hooks
+  report_bootstrap_required
   /usr/bin/thorch-hardwarectl migrate >/dev/null 2>&1 || true
   /usr/lib/thorch/plasma-mobile-action-drawer-mode sync || true
   rm -f /etc/systemd/logind.conf.d/50-thorch-fake-suspend.conf \

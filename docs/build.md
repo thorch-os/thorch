@@ -34,8 +34,9 @@ The ROCKNIX kernel sync requires `curl`, `jq`, `losetup`, `mount`,
 Then sync the ROCKNIX image-derived runtime inputs and build the Thorch kernel.
 This is a required clean-build input; `make sync` only downloads public source
 overlays and firmware, not the ABL boot-image template or FEX runtime. By
-default, the kernel sync downloads the latest official ROCKNIX SM8550 nightly,
-verifies its `.sha256`, extracts `/KERNEL` and `/SYSTEM`, normalizes the result
+default, the kernel sync downloads the pinned ROCKNIX SM8550 nightly declared
+in `config/thorch.conf`, verifies its `.sha256`, extracts `/KERNEL` and
+`/SYSTEM`, normalizes the result
 into `vendor/rocknix-kernel` and `vendor/rocknix-runtime`, then source-builds a
 Thorch Thor kernel from ROCKNIX's Linux recipe with BinderFS enabled:
 
@@ -119,9 +120,26 @@ in the builder.
 The Docker wrapper mounts the repository at `/work`, runs the container
 privileged for loop-device/image operations, disables SELinux relabeling on the
 bind mount, and returns generated artifacts to the host user when the command
-exits. It preserves root ownership inside `build/image-rootfs` and
-`build/pkg-root`, because those chroot permissions become image metadata and
-are required for reliable rootfs reuse.
+exits. It preserves root ownership inside `build/image-rootfs`,
+`build/pkg-base-root`, and `build/pkg-root`, because those chroot permissions
+become image metadata and are required for reliable rootfs reuse. Package
+builds update one pristine base root, then clone it for every package. makepkg
+resolves each clone's dependencies from the PKGBUILD and the staged local repo;
+dependencies from one package build never leak into the next.
+
+On macOS, the wrapper stores `THORCH_BUILD_DIR` in a checkout-specific Docker
+volume mounted at `/thorch-build`. Arch Linux contains case-distinct paths that
+cannot be extracted safely onto the usual case-insensitive macOS bind mount.
+The package repository and final image remain under `output/` in the checkout.
+Override `THORCH_DOCKER_BUILD_DIR` and `THORCH_DOCKER_BUILD_VOLUME` only when a
+different case-sensitive Docker storage location is required.
+
+On an `arm64` or `aarch64` host, `make docker-image-build` selects the native
+`menci/archlinuxarm:base-devel` base and builds kernels and Arch Linux ARM
+packages without CPU emulation. On x86_64 it uses the digest-pinned official
+`archlinux:base-devel` default declared by the Dockerfile and installs the
+aarch64 cross compiler and QEMU rootfs runner. Override
+`THORCH_DOCKER_BASE_IMAGE` to use a different pinned or mirrored builder base.
 
 During userspace iteration, skip rebuilding/repackaging the kernel:
 
@@ -149,12 +167,18 @@ generated image. It also preserves ROCKNIX's
 needs to avoid an early CPU feature panic. An imported ROCKNIX `/KERNEL` is
 still required because it supplies the ABL boot image layout.
 
+Thorch adds the Android-characterized 124.8 MHz A740 OPP to the clean SM8550
+kernel source. It is the lowest running DCVS level; the GMU constructs a
+separate zero-frequency/off level. At boot, `thorch-hw-defaults` also mirrors
+ROCKNIX's SM8550 GMU workaround by disabling CPU0 cpuidle state1. Set
+`THORCH_DISABLE_CPU0_IDLE_STATE1=0` in `/etc/thorch/hardware.conf` only for a
+controlled power/stability comparison.
+
 The image builder assembles standalone FAT plus ext4 or Btrfs filesystem images
 and writes them into a sparse raw GPT image. It does not mount the final GPT
-partitions or bind-mount host API filesystems. Ext4 remains the conservative
-default; use
-`THORCH_ROOT_FSTYPE=btrfs make build` to build a btrfs root image. Btrfs roots
-use `THORCH_BTRFS_MOUNT_OPTIONS`, defaulting to
+partitions or bind-mount host API filesystems. Btrfs is the default; use
+`THORCH_ROOT_FSTYPE=ext4 make build` when an uncompressed ext4 root is required.
+Btrfs roots use `THORCH_BTRFS_MOUNT_OPTIONS`, defaulting to
 `rw,relatime,compress=zstd:1`. The builder populates the filesystem through a
 loop-mounted standalone filesystem because affected btrfs-progs offline
 `--rootdir` compression paths can emit unreadable zstd extents for some
@@ -162,7 +186,9 @@ already-compressed files. It then uses `btrfs inspect-internal min-dev-size` to
 shrink the filesystem, adds the configured headroom, and force-reads every file
 before image assembly.
 
-The boot partition defaults to 512 MiB. The raw image defaults to
+The boot partition defaults to 512 MiB and uses the ROCKNIX qcom-abl GPT
+metadata: Microsoft Basic Data, partition name `system`, legacy-boot attribute,
+and a 16 MiB start offset. The raw image defaults to
 `THORCH_IMAGE_SIZE=auto`, which removes build-time package caches and sizes the
 image around the populated rootfs plus `THORCH_IMAGE_AUTO_HEADROOM`, default
 `1G`. Set an explicit size such as `THORCH_IMAGE_SIZE=16G` when you want
@@ -175,9 +201,11 @@ filesystem. Firstboot retargets this entry to the selected user's home and
 numeric UID/GID when the account changes.
 
 The generated initramfs includes Thor and shared SM8550 firmware needed during
-early boot rather than copying the entire firmware tree. This keeps `/KERNEL`
-small enough for the 512 MiB FAT partition without changing the complete
-firmware package installed in the root filesystem.
+early boot rather than copying the entire firmware tree. Adreno SQE, GMU, and
+ZAP firmware remain on the real root filesystem, matching ROCKNIX and keeping
+those blobs unavailable during initramfs execution. This keeps `/KERNEL` small
+enough for the 512 MiB FAT partition without changing the complete firmware
+package installed in the root filesystem.
 
 If the build host cannot show interactive `sudo` prompts, invoke the scripts
 through PolicyKit so the desktop authentication agent can prompt visibly:
@@ -203,13 +231,14 @@ refresh. If ROCKNIX-derived kernel artifacts changed, run
 Nightly GitHub Actions image builds are defined in
 `.github/workflows/nightly.yml` and documented in
 [`docs/nightly-actions.md`](nightly-actions.md). They run on GitHub-hosted
-Ubuntu, pull or build the Thorch Docker builder image, and invoke
+Ubuntu, pull the reviewed Thorch builder image by immutable digest, and invoke
 `make docker-nightly` with `THORCH_ROOTFS_RUNNER=chroot`.
 
-The default image package set is:
+The canonical package order and profile membership live in
+`manifests/packages.json`. Print the default image profile with:
 
 ```bash
-linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults thorch-firstboot thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration
+python3 scripts/package-manifest.py profile image --format space
 ```
 
 `thorch-kde-defaults` installs Firefox and the core KDE desktop applications:
@@ -259,21 +288,29 @@ describes their purpose without duplicating mutable source or kernel refs.
 - `ROCKNIX_REF`: pinned ROCKNIX branch, tag, or commit to sync.
 - `ROCKNIX_REPO`: ROCKNIX distribution repository URL.
 - `ROCKNIX_KERNEL_SOURCE`: ROCKNIX image release stream, `nightly` by default; can be `stable`.
-- `ROCKNIX_KERNEL_RELEASE`: release tag/date to import, default `latest`.
+- `ROCKNIX_KERNEL_RELEASE`: release tag/date to import; the project default is
+  pinned in `config/thorch.conf`. Scheduled rolling builds may override it.
 - `ROCKNIX_KERNEL_PLATFORM`: ROCKNIX platform name, default `SM8550`.
 - `ROCKNIX_KERNEL_IMAGE_URL`: explicit ROCKNIX `.img` or `.img.gz` URL.
 - `ROCKNIX_KERNEL_SHA256_URL`: explicit checksum URL for the ROCKNIX image.
 - `ROCKNIX_KERNEL_CACHE_DIR`: download/decompression cache, default `build/cache/rocknix`.
 - `THORCH_USER`: default image user, default `thorch`.
-- `THORCH_PASSWORD`: password/PIN for the default user and root, default `1234`.
+- `THORCH_PASSWORD`: optional local bring-up password/PIN for the default user
+  and root. It is empty by default, leaving both accounts locked until
+  firstboot provisions the owner's chosen password.
+- `THORCH_ENABLE_SSH`: controls whether `sshd.service` starts in the image,
+  default `1`. With the default empty `THORCH_PASSWORD`, both accounts remain
+  locked until firstboot provisions the owner's password. Set it to `0` to
+  build an image with SSH disabled.
 - `THORCH_IMAGE_SIZE`: raw image size, default `auto`; set a fixed size such as `16G` when preallocated free space is needed.
 - `THORCH_IMAGE_AUTO_HEADROOM`: extra rootfs space when `THORCH_IMAGE_SIZE=auto`, default `1G`.
-- `THORCH_ROOT_FSTYPE`: root filesystem type, default `ext4`; set to `btrfs` for a compressed btrfs root image.
+- `THORCH_ROOT_FSTYPE`: root filesystem type, default `btrfs`; set to `ext4` for an uncompressed ext4 root image.
 - `THORCH_BTRFS_MOUNT_OPTIONS`: btrfs root mount options, default `rw,relatime,compress=zstd:1`.
 - `THORCH_USER_CACHE_TMPFS_SIZE`: default user's `~/.cache` tmpfs size, default `512M`; set `0`, `off`, `none`, or `disabled` to turn it off.
 - `THORCH_BOOT_SIZE`: FAT boot partition size, default `512M`.
 - `THORCH_DEFAULT_SESSION`: `plasma-desktop` by default; use `plasma-mobile` to test the mobile shell.
-- `THORCH_IMAGE_PACKAGES`: local packages installed into the image.
+- `THORCH_IMAGE_PACKAGES`: optional complete override for the image profile
+  generated from `manifests/packages.json`.
 - `THORCH_BUILD_DIR`: build work directory, default `build`.
 - `THORCH_ROOTFS_RUNNER`: rootfs command runner, default `chroot`; can be set to `systemd-nspawn` for the old backend.
 - `THORCH_OUTPUT_DIR`: image/package output directory, default `output`.

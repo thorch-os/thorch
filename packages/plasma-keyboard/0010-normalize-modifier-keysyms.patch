@@ -1,0 +1,241 @@
+diff --git a/autotests/CMakeLists.txt b/autotests/CMakeLists.txt
+index e660766..51d25eb 100644
+--- a/autotests/CMakeLists.txt
++++ b/autotests/CMakeLists.txt
+@@ -4,6 +4,11 @@
+ find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Test WaylandCompositor)
+ include(ECMAddTests)
+
++ecm_add_test(keycodehelpertest.cpp LINK_LIBRARIES
++    PkgConfig::XKBCommon
++    Qt::Test
++)
++
+ file(GENERATE
+     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mockinputmethodcompositor_config.h
+     CONTENT "#pragma once\n#define PLASMA_KEYBOARD_BINARY_PATH \"$<TARGET_FILE:plasma-keyboard>\"\n"
+diff --git a/autotests/keycodehelpertest.cpp b/autotests/keycodehelpertest.cpp
+new file mode 100644
+index 0000000..6cae198
+--- /dev/null
++++ b/autotests/keycodehelpertest.cpp
+@@ -0,0 +1,76 @@
++/*
++    SPDX-FileCopyrightText: 2026 Thorch contributors
++
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#include "../src/keycodehelper_p.h"
++
++#include <QtTest/QTest>
++
++#include <linux/input-event-codes.h>
++
++class KeycodeHelperTest : public QObject
++{
++    Q_OBJECT
++
++private Q_SLOTS:
++    void mapsUnicodeEncodedLatinKeysym()
++    {
++        xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
++        QVERIFY(context);
++
++        const xkb_rule_names names = {
++            .rules = "evdev",
++            .model = "pc105",
++            .layout = "us",
++        };
++        xkb_keymap *keymap = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
++        QVERIFY(keymap);
++        xkb_state *state = xkb_state_new(keymap);
++        QVERIFY(state);
++
++        // This is how QXkbCommon::toKeysym() encodes a text-empty Qt::Key_C.
++        const auto upperCode = PlasmaKeyboard::keyCodeForKeysym(keymap, state, 0x01000043);
++        const auto lowerCode = PlasmaKeyboard::keyCodeForKeysym(keymap, state, 0x01000063);
++        QVERIFY(upperCode.has_value());
++        QVERIFY(lowerCode.has_value());
++        QCOMPARE(*upperCode, uint32_t(KEY_C));
++        QCOMPARE(*lowerCode, uint32_t(KEY_C));
++
++        xkb_state_unref(state);
++        xkb_keymap_unref(keymap);
++        xkb_context_unref(context);
++    }
++
++    void mapsModifierKeysyms()
++    {
++        xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
++        QVERIFY(context);
++
++        const xkb_rule_names names = {
++            .rules = "evdev",
++            .model = "pc105",
++            .layout = "us",
++        };
++        xkb_keymap *keymap = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
++        QVERIFY(keymap);
++        xkb_state *state = xkb_state_new(keymap);
++        QVERIFY(state);
++
++        const auto controlCode = PlasmaKeyboard::keyCodeForKeysym(keymap, state, XKB_KEY_Control_L);
++        const auto shiftCode = PlasmaKeyboard::keyCodeForKeysym(keymap, state, XKB_KEY_Shift_L);
++        QVERIFY(controlCode.has_value());
++        QVERIFY(shiftCode.has_value());
++        QCOMPARE(*controlCode, uint32_t(KEY_LEFTCTRL));
++        QCOMPARE(*shiftCode, uint32_t(KEY_LEFTSHIFT));
++
++        xkb_state_unref(state);
++        xkb_keymap_unref(keymap);
++        xkb_context_unref(context);
++    }
++};
++
++QTEST_GUILESS_MAIN(KeycodeHelperTest)
++
++#include "keycodehelpertest.moc"
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index bdf0948..4f54dce 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -19,6 +19,7 @@ target_sources(plasma-keyboard PRIVATE
+     inputpanelrole.h
+     inputlisteneritem.cpp
+     inputlisteneritem.h
++    keycodehelper_p.h
+     inputmethod.cpp
+     inputmethod_p.h
+     inputpanelwindow.cpp
+diff --git a/src/inputmethod.cpp b/src/inputmethod.cpp
+index fdc7dfc..9366fc5 100644
+--- a/src/inputmethod.cpp
++++ b/src/inputmethod.cpp
+@@ -5,6 +5,7 @@
+ */
+
+ #include "inputmethod_p.h"
++#include "keycodehelper_p.h"
+ #include <QDateTime>
+ #include <QDebug>
+ #include <QGuiApplication>
+@@ -117,28 +118,7 @@ Keyboard::~Keyboard()
+
+ std::optional<uint32_t> Keyboard::keyCodeForKeysym(xkb_keysym_t keysym) const
+ {
+-    if (!mXkbKeymap || !mXkbState) {
+-        return std::nullopt;
+-    }
+-
+-    const xkb_layout_index_t layout = xkb_state_serialize_layout(mXkbState.get(), XKB_STATE_LAYOUT_EFFECTIVE);
+-    const xkb_keycode_t minKeycode = xkb_keymap_min_keycode(mXkbKeymap.get());
+-    const xkb_keycode_t maxKeycode = xkb_keymap_max_keycode(mXkbKeymap.get());
+-
+-    for (xkb_keycode_t keycode = minKeycode; keycode <= maxKeycode; ++keycode) {
+-        const xkb_level_index_t levelCount = xkb_keymap_num_levels_for_key(mXkbKeymap.get(), keycode, layout);
+-        for (xkb_level_index_t level = 0; level < levelCount; ++level) {
+-            const xkb_keysym_t *symbols = nullptr;
+-            const int symbolCount = xkb_keymap_key_get_syms_by_level(mXkbKeymap.get(), keycode, layout, level, &symbols);
+-            for (int index = 0; index < symbolCount; ++index) {
+-                if (symbols[index] == keysym && keycode >= 8) {
+-                    return keycode - 8;
+-                }
+-            }
+-        }
+-    }
+-
+-    return std::nullopt;
++    return PlasmaKeyboard::keyCodeForKeysym(mXkbKeymap.get(), mXkbState.get(), keysym);
+ }
+
+ void Keyboard::keyboard_keymap(uint32_t format, int32_t fd, uint32_t size)
+diff --git a/src/keycodehelper_p.h b/src/keycodehelper_p.h
+new file mode 100644
+index 0000000..d8132bd
+--- /dev/null
++++ b/src/keycodehelper_p.h
+@@ -0,0 +1,83 @@
++/*
++    SPDX-FileCopyrightText: 2026 Thorch contributors
++
++    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
++*/
++
++#pragma once
++
++#include <array>
++#include <optional>
++
++#include <xkbcommon/xkbcommon.h>
++
++namespace PlasmaKeyboard
++{
++
++inline xkb_keysym_t canonicalKeysym(xkb_keysym_t keysym)
++{
++    // QXkbCommon::toKeysym() represents text-empty printable QKeyEvents as
++    // Unicode keysyms. XKB keymaps use the legacy value for Latin-1 symbols,
++    // so canonicalize before looking the symbol up in the keymap.
++    constexpr xkb_keysym_t unicodePrefix = 0x01000000;
++    constexpr xkb_keysym_t unicodeMask = 0xff000000;
++    if ((keysym & unicodeMask) == unicodePrefix) {
++        return xkb_utf32_to_keysym(keysym & ~unicodeMask);
++    }
++    return keysym;
++}
++
++inline std::optional<uint32_t> keyCodeForKeysym(xkb_keymap *keymap, xkb_state *state, xkb_keysym_t keysym)
++{
++    if (!keymap || !state) {
++        return std::nullopt;
++    }
++
++    const xkb_keysym_t canonical = canonicalKeysym(keysym);
++    const std::array candidates = {
++        canonical,
++        xkb_keysym_to_lower(canonical),
++        xkb_keysym_to_upper(canonical),
++    };
++
++    const auto findInLayout = [keymap, &candidates](xkb_layout_index_t layout) -> std::optional<uint32_t> {
++        const xkb_keycode_t minKeycode = xkb_keymap_min_keycode(keymap);
++        const xkb_keycode_t maxKeycode = xkb_keymap_max_keycode(keymap);
++
++        for (xkb_keycode_t keycode = minKeycode; keycode <= maxKeycode; ++keycode) {
++            const xkb_level_index_t levelCount = xkb_keymap_num_levels_for_key(keymap, keycode, layout);
++            for (xkb_level_index_t level = 0; level < levelCount; ++level) {
++                const xkb_keysym_t *symbols = nullptr;
++                const int symbolCount = xkb_keymap_key_get_syms_by_level(keymap, keycode, layout, level, &symbols);
++                for (int index = 0; index < symbolCount; ++index) {
++                    for (const xkb_keysym_t candidate : candidates) {
++                        if (symbols[index] == candidate && keycode >= 8) {
++                            return keycode - 8;
++                        }
++                    }
++                }
++            }
++        }
++
++        return std::nullopt;
++    };
++
++    const xkb_layout_index_t effectiveLayout = xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE);
++    if (const auto code = findInLayout(effectiveLayout)) {
++        return code;
++    }
++
++    const xkb_layout_index_t layoutCount = xkb_keymap_num_layouts(keymap);
++    for (xkb_layout_index_t layout = 0; layout < layoutCount; ++layout) {
++        if (layout == effectiveLayout) {
++            continue;
++        }
++        if (const auto code = findInLayout(layout)) {
++            return code;
++        }
++    }
++
++    return std::nullopt;
++}
++
++}

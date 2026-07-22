@@ -8,8 +8,8 @@ DimDisplayWhenIdle=false
 TurnOffDisplayWhenIdle=false
 
 [AC][SuspendAndShutdown]
-AutoSuspendWhenIdle=false
 AutoSuspendAction=0
+AutoSuspendIdleTimeoutSec=900
 LidAction=1
 PowerButtonAction=1
 
@@ -18,7 +18,6 @@ DimDisplayWhenIdle=false
 TurnOffDisplayWhenIdle=false
 
 [Battery][SuspendAndShutdown]
-AutoSuspendWhenIdle=true
 AutoSuspendAction=1
 AutoSuspendIdleTimeoutSec=600
 LidAction=1
@@ -30,7 +29,6 @@ TurnOffDisplayWhenIdle=false
 UseProfileSpecificDisplayBrightness=false
 
 [LowBattery][SuspendAndShutdown]
-AutoSuspendWhenIdle=true
 AutoSuspendAction=1
 AutoSuspendIdleTimeoutSec=300
 LidAction=1

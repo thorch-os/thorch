@@ -1,0 +1,121 @@
+diff --git a/src/inputmethod_p.h b/src/inputmethod_p.h
+--- a/src/inputmethod_p.h
++++ b/src/inputmethod_p.h
+@@ -92,10 +92,18 @@ class Keyboard : public QObject, public QtWayland::wl_keyboard
+ {
+     Q_OBJECT
+ public:
++    struct ModifierState {
++        uint32_t depressed;
++        uint32_t latched;
++        uint32_t locked;
++        uint32_t group;
++    };
++
+     Keyboard(::wl_keyboard *keyboard, InputMethodContext *parent);
+     ~Keyboard();
+
+     std::optional<uint32_t> keyCodeForKeysym(xkb_keysym_t keysym) const;
++    std::optional<ModifierState> modifierStateWith(Qt::KeyboardModifiers modifiers) const;
+
+ Q_SIGNALS:
+     void keyPressed(QKeyEvent *keyEvent);
+diff --git a/src/inputmethod.cpp b/src/inputmethod.cpp
+--- a/src/inputmethod.cpp
++++ b/src/inputmethod.cpp
+@@ -121,6 +121,59 @@ std::optional<uint32_t> Keyboard::keyCodeForKeysym(xkb_keysym_t keysym) const
+     return PlasmaKeyboard::keyCodeForKeysym(mXkbKeymap.get(), mXkbState.get(), keysym);
+ }
+
++std::optional<Keyboard::ModifierState> Keyboard::modifierStateWith(Qt::KeyboardModifiers modifiers) const
++{
++    if (!mXkbKeymap || !mXkbState) {
++        return std::nullopt;
++    }
++
++    QXkbCommon::ScopedXKBState state(xkb_state_new(mXkbKeymap.get()));
++    if (!state) {
++        return std::nullopt;
++    }
++
++    const auto locked = xkb_state_serialize_mods(mXkbState.get(), XKB_STATE_MODS_LOCKED);
++    const auto group = xkb_state_serialize_layout(mXkbState.get(), XKB_STATE_LAYOUT_EFFECTIVE);
++    // KWin echoes modifier requests back through the keyboard grab. Do not
++    // seed depressed or latched state from that grab, otherwise a synthetic
++    // Ctrl/Shift chord becomes the baseline and cannot be released cleanly.
++    // The QKeyEvent contains the complete active chord; only lock and layout
++    // state need to survive between requests.
++    xkb_state_update_mask(state.get(), 0, 0, locked, 0, 0, group);
++
++    const auto pressModifier = [this, &state](xkb_keysym_t keysym) {
++        const auto code = keyCodeForKeysym(keysym);
++        if (!code) {
++            return false;
++        }
++        xkb_state_update_key(state.get(), *code + 8, XKB_KEY_DOWN);
++        return true;
++    };
++
++    if ((modifiers & Qt::ControlModifier) && !pressModifier(XKB_KEY_Control_L)) {
++        return std::nullopt;
++    }
++    if ((modifiers & Qt::AltModifier) && !pressModifier(XKB_KEY_Alt_L)) {
++        return std::nullopt;
++    }
++    if ((modifiers & Qt::MetaModifier) && !pressModifier(XKB_KEY_Super_L)) {
++        return std::nullopt;
++    }
++    if ((modifiers & Qt::GroupSwitchModifier) && !pressModifier(XKB_KEY_ISO_Level3_Shift)) {
++        return std::nullopt;
++    }
++    if ((modifiers & Qt::ShiftModifier) && !pressModifier(XKB_KEY_Shift_L)) {
++        return std::nullopt;
++    }
++
++    return ModifierState{
++        .depressed = xkb_state_serialize_mods(state.get(), XKB_STATE_MODS_DEPRESSED),
++        .latched = xkb_state_serialize_mods(state.get(), XKB_STATE_MODS_LATCHED),
++        .locked = xkb_state_serialize_mods(state.get(), XKB_STATE_MODS_LOCKED),
++        .group = xkb_state_serialize_layout(state.get(), XKB_STATE_LAYOUT_EFFECTIVE),
++    };
++}
++
+ void Keyboard::keyboard_keymap(uint32_t format, int32_t fd, uint32_t size)
+ {
+     mKeymapFormat = format;
+diff --git a/src/inputplugin.h b/src/inputplugin.h
+--- a/src/inputplugin.h
++++ b/src/inputplugin.h
+@@ -80,6 +80,7 @@ public:
+     void keysym(uint timestamp, uint sym, KeyState state, uint modifiers);
+     void key(KeyState state, quint32 scancode);
+     std::optional<quint32> keyCodeForKeysym(quint32 keysym) const;
++    bool setModifiers(Qt::KeyboardModifiers modifiers) const;
+
+     ContentHint contentHint() const;
+     ContentPurpose contentPurpose() const;
+diff --git a/src/inputplugin.cpp b/src/inputplugin.cpp
+--- a/src/inputplugin.cpp
++++ b/src/inputplugin.cpp
+@@ -122,6 +122,21 @@ std::optional<quint32> InputPlugin::keyCodeForKeysym(quint32 keysym) const
+     return m_keyboard->keyCodeForKeysym(keysym);
+ }
+
++bool InputPlugin::setModifiers(Qt::KeyboardModifiers modifiers) const
++{
++    if (!m_context || !m_keyboard) {
++        return false;
++    }
++
++    const auto state = m_keyboard->modifierStateWith(modifiers);
++    if (!state) {
++        return false;
++    }
++
++    m_context->modifiers(m_context->m_latestSerial, state->depressed, state->latched, state->locked, state->group);
++    return true;
++}
++
+ InputPlugin::ContentHint InputPlugin::contentHint() const
+ {
+     if (!m_context) {

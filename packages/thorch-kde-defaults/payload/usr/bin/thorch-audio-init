@@ -1,34 +1,103 @@
 #!/usr/bin/env sh
 set -eu
 
-init_alsa() {
-	alsaucm -c hw:0 set _verb HiFi set _enadev Speaker >/dev/null 2>&1 ||
-		alsaucm -c AYN-Odin2 set _verb HiFi set _enadev Speaker >/dev/null 2>&1 ||
-		true
-	amixer -c 0 cset name="RX_RX0 Digital Volume" 84 >/dev/null 2>&1 || true
-	amixer -c 0 cset name="RX_RX1 Digital Volume" 84 >/dev/null 2>&1 || true
-	amixer -c 0 cset name="HPHL Volume" 20 >/dev/null 2>&1 || true
-	amixer -c 0 cset name="HPHR Volume" 20 >/dev/null 2>&1 || true
-	amixer -c 0 cset name="ADC2 Volume" 10 >/dev/null 2>&1 || true
-	amixer -c 0 cset name="SPK_L PCM Playback Volume" 0 >/dev/null 2>&1 || true
-	amixer -c 0 cset name="SPK_R PCM Playback Volume" 0 >/dev/null 2>&1 || true
+card_name="alsa_card.platform-sound"
+speaker_sink="alsa_output.platform-sound.HiFi__Speaker__sink"
+mic_source="alsa_input.platform-sound.HiFi__Mic__source"
+preferred_profile="HiFi (Headphones, Mic, Speaker)"
+fallback_profile="HiFi (Headphones, Speaker)"
+
+warn() {
+	printf 'thorch-audio-init: %s\n' "$*" >&2
 }
 
-init_pipewire() {
-	command -v pactl >/dev/null 2>&1 || return 0
-	[ -n "${XDG_RUNTIME_DIR:-}" ] || return 0
-	pactl set-card-profile alsa_card.platform-sound "HiFi (Headphones, Mic, Speaker)" >/dev/null 2>&1 ||
-		pactl set-card-profile alsa_card.platform-sound "HiFi (Headphones, Speaker)" >/dev/null 2>&1 ||
-		true
-	pactl set-default-sink alsa_output.platform-sound.HiFi__Speaker__sink >/dev/null 2>&1 || true
-	pactl set-default-source alsa_input.platform-sound.HiFi__Mic__source >/dev/null 2>&1 || true
-	pactl set-sink-mute alsa_output.platform-sound.HiFi__Speaker__sink 0 >/dev/null 2>&1 || true
-	pactl set-sink-volume alsa_output.platform-sound.HiFi__Speaker__sink 35% >/dev/null 2>&1 || true
-	pactl set-source-volume alsa_input.platform-sound.HiFi__Mic__source 100% >/dev/null 2>&1 || true
+has_short_name() {
+	object_type="$1"
+	object_name="$2"
+	pactl list short "${object_type}" 2>/dev/null |
+		awk -v wanted="${object_name}" '$2 == wanted { found = 1 } END { exit !found }'
 }
 
-for delay in 0 1 2 3 5; do
-	[ "$delay" -eq 0 ] || sleep "$delay"
-	init_alsa
-	init_pipewire
-done
+wait_for_name() {
+	object_type="$1"
+	object_name="$2"
+	for delay in 0 1 2 3 5; do
+		[ "${delay}" -eq 0 ] || sleep "${delay}"
+		if has_short_name "${object_type}" "${object_name}"; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+active_profile() {
+	pactl list cards 2>/dev/null | awk -v wanted="${card_name}" '
+		/^Card #[0-9]+/ { matching = 0 }
+		/^[[:space:]]*Name:/ {
+			name = $0
+			sub(/^[[:space:]]*Name:[[:space:]]*/, "", name)
+			matching = (name == wanted)
+		}
+		matching && /^[[:space:]]*Active Profile:/ {
+			profile = $0
+			sub(/^[[:space:]]*Active Profile:[[:space:]]*/, "", profile)
+			print profile
+			exit
+		}
+	'
+}
+
+wait_for_profile() {
+	for delay in 0 1 2 3 5; do
+		[ "${delay}" -eq 0 ] || sleep "${delay}"
+		profile="$(active_profile || true)"
+		if [ -n "${profile}" ]; then
+			printf '%s\n' "${profile}"
+			return 0
+		fi
+	done
+	return 1
+}
+
+command -v pactl >/dev/null 2>&1 || {
+	warn "pactl is unavailable; leaving audio routing to WirePlumber"
+	exit 0
+}
+[ -n "${XDG_RUNTIME_DIR:-}" ] || {
+	warn "XDG_RUNTIME_DIR is unavailable; leaving audio routing to WirePlumber"
+	exit 0
+}
+
+if ! wait_for_name cards "${card_name}"; then
+	warn "PipeWire card ${card_name} did not appear"
+	exit 0
+fi
+
+profile="$(wait_for_profile || true)"
+case "${profile}" in
+	"${preferred_profile}"|"${fallback_profile}")
+		;;
+	*)
+		# WirePlumber owns the UCM state. Select a profile once through its
+		# PulseAudio interface instead of repeatedly racing it with alsaucm.
+		if ! pactl set-card-profile "${card_name}" "${preferred_profile}" >/dev/null 2>&1 &&
+			! pactl set-card-profile "${card_name}" "${fallback_profile}" >/dev/null 2>&1; then
+			warn "could not select a HiFi card profile"
+			exit 0
+		fi
+		;;
+esac
+
+if ! wait_for_name sinks "${speaker_sink}"; then
+	warn "speaker sink ${speaker_sink} did not appear"
+	exit 0
+fi
+
+pactl set-default-sink "${speaker_sink}" >/dev/null 2>&1 || true
+pactl set-sink-mute "${speaker_sink}" 0 >/dev/null 2>&1 || true
+pactl set-sink-volume "${speaker_sink}" 35% >/dev/null 2>&1 || true
+
+if wait_for_name sources "${mic_source}"; then
+	pactl set-default-source "${mic_source}" >/dev/null 2>&1 || true
+	pactl set-source-volume "${mic_source}" 100% >/dev/null 2>&1 || true
+fi

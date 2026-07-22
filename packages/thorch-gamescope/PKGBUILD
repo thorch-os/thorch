@@ -3,7 +3,7 @@
 pkgname=thorch-gamescope
 _pkgname=gamescope
 pkgver=3.16.23
-pkgrel=1
+pkgrel=2
 _commit=f8b33d38c5acc35825c7966b208222770c4a623e
 pkgdesc='SteamOS session compositing window manager with ROCKNIX handheld patches'
 arch=(aarch64)

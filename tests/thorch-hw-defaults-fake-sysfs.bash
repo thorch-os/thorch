@@ -16,11 +16,13 @@ mkdir -p \
   "${tmp}/sys/devices/system/cpu/cpufreq" \
   "${tmp}/sys/devices/system/cpu/cpufreq/policy0" \
   "${tmp}/sys/devices/system/cpu/cpufreq/policy4" \
-  "${tmp}/sys/devices/system/cpu/cpufreq/policy7"
+  "${tmp}/sys/devices/system/cpu/cpufreq/policy7" \
+  "${tmp}/sys/devices/system/cpu/cpu0/cpuidle/state1"
 
 printf '0\n' > "${tmp}/sys/devices/system/cpu/cpufreq/boost"
 printf '0\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy0/boost"
 printf '0\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy4/boost"
+printf '0\n' > "${tmp}/sys/devices/system/cpu/cpu0/cpuidle/state1/disable"
 ln -s /dev/full "${tmp}/sys/devices/system/cpu/cpufreq/policy7/boost"
 printf 'schedutil\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy0/scaling_governor"
 printf 'performance schedutil powersave\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy0/scaling_available_governors"
@@ -36,10 +38,11 @@ printf '2841600\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy4/scaling_boos
 printf '2995200\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy7/scaling_max_freq"
 printf '3187200\n' > "${tmp}/sys/devices/system/cpu/cpufreq/policy7/cpuinfo_max_freq"
 printf 'simple_ondemand\n' > "${tmp}/sys/class/devfreq/gpu0/governor"
-printf 'performance simple_ondemand powersave\n' > "${tmp}/sys/class/devfreq/gpu0/available_governors"
+printf 'performance simple_ondemand powersave userspace\n' > "${tmp}/sys/class/devfreq/gpu0/available_governors"
 
 THORCH_HW_DEFAULTS_SYSFS_ROOT="${tmp}/sys" THORCH_CPU_BOOST=1 THORCH_CPU_GOVERNOR=performance THORCH_GPU_GOVERNOR=performance "${script}" apply
 
+[[ "$(cat "${tmp}/sys/devices/system/cpu/cpu0/cpuidle/state1/disable")" == "1" ]] || fail "ROCKNIX CPU0 idle workaround was not applied"
 [[ "$(cat "${tmp}/sys/devices/system/cpu/cpufreq/boost")" == "1" ]] || fail "global boost was not enabled"
 [[ "$(cat "${tmp}/sys/devices/system/cpu/cpufreq/policy4/boost")" == "1" ]] || fail "policy4 boost was not enabled"
 [[ "$(cat "${tmp}/sys/devices/system/cpu/cpufreq/policy0/boost")" == "0" ]] || fail "policy0 without boost frequencies should be left alone"
@@ -62,10 +65,14 @@ THORCH_HW_DEFAULTS_SYSFS_ROOT="${tmp}/sys" THORCH_CPU_BOOST=0 "${script}" apply
 [[ "$(cat "${tmp}/sys/devices/system/cpu/cpufreq/policy4/boost")" == "0" ]] || fail "policy4 boost was not disabled"
 [[ "$(cat "${tmp}/sys/devices/system/cpu/cpufreq/policy7/scaling_max_freq")" == "2995200" ]] || fail "boost-disabled apply should not raise max freq"
 
+THORCH_HW_DEFAULTS_SYSFS_ROOT="${tmp}/sys" THORCH_CPU_BOOST=0 THORCH_DISABLE_CPU0_IDLE_STATE1=0 "${script}" apply
+[[ "$(cat "${tmp}/sys/devices/system/cpu/cpu0/cpuidle/state1/disable")" == "0" ]] || fail "CPU0 idle workaround override did not re-enable the state"
+
 rm -f "${tmp}/sys/devices/system/cpu/cpufreq/policy7/boost"
 status_output="$(THORCH_HW_DEFAULTS_SYSFS_ROOT="${tmp}/sys" THORCH_CPU_BOOST=0 "${script}" status)"
+grep -q 'cpu0/cpuidle/state1/disable=0' <<< "${status_output}" || fail "status did not report CPU0 idle workaround state"
 grep -q 'policy4/boost=0' <<< "${status_output}" || fail "status did not report current boost-capable policy state"
 grep -q 'policy0/scaling_governor=performance' <<< "${status_output}" || fail "status did not report cpu governor state"
-grep -q 'gpu0/governor=performance' <<< "${status_output}" || fail "status did not report gpu governor state"
+grep -q 'gpu0/governor=simple_ondemand' <<< "${status_output}" || fail "default GPU governor was not simple_ondemand"
 
 printf 'ok\n'

@@ -1,0 +1,35 @@
+diff --git a/src/main.cpp b/src/main.cpp
+index 9ff534b..67efb39 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -86,12 +86,21 @@ int main(int argc, char **argv)
+     QQmlApplicationEngine view;
+     KLocalization::setupLocalizedContext(&view);
+
+-    QObject::connect(&view, &QQmlApplicationEngine::objectCreated, &application, [](QObject *object) {
++    const QString testQmlPath = qEnvironmentVariable("PLASMA_KEYBOARD_TEST_QML");
++    const bool testQmlMode = !testQmlPath.isEmpty();
++
++    QObject::connect(&view, &QQmlApplicationEngine::objectCreated, &application, [testQmlMode](QObject *object) {
+         auto window = qobject_cast<QWindow *>(object);
+         if (!window) {
+             return;
+         }
+
++        if (testQmlMode) {
++            window->requestActivate();
++            window->setVisible(true);
++            return;
++        }
++
+         const QString requestedOutput = qEnvironmentVariable("PLASMA_KEYBOARD_OUTPUT");
+         if (!requestedOutput.isEmpty()) {
+             const auto screens = QGuiApplication::screens();
+@@ -117,6 +126,6 @@ int main(int argc, char **argv)
+         window->requestActivate();
+         window->setVisible(true);
+     });
+-    view.load(QUrl(QStringLiteral("qrc:/qt/qml/org/kde/plasma/keyboard/main.qml")));
++    view.load(testQmlMode ? QUrl::fromLocalFile(testQmlPath) : QUrl(QStringLiteral("qrc:/qt/qml/org/kde/plasma/keyboard/main.qml")));
+
+     qCDebug(PlasmaKeyboard) << "Starting Plasma Keyboard application";
