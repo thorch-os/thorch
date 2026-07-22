@@ -75,6 +75,8 @@ done
 if [[ "${trust_existing}" -eq 1 && "${skip_fresh}" -ne 1 ]]; then
   die "--trust-existing requires --skip-fresh"
 fi
+[[ "${THORCH_PACKAGE_JOBS}" =~ ^[1-9][0-9]*$ ]] ||
+  die "THORCH_PACKAGE_JOBS must be a positive integer"
 
 root="$(repo_root)"
 manifest_cli="${script_dir}/package-manifest.py"
@@ -717,7 +719,7 @@ for pkg in "${packages[@]}"; do
   install -d "${work_dir}/${pkg}" "${pkgdest}"
   rsync -a "${root}/packages/${pkg}/" "${work_dir}/${pkg}/"
   run_chroot "chown -R builder:builder /thorch-work/${pkg} /thorch-pkgdest"
-  package_env="env PKGDEST=/thorch-pkgdest THORCH_ROCKNIX_DIR=/thorch-input/${THORCH_ROCKNIX_DIR} THORCH_FIRMWARE_DIR=/thorch-input/${THORCH_FIRMWARE_DIR} THORCH_ROCKNIX_KERNEL_DIR=/thorch-input/${THORCH_ROCKNIX_KERNEL_DIR} THORCH_ROCKNIX_RUNTIME_DIR=/thorch-input/${THORCH_ROCKNIX_RUNTIME_DIR}"
+  package_env="env MAKEFLAGS=-j${THORCH_PACKAGE_JOBS} CMAKE_BUILD_PARALLEL_LEVEL=${THORCH_PACKAGE_JOBS} PKGDEST=/thorch-pkgdest THORCH_ROCKNIX_DIR=/thorch-input/${THORCH_ROCKNIX_DIR} THORCH_FIRMWARE_DIR=/thorch-input/${THORCH_FIRMWARE_DIR} THORCH_ROCKNIX_KERNEL_DIR=/thorch-input/${THORCH_ROCKNIX_KERNEL_DIR} THORCH_ROCKNIX_RUNTIME_DIR=/thorch-input/${THORCH_ROCKNIX_RUNTIME_DIR}"
   run_chroot "cd /thorch-work/${pkg} && su builder -c '${package_env} makepkg --printsrcinfo > .SRCINFO'"
   run_chroot "test -s /thorch-work/${pkg}/.SRCINFO && grep -Eq '^[[:space:]]*pkgname = ${pkg}$' /thorch-work/${pkg}/.SRCINFO" || \
     die "makepkg generated invalid .SRCINFO for ${pkg}"

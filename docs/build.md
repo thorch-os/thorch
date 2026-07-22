@@ -328,6 +328,9 @@ describes their purpose without duplicating mutable source or kernel refs.
 - `THORCH_KERNEL_CONFIG_FRAGMENT`: Thorch required config fragment, default `packages/linux-thorch/waydroid-kernel.config`.
 - `THORCH_KERNEL_PATCH_DIRS`: ROCKNIX patch directories applied to the kernel source.
 - `THORCH_KERNEL_DTS_DIR`: ROCKNIX DTS overlay directory, default `vendor/rocknix-sm8550/linux/dts`.
+- `THORCH_PACKAGE_JOBS`: parallelism used by makepkg and CMake package builds,
+  defaulting to the host's online processor count; lower it on
+  memory-constrained builders.
 - `THORCH_WAYDROID_KERNEL_REQUIRED`: set to `0` only for local experiments that intentionally build without BinderFS/Waydroid kernel support.
 - `ALARM_ROOTFS_URL`: Arch Linux ARM aarch64 rootfs URL.
 - `ALARM_ROOTFS_SIG_URL`: detached signature URL for the Arch Linux ARM rootfs.
