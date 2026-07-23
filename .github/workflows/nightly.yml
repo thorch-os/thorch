@@ -42,13 +42,13 @@ concurrency:
 jobs:
   build:
     name: Build Thorch Nightly
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     env:
-      # Published by Builder Image run 29105361823. Update this digest only
+      # ARM64 image published by Builder Image run 29935184834. Update this digest only
       # after the replacement builder workflow reports and verifies its digest.
-      THORCH_BUILDER_DIGEST: sha256:47dafaf2248f956431fd8b6b1dd3318b2a1c90cd0db77c9e68cfc4d1f67dba63
-      THORCH_DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/thorch-build@sha256:47dafaf2248f956431fd8b6b1dd3318b2a1c90cd0db77c9e68cfc4d1f67dba63
+      THORCH_BUILDER_DIGEST: sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
+      THORCH_DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/thorch-build@sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
       THORCH_DOCKER_RUN_ARGS: --env THORCH_REQUIRE_MOUNT_INTEGRATION=1
       ROCKNIX_REF: ${{ inputs.rocknix_ref || 'next' }}
       ROCKNIX_KERNEL_SOURCE: nightly
@@ -74,11 +74,6 @@ jobs:
           sudo modprobe loop || true
           command -v docker
           command -v gh
-
-      - name: Register aarch64 emulation
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
-        with:
-          platforms: arm64
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4

@@ -6,26 +6,27 @@ It publishes the compressed image as a GitHub prerelease asset.
 No self-hosted Arch runner is required.
 
 The builder image is defined by `Dockerfile`. Default-branch runs of
-`.github/workflows/builder-image.yml` publish a convenience `latest` tag, a
-full commit-SHA tag, and report the resulting content digest. The nightly never
-uses the moving tags: it pulls the reviewed digest recorded in its workflow,
-for example:
+`.github/workflows/builder-image.yml` publish the existing AMD64 `latest` and
+full commit-SHA tags plus separate ARM64 `latest-arm64` and commit-SHA tags.
+Both jobs report their resulting content digest. The nightly never uses the
+moving tags: it pulls the reviewed, architecture-matched digest recorded in its
+workflow, for example:
 
 ```text
 ghcr.io/<owner>/thorch-build@sha256:<64-hex-digest>
 ```
 
-Pull requests build the image without pushing it, so Dockerfile changes are
-validated before merge. The Dockerfile also pins its Arch base image by digest.
-After a reviewed builder change lands, copy the new digest from the Builder
-Image job summary into `THORCH_BUILDER_DIGEST` and `THORCH_DOCKER_IMAGE` in the
-nightly workflow, then verify that exact digest can be pulled before relying on
-it for a release.
+Pull requests build both images without pushing them, so Dockerfile and
+architecture-specific base changes are validated before merge. The AMD64 and
+ARM64 base images are both pinned by digest. After a reviewed builder change
+lands, copy the matching digest from the Builder Image job summary into
+`THORCH_BUILDER_DIGEST` and `THORCH_DOCKER_IMAGE` in the nightly workflow, then
+verify that exact digest can be pulled before relying on it for a release.
 
-The nightly authenticates to GHCR, pulls only that digest, verifies the pulled
-repository digest, then runs `make docker-nightly`. It intentionally does not
-fall back to a local build: such a fallback could publish with an unreviewed
-toolchain. Package and image rootfs commands use
+The nightly authenticates to GHCR, pulls only the ARM64 digest, verifies the
+pulled repository digest, then runs `make docker-nightly`. It intentionally
+does not fall back to a local build: such a fallback could publish with an
+unreviewed toolchain. Package and image rootfs commands use
 `THORCH_ROOTFS_RUNNER=chroot`, so the build does not need nested
 `systemd-nspawn`.
 
@@ -42,11 +43,13 @@ access in GitHub before changing the workflow.
 The job runs on:
 
 ```text
-ubuntu-latest
+ubuntu-24.04-arm
 ```
 
-The host step installs only release-side tooling (`zstd`) and uses Docker for
-the build environment. The Makefile wrapper runs the Thorch builder with
+This four-core ARM64 runner builds the aarch64 kernel, packages, and rootfs
+natively; it does not register QEMU binfmt handlers. The host step installs
+only release-side tooling (`zstd`) and uses Docker for the build environment.
+The Makefile wrapper runs the Thorch builder with
 `docker run --privileged`, matching the ROCKNIX-style "docker target wraps the
 normal make target" model. The privileged container is needed for loop devices,
 read-only ROCKNIX image imports, and kernel-mounted Btrfs population. The

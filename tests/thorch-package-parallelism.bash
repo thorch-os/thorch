@@ -6,6 +6,8 @@ config="${root}/config/thorch.conf"
 builder="${root}/scripts/build-packages.sh"
 makefile="${root}/Makefile"
 build_docs="${root}/docs/build.md"
+kwin_pkgbuild="${root}/packages/kwin/PKGBUILD"
+keyboard_pkgbuild="${root}/packages/plasma-keyboard/PKGBUILD"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -22,6 +24,11 @@ grep -q 'THORCH_PACKAGE_JOBS' "${makefile}" ||
   fail "make does not preserve package build parallelism through sudo and Docker"
 grep -q '`THORCH_PACKAGE_JOBS`' "${build_docs}" ||
   fail "package build parallelism is not documented"
+
+for pkgbuild in "${kwin_pkgbuild}" "${keyboard_pkgbuild}"; do
+  ! grep -Eq -- '--parallel[[:space:]]+[0-9]+' "${pkgbuild}" ||
+    fail "${pkgbuild#"${root}/"} overrides THORCH_PACKAGE_JOBS with a fixed CMake job count"
+done
 
 failure="$(mktemp)"
 trap 'rm -f "${failure}"' EXIT

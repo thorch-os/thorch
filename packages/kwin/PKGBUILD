@@ -2,7 +2,7 @@
 
 pkgname=kwin
 pkgver=6.7.3
-pkgrel=6
+pkgrel=7
 pkgdesc='KWin with dual-screen placement and reliable forced input panels'
 arch=(aarch64)
 url='https://invent.kde.org/plasma/kwin'
@@ -100,7 +100,7 @@ build() {
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_LIBEXECDIR=lib \
     -DBUILD_TESTING=OFF
-  cmake --build build --parallel 4
+  cmake --build build
 }
 
 check() {
@@ -110,7 +110,7 @@ check() {
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_LIBEXECDIR=lib \
     -DBUILD_TESTING=ON
-  cmake --build build --target testInputMethod --parallel 4
+  cmake --build build --target testInputMethod
 
   install -d -m 0700 "${runtime_dir}"
   dbus-run-session -- env \

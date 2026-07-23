@@ -43,8 +43,8 @@ grep -q 'DisableSandbox' "${dockerfile}" ||
 grep -q 'THORCH_DOCKER_IMAGE ?= ghcr.io/thorch-os/thorch-build:latest' "${makefile}" ||
   fail "Makefile does not define the default Thorch builder image"
 
-grep -q 'menci/archlinuxarm:base-devel' "${makefile}" ||
-  fail "Makefile does not select an Arch Linux ARM builder on aarch64 hosts"
+grep -Eq 'THORCH_DOCKER_ARM64_BASE_IMAGE \?= menci/archlinuxarm:base-devel@sha256:[0-9a-f]{64}$' "${makefile}" ||
+  fail "Makefile does not pin its Arch Linux ARM builder base"
 
 grep -q '^docker-%:' "${makefile}" ||
   fail "Makefile does not provide ROCKNIX-style docker-* targets"
@@ -142,6 +142,21 @@ grep -q 'steps.build.outputs.digest' "${builder_workflow}" ||
 
 grep -q 'packages: write' "${builder_workflow}" ||
   fail "builder workflow cannot publish to GHCR"
+
+grep -q '^  build-arm64:' "${builder_workflow}" ||
+  fail "builder workflow does not publish a separate ARM64 builder"
+
+grep -A8 '^  build-arm64:' "${builder_workflow}" | grep -q 'runs-on: ubuntu-24.04-arm' ||
+  fail "ARM64 builder does not use GitHub's native ARM runner"
+
+grep -Eq 'THORCH_DOCKER_BASE_IMAGE: menci/archlinuxarm:base-devel@sha256:[0-9a-f]{64}$' "${builder_workflow}" ||
+  fail "ARM64 builder workflow does not pin its base image"
+
+grep -q 'platforms: linux/arm64' "${builder_workflow}" ||
+  fail "ARM64 builder workflow does not publish the ARM64 platform"
+
+grep -q 'type=sha,format=long,suffix=-arm64' "${builder_workflow}" ||
+  fail "ARM64 builder workflow does not publish an architecture-specific SHA tag"
 
 grep -q 'make docker-<target>' "${build_docs}" ||
   fail "build docs do not describe docker-* targets"

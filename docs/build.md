@@ -134,11 +134,11 @@ The package repository and final image remain under `output/` in the checkout.
 Override `THORCH_DOCKER_BUILD_DIR` and `THORCH_DOCKER_BUILD_VOLUME` only when a
 different case-sensitive Docker storage location is required.
 
-On an `arm64` or `aarch64` host, `make docker-image-build` selects the native
-`menci/archlinuxarm:base-devel` base and builds kernels and Arch Linux ARM
-packages without CPU emulation. On x86_64 it uses the digest-pinned official
-`archlinux:base-devel` default declared by the Dockerfile and installs the
-aarch64 cross compiler and QEMU rootfs runner. Override
+On an `arm64` or `aarch64` host, `make docker-image-build` selects the native,
+digest-pinned `menci/archlinuxarm:base-devel` base and builds kernels and Arch
+Linux ARM packages without CPU emulation. On x86_64 it uses the digest-pinned
+official `archlinux:base-devel` default declared by the Dockerfile and installs
+the aarch64 cross compiler and QEMU rootfs runner. Override
 `THORCH_DOCKER_BASE_IMAGE` to use a different pinned or mirrored builder base.
 
 During userspace iteration, skip rebuilding/repackaging the kernel:

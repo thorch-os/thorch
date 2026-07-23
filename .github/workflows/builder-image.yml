@@ -80,3 +80,63 @@ jobs:
           image="${IMAGE_REGISTRY}/${IMAGE_NAME}@${BUILDER_DIGEST}"
           printf 'Published immutable builder `%s`\n' "${image}" >> "${GITHUB_STEP_SUMMARY}"
           printf 'Use that digest in `.github/workflows/nightly.yml` only after its pull path has been verified.\n' >> "${GITHUB_STEP_SUMMARY}"
+
+  build-arm64:
+    name: Build Thorch Builder Image (arm64)
+    runs-on: ubuntu-24.04-arm
+    env:
+      IMAGE_NAME: thorch-build
+      IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+      THORCH_DOCKER_BASE_IMAGE: menci/archlinuxarm:base-devel@sha256:7dfa70d355b9f4daf754a528b9f140c122952efbd9b52742d22379391835151b
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Prepare image metadata
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest-arm64,enable={{is_default_branch}}
+            type=sha,format=long,suffix=-arm64
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish builder image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/arm64
+          build-args: THORCH_DOCKER_BASE_IMAGE=${{ env.THORCH_DOCKER_BASE_IMAGE }}
+          pull: true
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: mode=max
+
+      - name: Record published builder digest
+        if: github.event_name != 'pull_request'
+        env:
+          BUILDER_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "${BUILDER_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "::error::ARM64 builder publication returned an invalid digest: ${BUILDER_DIGEST}"
+            exit 1
+          }
+          image="${IMAGE_REGISTRY}/${IMAGE_NAME}@${BUILDER_DIGEST}"
+          printf 'Published immutable ARM64 builder `%s`\n' "${image}" >> "${GITHUB_STEP_SUMMARY}"
+          printf 'Use that digest with `ubuntu-24.04-arm` only after its pull path has been verified.\n' >> "${GITHUB_STEP_SUMMARY}"
