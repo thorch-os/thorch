@@ -132,6 +132,13 @@ host driver over the guest library. Vulkan acceleration is provided by FEX's
 Vulkan thunk, which forwards guest Vulkan calls to the `thorch-mesa` Turnip host
 driver.
 
+The same package owns ext4 cards in the Thor microSD slot through a
+device-bound systemd service. Its udev rule sets `UDISKS_AUTO=0` only for those
+partitions so KDE and UDisks remain available for other removable media without
+racing the SteamOS-compatible mount. The helper preserves executable games,
+ext4 casefolding, and SteamOS UID/GID 1000 through an idmapped mount while
+enforcing `nosuid,nodev`; it then registers the resulting path with Steam.
+
 `thorch-waydroid-installer` provides the opt-in first-boot Waydroid setup
 command and app-menu installer entry. It does not redistribute Waydroid or
 Android images in the base image; the helper installs Arch Linux ARM's

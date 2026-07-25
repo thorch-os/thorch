@@ -21,8 +21,8 @@ steamos_id=1000
 
 install -d -m 0755 "$(dirname "${lock_file}")"
 exec 9>"${lock_file}"
-flock -n 9 || {
-  echo "thorch-sdcard-mount: another card operation is active" >&2
+flock -w 60 9 || {
+  echo "thorch-sdcard-mount: timed out waiting for another card operation" >&2
   exit 1
 }
 
@@ -78,7 +78,7 @@ notify_steam() {
 
   [[ -x "${client}" ]] || return 0
   pgrep -u "${steam_uid}" -x steam >/dev/null 2>&1 || return 0
-  systemd-run -M "${steam_uid}@" --user --collect --wait \
+  systemd-run -M "${steam_uid}@" --user --collect \
     --setenv="HOME=${steam_home}" \
     --setenv="LD_LIBRARY_PATH=${library_path}" \
     --working-directory="${client_dir}" \
@@ -118,10 +118,13 @@ if [[ "${action}" = remove ]]; then
     echo "thorch-sdcard-mount: ${device} is not mounted"
     exit 0
   fi
-  notify_steam removelibraryfolder "${mounted_at}"
   umount -l -- "${device}"
   rmdir -- "${mounted_at}" 2>/dev/null || true
   echo "thorch-sdcard-mount: unmounted ${device}"
+  # Steam IPC must not delay the safety-critical unmount or hold the global
+  # filesystem lock. The URI remains valid after the mount point is removed.
+  flock -u 9
+  notify_steam removelibraryfolder "${mounted_at}"
   exit 0
 fi
 
@@ -138,9 +141,12 @@ if [[ -n "${root_devno}" && "${card_devno}" = "${root_devno}" ]]; then
 fi
 
 if [[ -n "${mounted_at}" ]]; then
-  notify_steam addlibraryfolder "${mounted_at}"
-  echo "thorch-sdcard-mount: ${device} is already mounted at ${mounted_at}"
-  exit 0
+  echo "thorch-sdcard-mount: replacing foreign mount at ${mounted_at} with SteamOS idmapping"
+  if ! umount -- "${mounted_at}"; then
+    echo "thorch-sdcard-mount: failed to unmount foreign mount at ${mounted_at}" >&2
+    exit 1
+  fi
+  rmdir -- "${mounted_at}" 2>/dev/null || true
 fi
 
 fstype="$(lsblk -dnro FSTYPE -- "${device}" | head -n1 || true)"
@@ -161,7 +167,10 @@ install -d -m 0755 -- "${mount_point}"
 
 uid_map="$(idmap_for u "${steam_uid}")"
 gid_map="$(idmap_for g "${steam_gid}")"
-mount_options="rw,noatime,X-mount.idmap=${uid_map} ${gid_map}"
+# Steam libraries need executable files and symlinks, but never setuid programs
+# or device nodes from removable media. These flags preserve ext4 casefolding
+# and the SteamOS UID/GID view while removing privilege-bearing mount semantics.
+mount_options="rw,nosuid,nodev,exec,noatime,X-mount.idmap=${uid_map} ${gid_map}"
 if ! mount -t ext4 -o "${mount_options}" -- "${device}" "${mount_point}"; then
   rmdir -- "${mount_point}" 2>/dev/null || true
   echo "thorch-sdcard-mount: failed to mount ${device}" >&2
@@ -169,4 +178,7 @@ if ! mount -t ext4 -o "${mount_options}" -- "${device}" "${mount_point}"; then
 fi
 
 echo "thorch-sdcard-mount: mounted ${device} at ${mount_point}"
+# The mount is complete before talking to the desktop session. Releasing this
+# lock lets removal or another partition proceed even if user IPC is unhealthy.
+flock -u 9
 notify_steam addlibraryfolder "${mount_point}"
