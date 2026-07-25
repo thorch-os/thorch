@@ -2,12 +2,12 @@
 
 pkgname=thorch-bsp
 pkgver=1
-pkgrel=33
+pkgrel=34
 pkgdesc='Thorch AYN Thor boot and board support package'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-only GPL-2.0-or-later BSD-3-Clause custom)
-depends=(android-tools bash coreutils diffutils dnsmasq dosfstools e2fsprogs file findutils grep gzip iproute2 iw kmod libarchive mkinitcpio mtools networkmanager openssh pacman procps-ng python rfkill sudo systemd util-linux wireless-regdb zram-generator)
+depends=(android-tools bash coreutils diffutils dnsmasq dosfstools e2fsprogs file findutils grep gzip iproute2 iw kmod libarchive mkinitcpio mtools networkmanager openssh pacman procps-ng python rfkill scx-scheds sudo systemd util-linux wireless-regdb zram-generator)
 makedepends=(rust)
 backup=(
   etc/mkinitcpio.conf.d/90-thorch.conf
@@ -67,6 +67,7 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-backlight"
   chmod 755 "${pkgdir}/usr/bin/thorch-hw-defaults"
   chmod 755 "${pkgdir}/usr/bin/thorch-hardwarectl"
+  chmod 755 "${pkgdir}/usr/bin/thorch-lavd-mode"
   rm -f "${pkgdir}/usr/bin/thorch-powerkeyd"
   install -Dm755 "${srcdir}/thorch-inputd" "${pkgdir}/usr/bin/thorch-inputd"
   chmod 755 "${pkgdir}/usr/bin/thorch-rgb"

@@ -1,0 +1,22 @@
+configure_sdcard_stack() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl preset udisks2.service >/dev/null 2>&1 || true
+  fi
+  if command -v udevadm >/dev/null 2>&1 && [ -d /run/udev ]; then
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+  fi
+}
+
+post_install() {
+  configure_sdcard_stack
+}
+
+post_upgrade() {
+  configure_sdcard_stack
+}
+
+post_remove() {
+  if command -v udevadm >/dev/null 2>&1 && [ -d /run/udev ]; then
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+  fi
+}

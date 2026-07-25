@@ -1,0 +1,3 @@
+# Mount ext4 microSD partitions and register them with the native ARM Steam client.
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", KERNEL=="mmcblk[0-9]p[0-9]", ENV{ID_FS_TYPE}=="ext4", RUN{program}+="/usr/bin/systemd-run --no-block --collect /usr/lib/hwsupport/thorch-sdcard-mount add %k"
+ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", KERNEL=="mmcblk[0-9]p[0-9]", RUN{program}+="/usr/bin/systemd-run --no-block --collect /usr/lib/hwsupport/thorch-sdcard-mount remove %k"

@@ -4,6 +4,12 @@ configure_boot_confirmation() {
   fi
 }
 
+configure_lavd() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl preset thorch-lavd.service >/dev/null 2>&1 || true
+  fi
+}
+
 configure_network_policy() {
   local root="${THORCH_INSTALL_ROOT:-}"
   local masks="${root}/etc/systemd/system"
@@ -87,6 +93,7 @@ report_bootstrap_required() {
 
 post_install() {
   configure_boot_confirmation
+  configure_lavd
   configure_network_policy
   migrate_legacy_sudoers
   remove_legacy_sleep_hooks
@@ -106,6 +113,7 @@ post_install() {
 post_upgrade() {
   fix_gpu_governor "$2"
   configure_boot_confirmation
+  configure_lavd
   configure_network_policy
   migrate_legacy_sudoers
   remove_legacy_sleep_hooks

@@ -22,7 +22,7 @@ source "$1"
     case "$1:$2" in
     1-27:1-32|1-30:1-32|1-31:1-32) printf '%s\n' -1 ;;
     1-32:1-32) printf '%s\n' 0 ;;
-    1-33:1-32) printf '%s\n' 1 ;;
+    1-34:1-32) printf '%s\n' 1 ;;
     *) return 1 ;;
     esac
   }
@@ -87,7 +87,7 @@ cp "${config}" "${expected}"
 run_upgrade '1-32'
 cmp "${expected}" "${config}" >/dev/null ||
   fail 'the migration changed a GPU governor set after the 1-32 upgrade'
-run_upgrade '1-33'
+run_upgrade '1-34'
 cmp "${expected}" "${config}" >/dev/null ||
   fail 'the migration ran for a newer package version'
 

@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: thorch-sdcard-mount {add|remove} mmcblkNpM" >&2
+  exit 2
+}
+
+[[ "$#" -eq 2 ]] || usage
+action="$1"
+devbase="$2"
+[[ "${action}" = add || "${action}" = remove ]] || usage
+[[ "${devbase}" =~ ^mmcblk[0-9]+p[0-9]+$ ]] || usage
+
+device_root="${THORCH_SDCARD_DEV_ROOT:-/dev}"
+device="${device_root%/}/${devbase}"
+lock_file="${THORCH_SDCARD_LOCK_FILE:-/run/lock/thorch-sdcard-mount.lock}"
+sddm_conf="${THORCH_SDCARD_SDDM_CONF:-/etc/sddm.conf.d/90-thorch-local.conf}"
+media_root="${THORCH_SDCARD_MEDIA_ROOT:-/run/media}"
+steamos_id=1000
+
+install -d -m 0755 "$(dirname "${lock_file}")"
+exec 9>"${lock_file}"
+flock -n 9 || {
+  echo "thorch-sdcard-mount: another card operation is active" >&2
+  exit 1
+}
+
+configured_user() {
+  local line user=""
+
+  if [[ -n "${THORCH_SDCARD_USER:-}" ]]; then
+    printf '%s\n' "${THORCH_SDCARD_USER}"
+    return
+  fi
+  if [[ -f "${sddm_conf}" ]]; then
+    while IFS= read -r line; do
+      case "${line}" in
+        User=*)
+          user="${line#User=}"
+          break
+          ;;
+      esac
+    done <"${sddm_conf}"
+  fi
+  if [[ -z "${user}" ]]; then
+    user="$(getent passwd 1001 | cut -d: -f1 || true)"
+  fi
+  printf '%s\n' "${user:-thorch}"
+}
+
+steam_user="$(configured_user)"
+passwd_entry="$(getent passwd "${steam_user}" || true)"
+[[ -n "${passwd_entry}" ]] || {
+  echo "thorch-sdcard-mount: configured user ${steam_user} does not exist" >&2
+  exit 1
+}
+IFS=: read -r _ _ steam_uid steam_gid _ steam_home _ <<<"${passwd_entry}"
+[[ "${steam_uid}" =~ ^[0-9]+$ && "${steam_gid}" =~ ^[0-9]+$ ]] || {
+  echo "thorch-sdcard-mount: invalid uid/gid for ${steam_user}" >&2
+  exit 1
+}
+(( steam_uid >= steamos_id && steam_gid >= steamos_id )) || {
+  echo "thorch-sdcard-mount: ${steam_user} must use uid/gid 1000 or higher" >&2
+  exit 1
+}
+
+urlencode() {
+  printf '%s' "$1" | od -An -tx1 | tr -d ' \n' | sed 's/../%&/g'
+}
+
+notify_steam() {
+  local url_action="$1" mount_point="$2"
+  local steam_root="${steam_home}/.local/share/Steam"
+  local client_dir="${steam_root}/steamrtarm64"
+  local client="${client_dir}/steam"
+  local library_path="${client_dir}:${steam_root}/lib/aarch64-linux-gnu"
+
+  [[ -x "${client}" ]] || return 0
+  pgrep -u "${steam_uid}" -x steam >/dev/null 2>&1 || return 0
+  systemd-run -M "${steam_uid}@" --user --collect --wait \
+    --setenv="HOME=${steam_home}" \
+    --setenv="LD_LIBRARY_PATH=${library_path}" \
+    --working-directory="${client_dir}" \
+    "${client}" "steam://${url_action}/$(urlencode "${mount_point}")" ||
+    echo "thorch-sdcard-mount: Steam ${url_action} notification failed" >&2
+}
+
+idmap_for() {
+  local kind="$1" local_id="$2"
+  local middle_count tail_start tail_count
+
+  if (( local_id == steamos_id )); then
+    printf '%s:0:0:4294967295' "${kind}"
+    return
+  fi
+
+  printf '%s:0:0:%s %s:%s:%s:1 ' \
+    "${kind}" "${steamos_id}" \
+    "${kind}" "${steamos_id}" "${local_id}"
+  middle_count=$((local_id - steamos_id - 1))
+  if (( middle_count > 0 )); then
+    printf '%s:%s:%s:%s ' \
+      "${kind}" "$((steamos_id + 1))" "$((steamos_id + 1))" "${middle_count}"
+  fi
+  printf '%s:%s:%s:1' "${kind}" "${local_id}" "${steamos_id}"
+  tail_start=$((local_id + 1))
+  tail_count=$((4294967295 - tail_start))
+  if (( tail_count > 0 )); then
+    printf ' %s:%s:%s:%s' "${kind}" "${tail_start}" "${tail_start}" "${tail_count}"
+  fi
+}
+
+mounted_at="$(findmnt -rn -S "${device}" -o TARGET | head -n1 || true)"
+
+if [[ "${action}" = remove ]]; then
+  if [[ -z "${mounted_at}" ]]; then
+    echo "thorch-sdcard-mount: ${device} is not mounted"
+    exit 0
+  fi
+  notify_steam removelibraryfolder "${mounted_at}"
+  umount -l -- "${device}"
+  rmdir -- "${mounted_at}" 2>/dev/null || true
+  echo "thorch-sdcard-mount: unmounted ${device}"
+  exit 0
+fi
+
+[[ -b "${device}" || "${THORCH_SDCARD_ALLOW_FAKE_DEVICE:-0}" = 1 ]] || {
+  echo "thorch-sdcard-mount: ${device} is not a block device" >&2
+  exit 1
+}
+
+root_devno="$(findmnt -rn -o MAJ:MIN / | head -n1 || true)"
+card_devno="$(lsblk -dnro MAJ:MIN -- "${device}" | head -n1 || true)"
+if [[ -n "${root_devno}" && "${card_devno}" = "${root_devno}" ]]; then
+  echo "thorch-sdcard-mount: refusing to remount root device ${device}" >&2
+  exit 0
+fi
+
+if [[ -n "${mounted_at}" ]]; then
+  notify_steam addlibraryfolder "${mounted_at}"
+  echo "thorch-sdcard-mount: ${device} is already mounted at ${mounted_at}"
+  exit 0
+fi
+
+fstype="$(lsblk -dnro FSTYPE -- "${device}" | head -n1 || true)"
+[[ "${fstype}" = ext4 ]] || {
+  echo "thorch-sdcard-mount: ${device} is ${fstype:-unformatted}, expected ext4" >&2
+  exit 2
+}
+
+label="$(lsblk -dnro LABEL -- "${device}" | head -n1 | tr '/[:cntrl:]' '_' || true)"
+case "${label}" in
+  ""|"."|"..") label="${devbase}" ;;
+esac
+mount_point="${media_root}/${steam_user}/${label}"
+if findmnt -rn -M "${mount_point}" >/dev/null 2>&1; then
+  mount_point="${mount_point}-${devbase}"
+fi
+install -d -m 0755 -- "${mount_point}"
+
+uid_map="$(idmap_for u "${steam_uid}")"
+gid_map="$(idmap_for g "${steam_gid}")"
+mount_options="rw,noatime,X-mount.idmap=${uid_map} ${gid_map}"
+if ! mount -t ext4 -o "${mount_options}" -- "${device}" "${mount_point}"; then
+  rmdir -- "${mount_point}" 2>/dev/null || true
+  echo "thorch-sdcard-mount: failed to mount ${device}" >&2
+  exit 1
+fi
+
+echo "thorch-sdcard-mount: mounted ${device} at ${mount_point}"
+notify_steam addlibraryfolder "${mount_point}"

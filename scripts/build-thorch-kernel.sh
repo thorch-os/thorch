@@ -11,7 +11,7 @@ usage() {
 usage: scripts/build-thorch-kernel.sh [options]
 
 Builds a Thorch-owned Thor kernel from ROCKNIX's public kernel recipe, applies
-the Waydroid/BinderFS kernel config fragment, installs the matching modules into
+the Thorch kernel feature fragment, installs the matching modules into
 vendor/rocknix-kernel, and repacks that directory's Android /KERNEL template
 with the new kernel and all SM8550 DTB payloads.
 
@@ -203,9 +203,9 @@ template="${template:-${dest_abs}/boot/KERNEL}"
 template_abs="$(path_abs "${template}")"
 
 if [[ -n "${tarball_url}" ]]; then
-  require_cmd curl depmod git gzip install make patch python3 rsync sha256sum tar xz "${cross_compile}gcc"
+  require_cmd curl depmod git gzip install make pahole patch python3 rsync sha256sum tar xz "${cross_compile}gcc"
 else
-  require_cmd depmod git gzip install make patch python3 rsync "${cross_compile}gcc"
+  require_cmd depmod git gzip install make pahole patch python3 rsync "${cross_compile}gcc"
 fi
 
 [[ -f "${config_abs}" ]] || die "missing base kernel config: ${config_abs}"
@@ -389,7 +389,7 @@ apply_config_line() {
   esac
 }
 
-log "applying Thorch Waydroid/BinderFS kernel config"
+log "applying Thorch kernel feature config"
 while IFS= read -r line || [[ -n "${line}" ]]; do
   apply_config_line "${line}"
 done < "${fragment_abs}"
@@ -409,6 +409,22 @@ make_args=(
 
 log "resolving kernel config"
 make "${make_args[@]}" olddefconfig
+
+required_kernel_features=(
+  FUNCTION_TRACER
+  DYNAMIC_FTRACE
+  DYNAMIC_FTRACE_WITH_DIRECT_CALLS
+  DEBUG_INFO_BTF
+  SCHED_CLASS_EXT
+  KALLSYMS_ALL
+  UNICODE
+  MMC_SDHCI_MSM_DOWNSTREAM
+  CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
+)
+for symbol in "${required_kernel_features[@]}"; do
+  grep -q "^CONFIG_${symbol}=y$" "${build_abs}/.config" || \
+    die "kernel config: CONFIG_${symbol} did not resolve to y"
+done
 
 mapfile -t dtb_targets < <(
   find "${dts_abs}/qcom" -maxdepth 1 -name 'qcs8550-*.dts' \
@@ -462,7 +478,7 @@ done
 provenance="${dest_abs}/PROVENANCE"
 provenance_tmp="$(mktemp)"
 if [[ -f "${provenance}" ]]; then
-  grep -Ev '^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_)' "${provenance}" > "${provenance_tmp}" || true
+  grep -Ev '^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_|SCHED_EXT_|STEAMOS_|THORCH_SDR104_)' "${provenance}" > "${provenance_tmp}" || true
 else
   : > "${provenance_tmp}"
 fi
@@ -480,8 +496,11 @@ mv -f "${provenance_tmp}" "${provenance}"
   printf 'THORCH_KERNEL_DTS_PATCH_DIRS=%s\n' "${dts_patch_dirs[*]}"
   printf 'SOURCE_THORCH_KERNEL_BOOT_TEMPLATE=%s\n' "${template_abs}"
   printf 'WAYDROID_KERNEL_BINDERFS=enabled\n'
+  printf 'SCHED_EXT_LAVD_KERNEL=enabled\n'
+  printf 'STEAMOS_CASEFOLD_KERNEL=enabled\n'
+  printf 'THORCH_SDR104_DRIVER=downstream\n'
   date -u '+THORCH_KERNEL_BUILT_AT=%Y-%m-%dT%H:%M:%SZ'
 } >> "${provenance}"
 chmod 0644 "${provenance}"
 
-log "Thorch source-built BinderFS kernel ready in ${dest_abs} (${kernver})"
+log "Thorch source-built feature kernel ready in ${dest_abs} (${kernver})"

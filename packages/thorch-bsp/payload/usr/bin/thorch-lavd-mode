@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+mode_file="${THORCH_LAVD_MODE_FILE:-/var/lib/thorch/lavd-mode}"
+default_mode=autopilot
+
+current_mode() {
+  mode="$(cat "${mode_file}" 2>/dev/null || true)"
+  case "${mode}" in
+    autopilot|performance|balanced|powersave) ;;
+    *) mode="${default_mode}" ;;
+  esac
+  printf '%s\n' "${mode}"
+}
+
+usage() {
+  echo "usage: thorch-lavd-mode [autopilot|performance|balanced|powersave|toggle]" >&2
+  exit 2
+}
+
+case "${1:-}" in
+  "")
+    current_mode
+    ;;
+  run)
+    exec /usr/bin/scx_lavd "--$(current_mode)"
+    ;;
+  toggle|autopilot|performance|balanced|powersave)
+    mode="$1"
+    if [ "${mode}" = toggle ]; then
+      if [ "$(current_mode)" = performance ]; then
+        mode=autopilot
+      else
+        mode=performance
+      fi
+    fi
+    install -d -m 0755 "$(dirname "${mode_file}")"
+    printf '%s\n' "${mode}" >"${mode_file}" || {
+      echo "thorch-lavd-mode: cannot write ${mode_file} (run as root)" >&2
+      exit 1
+    }
+    systemctl restart thorch-lavd.service
+    printf 'scx_lavd mode: %s\n' "${mode}"
+    ;;
+  *)
+    usage
+    ;;
+esac

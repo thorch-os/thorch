@@ -3,6 +3,7 @@ enable thorch-debug-report.service
 enable thorch-fancontrol.service
 enable thorch-hw-defaults.service
 enable thorch-inputd.service
+enable thorch-lavd.service
 enable thorch-rgb.service
 enable thorch-rgb-battery.service
 enable thorch-rgb-poweroff.service
