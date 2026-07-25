@@ -139,7 +139,7 @@ else
   assert_path_beneath "${root}" "${build_dir}" THORCH_BUILD_DIR
 fi
 base_root="${build_dir}/pkg-base-root"
-base_root_schema=2
+base_root_schema=3
 base_root_schema_file="${base_root}/.thorch-package-base-schema"
 build_root="${build_dir}/pkg-root"
 cache_dir="${build_dir}/cache"
@@ -358,8 +358,10 @@ fresh_repo_package_for() {
 
   if [[ ! -e "${binding_file}" && ! -L "${binding_file}" ]]; then
     [[ "${trust_existing}" -eq 1 ]] || return 1
-    python3 "${script_dir}/check-package-repo.py" "${repo_dir}" \
-      --retained-root "${retained_repo_root}" --candidate "${pkgfile}" >/dev/null
+    if ! python3 "${script_dir}/check-package-repo.py" "${repo_dir}" \
+      --retained-root "${retained_repo_root}" --candidate "${pkgfile}" >/dev/null; then
+      return 1
+    fi
     log "recording input/artifact binding for existing ${pkg}; ${pkgfile##*/} is trusted"
     record_artifact_binding "${pkg}" "${pkgfile}" "${current_fingerprint}"
     printf '%s\n' "${pkgfile}"
@@ -696,7 +698,7 @@ reset_package_root() {
 log "preparing pristine aarch64 package base root"
 run_base_chroot "pacman-key --init >/dev/null 2>&1 || true"
 run_base_chroot "pacman-key --populate archlinuxarm >/dev/null 2>&1 || true"
-run_base_chroot "pacman -Syu --noconfirm --needed base-devel python sudo"
+run_base_chroot "pacman -Syu --noconfirm --needed base-devel python"
 # Package roots never boot. Remove firmware that the Thorch replacement package
 # conflicts with so makepkg can install it as a dependency without an
 # interactive pacman replacement prompt.
@@ -706,7 +708,6 @@ remove_chroot_packages_if_installed \
 run_base_chroot "gpgconf --kill all >/dev/null 2>&1 || pkill gpg-agent >/dev/null 2>&1 || true"
 run_base_chroot "id builder >/dev/null 2>&1 || useradd -m builder"
 run_base_chroot "install -d -o builder -g builder /nix /home/builder"
-run_base_chroot "install -d -m 0750 /etc/sudoers.d && printf '%s\\n' 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman' > /etc/sudoers.d/thorch-builder && chmod 0440 /etc/sudoers.d/thorch-builder"
 
 retained_repo="$("${script_dir}/archive-package-repo.sh" "${repo_dir}")"
 [[ -z "${retained_repo}" ]] || log "retained local repository bytes at ${retained_repo}"
@@ -725,7 +726,14 @@ for pkg in "${packages[@]}"; do
   run_chroot "cd /thorch-work/${pkg} && su builder -c '${package_env} makepkg --printsrcinfo > .SRCINFO'"
   run_chroot "test -s /thorch-work/${pkg}/.SRCINFO && grep -Eq '^[[:space:]]*pkgname = ${pkg}$' /thorch-work/${pkg}/.SRCINFO" || \
     die "makepkg generated invalid .SRCINFO for ${pkg}"
-  run_chroot "cd /thorch-work/${pkg} && su builder -c '${package_env} makepkg --syncdeps --noconfirm --cleanbuild'"
+  mapfile -t package_dependencies < <(
+    python3 "${manifest_cli}" --repo "${root}" dependencies \
+      --srcinfo "${work_dir}/${pkg}/.SRCINFO" --arch aarch64
+  )
+  if (( ${#package_dependencies[@]} > 0 )); then
+    run_chroot "pacman -S --noconfirm --needed -- ${package_dependencies[*]}"
+  fi
+  run_chroot "cd /thorch-work/${pkg} && su builder -c '${package_env} makepkg --noconfirm --cleanbuild'"
   current_inputs_sha256="$(input_fingerprint_for "${pkg}")"
   [[ "${current_inputs_sha256}" == "${package_inputs_sha256}" ]] || \
     die "declared inputs changed while building ${pkg}; discard the artifact and retry"

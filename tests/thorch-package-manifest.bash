@@ -104,6 +104,46 @@ fi
 grep -q 'provider linux-thorch must precede consumer' \
   "${srcinfo_fixture}/failure" || \
   fail "dependency-order failure did not identify the late provider"
+
+cat > "${srcinfo_fixture}/dependency-list.SRCINFO" <<'EOF'
+pkgbase = dependency-list
+	pkgname = dependency-list
+	depends = bash>=5
+	depends_aarch64 = thorch-bsp
+	makedepends = python
+	makedepends_x86_64 = x86-only-tool
+	checkdepends = shellcheck
+EOF
+dependency_list="$(
+  python3 "${cli}" --repo "${root}" dependencies \
+    --srcinfo "${srcinfo_fixture}/dependency-list.SRCINFO" \
+    --arch aarch64 --format space
+)"
+[[ "${dependency_list}" == "bash python shellcheck thorch-bsp" ]] || \
+  fail "aarch64 dependency extraction was not exact: ${dependency_list}"
+cat >"${srcinfo_fixture}/dependency-free.SRCINFO" <<'EOF'
+pkgbase = dependency-free
+	pkgver = 1
+	pkgrel = 1
+
+pkgname = dependency-free
+EOF
+mapfile -t dependency_free_list < <(
+  python3 "${cli}" --repo "${root}" dependencies \
+    --srcinfo "${srcinfo_fixture}/dependency-free.SRCINFO" \
+    --arch aarch64
+)
+(( ${#dependency_free_list[@]} == 0 )) || \
+  fail "dependency-free package produced an empty dependency entry"
+grep -Fq "pacman -S --noconfirm --needed -- \${package_dependencies[*]}" \
+  "${builder}" || \
+  fail "package builder does not install generated .SRCINFO dependencies as root"
+if grep -Fq 'makepkg --syncdeps' "${builder}"; then
+  fail "package builder still relies on emulated setuid sudo through makepkg --syncdeps"
+fi
+grep -Fq 'if ! python3 "${script_dir}/check-package-repo.py" "${repo_dir}" \' \
+  "${builder}" || \
+  fail "legacy package trust does not reject a failed repository validation"
 rm -rf "${srcinfo_fixture}"
 
 bad_manifest="$(mktemp)"

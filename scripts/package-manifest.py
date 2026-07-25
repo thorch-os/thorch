@@ -63,6 +63,22 @@ def dependency_values(fields: Dict[str, List[str]]) -> List[str]:
     return values
 
 
+def dependency_values_for_arch(
+    fields: Dict[str, List[str]], arch: str
+) -> List[str]:
+    values: List[str] = []
+    for field in DEPENDENCY_FIELDS:
+        for key in (field, f"{field}_{arch}"):
+            for value in fields.get(key, []):
+                name = dependency_name(value)
+                if not PACKAGE_NAME_RE.fullmatch(name):
+                    raise ManifestError(
+                        f"invalid {key} package name in .SRCINFO: {name!r}"
+                    )
+                values.append(name)
+    return sorted(set(values))
+
+
 def validate_dependency_order(
     records: List[Dict[str, Any]], aliases: Dict[str, str], srcinfo_dir: Path
 ) -> None:
@@ -292,6 +308,16 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     )
     dependencies.add_argument("--srcinfo-dir", type=Path, required=True)
 
+    list_dependencies = subparsers.add_parser(
+        "dependencies",
+        help="print runtime, build, and check dependencies from one .SRCINFO",
+    )
+    list_dependencies.add_argument("--srcinfo", type=Path, required=True)
+    list_dependencies.add_argument("--arch", default="aarch64")
+    list_dependencies.add_argument(
+        "--format", choices=("lines", "space", "csv"), default="lines"
+    )
+
     profile = subparsers.add_parser("profile", help="print a profile in build order")
     profile.add_argument("name", choices=sorted(PROFILE_NAMES))
     profile.add_argument("--format", choices=("lines", "space", "csv"), default="lines")
@@ -333,7 +359,10 @@ def main(argv: List[str]) -> int:
             print(f"package dependency order valid: {len(records)} packages")
             return 0
 
-        if args.command == "profile":
+        if args.command == "dependencies":
+            fields = parse_srcinfo(args.srcinfo.resolve())
+            values = dependency_values_for_arch(fields, args.arch)
+        elif args.command == "profile":
             values = [record["name"] for record in records if args.name in record["profiles"]]
         elif args.command == "select":
             requested = [item.strip() for item in args.packages.split(",")]
@@ -361,7 +390,9 @@ def main(argv: List[str]) -> int:
         else:
             raise AssertionError(args.command)
 
-        print(format_values(values, getattr(args, "format", "lines")))
+        output = format_values(values, getattr(args, "format", "lines"))
+        if output:
+            print(output)
         return 0
     except ManifestError as exc:
         print(f"package-manifest: {exc}", file=sys.stderr)
