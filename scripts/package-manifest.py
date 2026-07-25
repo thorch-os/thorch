@@ -15,6 +15,14 @@ PACKAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9@._+-]*$")
 INPUT_RE = re.compile(
     r"^(?:[A-Z][A-Z0-9_]*)(?:/[A-Za-z0-9@%_.,+:/=-]+)*$"
 )
+VERSION_ASSIGNMENT_RE = re.compile(
+    r"(?m)^(epoch|pkgver|pkgrel)=([^\s#]+)\s*(?:#.*)?$"
+)
+VERSION_FUNCTION_RE = re.compile(
+    r"(?m)^[ \t]*(?:(?:function[ \t]+)?(epoch|pkgver|pkgrel)[ \t]*"
+    r"(?:\([ \t]*\))?)[ \t]*\{"
+)
+STATIC_VERSION_RE = re.compile(r"^[A-Za-z0-9._+~-]+$")
 PROFILE_NAMES = {"build", "image", "release"}
 BUILD_INPUT_VARIABLES = {
     "THORCH_FIRMWARE_DIR",
@@ -165,6 +173,36 @@ def pkgbuild_name(path: Path) -> str:
     if not match:
         raise ManifestError(f"{path}: pkgname must be one static package name")
     return match.group(1)
+
+
+def pkgbuild_version(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ManifestError(f"unable to read {path}: {exc}") from exc
+    dynamic = sorted(set(VERSION_FUNCTION_RE.findall(text)))
+    if dynamic:
+        raise ManifestError(
+            f"{path}: dynamic version functions are unsupported: {', '.join(dynamic)}"
+        )
+    values: Dict[str, str] = {}
+    for key, raw_value in VERSION_ASSIGNMENT_RE.findall(text):
+        if key in values:
+            raise ManifestError(f"{path}: {key} must be assigned exactly once")
+        value = raw_value.strip("'\"")
+        if not STATIC_VERSION_RE.fullmatch(value):
+            raise ManifestError(f"{path}: {key} must be a static version value")
+        values[key] = value
+    missing = {"pkgver", "pkgrel"} - set(values)
+    if missing:
+        raise ManifestError(
+            f"{path}: missing static {', '.join(sorted(missing))}"
+        )
+    epoch = values.get("epoch", "0")
+    if not epoch.isdigit():
+        raise ManifestError(f"{path}: epoch must be a non-negative integer")
+    prefix = "" if epoch == "0" else f"{epoch}:"
+    return f"{prefix}{values['pkgver']}-{values['pkgrel']}"
 
 
 def validate_manifest(data: Dict[str, Any], repo: Path, check_tree: bool = True) -> List[Dict[str, Any]]:
@@ -332,6 +370,11 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     inputs = subparsers.add_parser("inputs", help="print build inputs for one package")
     inputs.add_argument("package")
 
+    version = subparsers.add_parser(
+        "version", help="print the static Arch package version from its PKGBUILD"
+    )
+    version.add_argument("package")
+
     return parser.parse_args(argv)
 
 
@@ -387,6 +430,12 @@ def main(argv: List[str]) -> int:
                 raise ManifestError(f"unknown package: {args.package}")
             record = by_name[package]
             values = [record["path"], *record["build_inputs"]]
+        elif args.command == "version":
+            package = aliases.get(args.package, args.package)
+            if package not in by_name:
+                raise ManifestError(f"unknown package: {args.package}")
+            record = by_name[package]
+            values = [pkgbuild_version(repo / record["path"] / "PKGBUILD")]
         else:
             raise AssertionError(args.command)
 

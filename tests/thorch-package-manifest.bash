@@ -4,6 +4,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cli="${root}/scripts/package-manifest.py"
 builder="${root}/scripts/build-packages.sh"
+# shellcheck source=../scripts/lib/package-repo.sh
+source "${root}/scripts/lib/package-repo.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -11,6 +13,11 @@ fail() {
 }
 
 python3 "${cli}" --repo "${root}" validate >/dev/null
+[[ "$(python3 "${cli}" --repo "${root}" version thorch-inputplumber)" == \
+  "0.76.1-3" ]] ||
+  fail "manifest CLI did not derive the current static package version"
+[[ "$(python3 "${cli}" --repo "${root}" version thorch-fex)" == "2607-3" ]] ||
+  fail "manifest CLI did not resolve aliases while deriving package versions"
 
 build_packages=()
 while IFS= read -r package; do
@@ -144,6 +151,21 @@ fi
 grep -Fq 'if ! python3 "${script_dir}/check-package-repo.py" "${repo_dir}" \' \
   "${builder}" || \
   fail "legacy package trust does not reject a failed repository validation"
+grep -Fq 'cached ${artifact_version} does not match PKGBUILD ${expected_version}' \
+  "${builder}" ||
+  fail "package cache reuse does not reject stale embedded package versions"
+grep -Fq 'built artifact ${artifact_version} does not match PKGBUILD ${expected_version}' \
+  "${builder}" ||
+  fail "package builder does not verify the version emitted by makepkg"
+package_version_preferred "1-1" "2-1" "1-1" ||
+  fail "an expected rollback version did not outrank a newer cached version"
+if package_version_preferred "2-1" "1-1" "1-1"; then
+  fail "a newer cached version outranked the expected rollback version"
+fi
+package_version_preferred "2-1" "1-1" "" ||
+  fail "ordinary package pruning did not retain the newest version"
+grep -Fq 'validate_selected_repo_versions' "${builder}" ||
+  fail "final repository validation does not check selected package versions"
 rm -rf "${srcinfo_fixture}"
 
 bad_manifest="$(mktemp)"

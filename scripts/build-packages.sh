@@ -4,6 +4,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${script_dir}/lib/common.sh"
+# shellcheck source=lib/package-repo.sh
+source "${script_dir}/lib/package-repo.sh"
 load_thorch_config
 
 usage() {
@@ -182,6 +184,12 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
   exit 0
 fi
 selected_packages=("${packages[@]}")
+declare -A expected_package_versions=()
+for pkg in "${selected_packages[@]}"; do
+  expected_package_versions["${pkg}"]="$(
+    python3 "${manifest_cli}" --repo "${root}" version "${pkg}"
+  )"
+done
 
 pkginfo_value() {
   local pkgfile="$1" key="$2"
@@ -189,7 +197,9 @@ pkginfo_value() {
 }
 
 latest_repo_package_for() {
-  local pkg="$1" file pkgname pkgver current current_version cmp
+  local pkg="$1" file pkgname pkgver current current_version expected_version
+
+  expected_version="${expected_package_versions[${pkg}]:-}"
 
   shopt -s nullglob
   for file in "${repo_dir}"/*.pkg.tar.*; do
@@ -204,8 +214,10 @@ latest_repo_package_for() {
       current_version="${pkgver}"
       continue
     fi
-    cmp="$(vercmp "${pkgver}" "${current_version}")"
-    if (( cmp > 0 )) || { (( cmp == 0 )) && [[ "${file}" -nt "${current}" ]]; }; then
+    if package_version_preferred \
+        "${pkgver}" "${current_version}" "${expected_version}" ||
+        { [[ "${pkgver}" == "${current_version}" ]] &&
+          [[ "${file}" -nt "${current}" ]]; }; then
       current="${file}"
       current_version="${pkgver}"
     fi
@@ -351,8 +363,15 @@ record_artifact_binding() {
 
 fresh_repo_package_for() {
   local pkg="$1" pkgfile binding_file current_fingerprint
+  local artifact_version expected_version
 
   pkgfile="$(latest_repo_package_for "${pkg}")" || return 1
+  artifact_version="$(pkginfo_value "${pkgfile}" pkgver)"
+  expected_version="${expected_package_versions[${pkg}]}"
+  if [[ "${artifact_version}" != "${expected_version}" ]]; then
+    log "rebuilding ${pkg}; cached ${artifact_version} does not match PKGBUILD ${expected_version}"
+    return 1
+  fi
   binding_file="$(binding_file_for "${pkgfile}")"
   current_fingerprint="$(input_fingerprint_for "${pkg}")"
 
@@ -558,7 +577,7 @@ remove_repo_artifact() {
 prune_stale_repo_packages() {
   local -A best_file=()
   local -A best_version=()
-  local file pkgname pkgver current cmp
+  local file pkgname pkgver current expected_version
 
   shopt -s nullglob
   for file in "${repo_dir}"/*.pkg.tar.*; do
@@ -574,8 +593,11 @@ prune_stale_repo_packages() {
       continue
     fi
 
-    cmp="$(vercmp "${pkgver}" "${best_version[${pkgname}]}")"
-    if (( cmp > 0 )) || { (( cmp == 0 )) && [[ "${file}" -nt "${current}" ]]; }; then
+    expected_version="${expected_package_versions[${pkgname}]:-}"
+    if package_version_preferred \
+        "${pkgver}" "${best_version[${pkgname}]}" "${expected_version}" ||
+        { [[ "${pkgver}" == "${best_version[${pkgname}]}" ]] &&
+          [[ "${file}" -nt "${current}" ]]; }; then
       remove_repo_artifact "${current}"
       best_file["${pkgname}"]="${file}"
       best_version["${pkgname}"]="${pkgver}"
@@ -584,6 +606,19 @@ prune_stale_repo_packages() {
     fi
   done
   shopt -u nullglob
+}
+
+validate_selected_repo_versions() {
+  local pkg pkgfile artifact_version expected_version
+
+  for pkg in "${selected_packages[@]}"; do
+    pkgfile="$(latest_repo_package_for "${pkg}")" ||
+      die "${pkg}: package is missing after repository update"
+    artifact_version="$(pkginfo_value "${pkgfile}" pkgver)"
+    expected_version="${expected_package_versions[${pkg}]}"
+    [[ "${artifact_version}" == "${expected_version}" ]] ||
+      die "${pkg}: repository has ${artifact_version}, expected ${expected_version}"
+  done
 }
 
 update_local_repo() {
@@ -740,6 +775,10 @@ for pkg in "${packages[@]}"; do
   built_files=0
   shopt -s nullglob
   for pkgfile in "${pkgdest}"/*.pkg.tar.*; do
+    artifact_version="$(pkginfo_value "${pkgfile}" pkgver)"
+    expected_version="${expected_package_versions[${pkg}]}"
+    [[ "${artifact_version}" == "${expected_version}" ]] || \
+      die "${pkg}: built artifact ${artifact_version} does not match PKGBUILD ${expected_version}"
     python3 "${script_dir}/check-package-repo.py" "${repo_dir}" \
       --retained-root "${retained_repo_root}" --candidate "${pkgfile}" >/dev/null
     destination="${repo_dir}/${pkgfile##*/}"
@@ -755,6 +794,7 @@ done
 
 log "validating local package repository"
 validate_local_repo --require "${selected_packages[@]}"
+validate_selected_repo_versions
 retained_repo="$("${script_dir}/archive-package-repo.sh" "${repo_dir}")"
 [[ -z "${retained_repo}" ]] || log "retained local repository bytes at ${retained_repo}"
 log "packages available in ${repo_dir}"
