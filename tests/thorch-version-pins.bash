@@ -9,10 +9,10 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   # shellcheck source=../config/thorch.conf
   source "${root}/config/thorch.conf"
 
-  [[ "${ROCKNIX_REF}" == "42997822907b680dcc774551d54d5b42310cfdc2" ]]
+  [[ "${ROCKNIX_REF}" == "60428a0a4438ec30ca0a440c1d6b6b97036673af" ]]
   [[ "${ROCKNIX_KERNEL_SOURCE}" == "nightly" ]]
-  [[ "${ROCKNIX_KERNEL_RELEASE}" == "nightly-20260720" ]]
-  [[ "${ROCKNIX_KERNEL_IMAGE_SHA256}" == "a9b8e852aeca0976ad1fda15aece8ae31103263acfd35171b1bf844a4fb390b8" ]]
+  [[ "${ROCKNIX_KERNEL_RELEASE}" == "nightly-20260722" ]]
+  [[ "${ROCKNIX_KERNEL_IMAGE_SHA256}" == "d15091074a052ae3241fb7fa4a7e5e9b84f934195a60959aab3739ce84f7c3ad" ]]
   [[ "${THORCH_KERNEL_REF}" == "v7.1.2" ]]
   [[ "${THORCH_KERNEL_TARBALL_SHA256}" == "37198c93727be247c9fb5309bb86cd5e496c61e5322cd8c4eca9476bb0b5883f" ]]
 )

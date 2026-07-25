@@ -79,8 +79,8 @@ runs `scripts/build-thorch-kernel.sh` unless `THORCH_KERNEL_SOURCE_BUILD=0` or
 upstream image, set one of:
 
 ```bash
-ROCKNIX_KERNEL_RELEASE=nightly-20260720 make kernel
-ROCKNIX_KERNEL_RELEASE=nightly-20260718 ROCKNIX_KERNEL_IMAGE_SHA256=<matching-sha256> make kernel
+ROCKNIX_KERNEL_RELEASE=nightly-20260722 make kernel
+ROCKNIX_KERNEL_RELEASE=nightly-20260720 ROCKNIX_KERNEL_IMAGE_SHA256=<matching-sha256> make kernel
 ROCKNIX_KERNEL_IMAGE_SHA256= ROCKNIX_KERNEL_SOURCE=stable ROCKNIX_KERNEL_RELEASE=latest make kernel
 ROCKNIX_KERNEL_IMAGE_URL=https://.../ROCKNIX-SM8550.aarch64-YYYYMMDD.img.gz ROCKNIX_KERNEL_IMAGE_SHA256=<matching-sha256> make kernel
 ```

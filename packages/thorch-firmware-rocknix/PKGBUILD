@@ -2,7 +2,7 @@
 
 pkgname=thorch-firmware-rocknix
 pkgver=1
-pkgrel=9
+pkgrel=10
 pkgdesc='Public and image-derived ROCKNIX SM8550 firmware packaged for Thorch'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
