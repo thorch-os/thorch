@@ -95,17 +95,38 @@ Scheduled runs use the workflow defaults: ROCKNIX `next`, the latest nightly
 SM8550 image, an auto-sized compressed Btrfs root, and prerelease publication.
 Manual runs can select ext4 when an uncompressed compatibility image is needed.
 
-Each published nightly is a prerelease tagged with the UTC date and source
-commit, for example:
+After validation, the workflow creates a semantic build manifest containing the
+Thorch commit, immutable builder digest, requested build settings, resolved
+ROCKNIX source and kernel provenance, verified Arch Linux ARM rootfs hash, and
+the complete installed package/version set. It compares that file with the
+most recent prerelease built with the same requested configuration.
+If they match, the workflow succeeds without compressing or publishing another
+copy of the same build. A changed source, upstream image, rootfs, builder,
+setting, or installed package version produces a new prerelease.
+
+Each workflow ref and requested build configuration has a stable 16-character
+key. Published nightlies combine that key with the UTC date:
 
 ```text
-nightly-<date>-<commit>
+nightly-<YYYYMMDD>-<configuration>
 ```
+
+The key covers the workflow ref, ROCKNIX source and kernel requests, image size,
+and root filesystem type. Different branches, ext4 compatibility images, and
+other manual configurations therefore publish to separate releases. Nightly
+workflow runs are also serialized across refs so mutable release updates cannot
+race.
+
+If another changed build for the same configuration is published on the same
+UTC date, the workflow moves only that configuration's date tag to the newer
+commit and replaces its release assets together.
 
 Release assets include:
 
-- `thorch-arch-aarch64-nightly-<date>-<sha>.img.zst`
+- `thorch-arch-aarch64-nightly-<YYYYMMDD>-<configuration>.img.zst`
 - matching `.sha256`
+- `thorch-nightly-<configuration>.build-manifest`, used to suppress unchanged
+  publications
 
 The release notes include the source commit, requested ROCKNIX refs, selected
 root filesystem, immutable builder digest, and kernel provenance copied from

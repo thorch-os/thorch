@@ -36,7 +36,7 @@ permissions:
   packages: read
 
 concurrency:
-  group: thorch-nightly-${{ github.ref }}
+  group: thorch-nightly-publisher
   cancel-in-progress: false
 
 jobs:
@@ -102,23 +102,71 @@ jobs:
           make docker-nightly
           sudo chown -R "$(id -u):$(id -g)" output vendor build 2>/dev/null || true
 
+      - name: Compare build inputs with the previous nightly
+        id: changes
+        run: |
+          set -euo pipefail
+          asset_dir="${THORCH_OUTPUT_DIR}/nightly"
+          manifest="${asset_dir}/thorch-nightly.build-manifest"
+          config="$(
+            printf '%s\n' \
+              "${GITHUB_REF}" \
+              "${ROCKNIX_REF}" \
+              "${ROCKNIX_KERNEL_SOURCE}" \
+              "${ROCKNIX_KERNEL_RELEASE}" \
+              "${THORCH_IMAGE_SIZE}" \
+              "${THORCH_ROOT_FSTYPE}" |
+              sha256sum |
+              cut -c1-16
+          )"
+          manifest_asset="thorch-nightly-${config}.build-manifest"
+
+          mkdir -p "${asset_dir}"
+          ./scripts/create-nightly-build-manifest.sh "${manifest}"
+          cp "${manifest}" "${asset_dir}/${manifest_asset}"
+
+          previous_asset_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq "[.[] | select(.prerelease) | .assets[] | select(.name == \"${manifest_asset}\")][0].id // empty"
+          )"
+          changed=true
+          if [[ -n "${previous_asset_id}" ]]; then
+            previous="${asset_dir}/previous.build-manifest"
+            gh api \
+              -H 'Accept: application/octet-stream' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${previous_asset_id}" \
+              > "${previous}"
+            if cmp -s "${previous}" "${manifest}"; then
+              changed=false
+              printf 'No publishable changes since the previous matching nightly.\n' \
+                >> "${GITHUB_STEP_SUMMARY}"
+            fi
+          fi
+
+          {
+            printf 'changed=%s\n' "${changed}"
+            printf 'manifest=%s\n' "${asset_dir}/${manifest_asset}"
+            printf 'config=%s\n' "${config}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Prepare metadata
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         id: meta
         run: |
           set -euo pipefail
           build_date="$(date -u +%Y%m%d)"
-          short_sha="${GITHUB_SHA::12}"
-          tag="nightly-${build_date}-${short_sha}"
+          config="${{ steps.changes.outputs.config }}"
+          tag="nightly-${build_date}-${config}"
           asset_base="thorch-arch-aarch64-${tag}"
           {
             printf 'build_date=%s\n' "${build_date}"
-            printf 'short_sha=%s\n' "${short_sha}"
             printf 'tag=%s\n' "${tag}"
-            printf 'title=Thorch nightly %s (%s)\n' "${build_date}" "${short_sha}"
+            printf 'title=Thorch nightly %s [%s]\n' "${build_date}" "${config}"
             printf 'asset_base=%s\n' "${asset_base}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Package release assets
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         id: package
         run: |
           set -euo pipefail
@@ -160,7 +208,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Publish prerelease
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
+        if: ${{ steps.changes.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish_release) }}
         run: |
           set -euo pipefail
           tag="${{ steps.meta.outputs.tag }}"
@@ -168,12 +216,15 @@ jobs:
           notes="${{ steps.package.outputs.notes }}"
           asset="${{ steps.package.outputs.asset }}"
           checksum="${{ steps.package.outputs.checksum }}"
+          manifest="${{ steps.changes.outputs.manifest }}"
 
           if gh release view "${tag}" >/dev/null 2>&1; then
-            gh release upload "${tag}" "${asset}" "${checksum}" --clobber
+            git tag --force "${tag}" "${GITHUB_SHA}"
+            git push --force origin "refs/tags/${tag}"
+            gh release upload "${tag}" "${asset}" "${checksum}" "${manifest}" --clobber
             gh release edit "${tag}" --title "${title}" --notes-file "${notes}" --prerelease
           else
-            gh release create "${tag}" "${asset}" "${checksum}" \
+            gh release create "${tag}" "${asset}" "${checksum}" "${manifest}" \
               --title "${title}" \
               --notes-file "${notes}" \
               --target "${GITHUB_SHA}" \

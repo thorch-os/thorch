@@ -7,6 +7,7 @@ docs="${root}/docs/nightly-actions.md"
 makefile="${root}/Makefile"
 mount_script="${root}/scripts/sync-rocknix-kernel.sh"
 mount_test="${root}/tests/thorch-rocknix-mount-integration.bash"
+manifest_script="${root}/scripts/create-nightly-build-manifest.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -60,6 +61,48 @@ grep -q 'check IMAGE=' "${makefile}" ||
 
 grep -q 'gh release create' "${workflow}" ||
   fail "nightly workflow does not create GitHub releases"
+
+grep -q 'group: thorch-nightly-publisher' "${workflow}" ||
+  fail "nightly workflow does not serialize all release publishers"
+
+! grep -q 'group: thorch-nightly-${{ github.ref }}' "${workflow}" ||
+  fail "nightly workflow still permits cross-ref release races"
+
+[[ -x "${manifest_script}" ]] ||
+  fail "nightly build manifest generator is missing or not executable"
+
+grep -q 'create-nightly-build-manifest.sh' "${workflow}" ||
+  fail "nightly workflow does not create a semantic build manifest"
+
+grep -q 'cmp -s "${previous}" "${manifest}"' "${workflow}" ||
+  fail "nightly workflow does not compare against the previous matching build"
+
+grep -q '"${GITHUB_REF}"' "${workflow}" ||
+  fail "nightly release namespace does not isolate workflow refs"
+
+grep -q 'printf '\''config=%s\\n'\'' "${config}"' "${workflow}" ||
+  fail "nightly workflow does not expose its release configuration key"
+
+grep -q 'config="${{ steps.changes.outputs.config }}"' "${workflow}" ||
+  fail "nightly metadata does not consume the release configuration key"
+
+grep -q 'tag="nightly-${build_date}-${config}"' "${workflow}" ||
+  fail "nightly release tag is not scoped to its build configuration"
+
+! grep -q 'tag="nightly-${build_date}"' "${workflow}" ||
+  fail "nightly release tag can still collide across configurations"
+
+grep -q 'git tag --force "${tag}" "${GITHUB_SHA}"' "${workflow}" ||
+  fail "same-day nightly updates do not move the date tag to the new commit"
+
+grep -q 'git push --force origin "refs/tags/${tag}"' "${workflow}" ||
+  fail "same-day nightly tag updates are not pushed"
+
+grep -q "steps.changes.outputs.changed == 'true'" "${workflow}" ||
+  fail "nightly workflow does not gate publication on changed build inputs"
+
+grep -q 'releases/assets/${previous_asset_id}' "${workflow}" ||
+  fail "nightly workflow does not download the previous build manifest"
 
 grep -q 'sha256sum "$(basename "${asset}")"' "${workflow}" ||
   fail "nightly checksum does not use the downloadable asset basename"
