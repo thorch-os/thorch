@@ -3,14 +3,6 @@ name: Nightly Image
 on:
   workflow_dispatch:
     inputs:
-      rocknix_ref:
-        description: "ROCKNIX source ref for public overlays and firmware"
-        required: true
-        default: "next"
-      rocknix_kernel_release:
-        description: "ROCKNIX SM8550 image release to import"
-        required: true
-        default: "latest"
       image_size:
         description: "THORCH_IMAGE_SIZE"
         required: true
@@ -50,9 +42,6 @@ jobs:
       THORCH_BUILDER_DIGEST: sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
       THORCH_DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/thorch-build@sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
       THORCH_DOCKER_RUN_ARGS: --env THORCH_REQUIRE_MOUNT_INTEGRATION=1
-      ROCKNIX_REF: ${{ inputs.rocknix_ref || 'next' }}
-      ROCKNIX_KERNEL_SOURCE: nightly
-      ROCKNIX_KERNEL_RELEASE: ${{ inputs.rocknix_kernel_release || 'latest' }}
       THORCH_IMAGE_SIZE: ${{ inputs.image_size || 'auto' }}
       THORCH_ROOT_FSTYPE: ${{ inputs.root_fstype || 'btrfs' }}
       THORCH_OUTPUT_DIR: output
@@ -66,7 +55,76 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
+      - name: Load committed ROCKNIX pins
+        run: |
+          set -euo pipefail
+          source config/thorch.conf
+          [[ "${ROCKNIX_REF}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::ROCKNIX_REF must be a full committed SHA, got ${ROCKNIX_REF}"
+            exit 1
+          }
+          [[ "${ROCKNIX_KERNEL_SOURCE}" == "nightly" ]] || {
+            echo "::error::ROCKNIX_KERNEL_SOURCE must be pinned to nightly"
+            exit 1
+          }
+          [[ "${ROCKNIX_KERNEL_RELEASE}" =~ ^nightly-[0-9]{8}$ ]] || {
+            echo "::error::ROCKNIX_KERNEL_RELEASE must be a dated nightly tag, got ${ROCKNIX_KERNEL_RELEASE}"
+            exit 1
+          }
+          {
+            printf 'ROCKNIX_REF=%s\n' "${ROCKNIX_REF}"
+            printf 'ROCKNIX_KERNEL_SOURCE=%s\n' "${ROCKNIX_KERNEL_SOURCE}"
+            printf 'ROCKNIX_KERNEL_RELEASE=%s\n' "${ROCKNIX_KERNEL_RELEASE}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Check for an unpublished Thorch commit
+        id: changes
+        run: |
+          set -euo pipefail
+          command -v gh
+          asset_dir="${THORCH_OUTPUT_DIR}/nightly"
+          config="$(
+            printf '%s\n' \
+              "${GITHUB_REF}" \
+              "${ROCKNIX_REF}" \
+              "${ROCKNIX_KERNEL_SOURCE}" \
+              "${ROCKNIX_KERNEL_RELEASE}" \
+              "${THORCH_IMAGE_SIZE}" \
+              "${THORCH_ROOT_FSTYPE}" |
+              sha256sum |
+              cut -c1-16
+          )"
+          manifest_asset="thorch-nightly-${config}.build-manifest"
+          previous_asset_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq "[.[] | select(.prerelease) | .assets[] | select(.name == \"${manifest_asset}\")][0].id // empty"
+          )"
+
+          changed=true
+          if [[ -n "${previous_asset_id}" ]]; then
+            mkdir -p "${asset_dir}"
+            previous="${asset_dir}/previous.build-manifest"
+            gh api \
+              -H 'Accept: application/octet-stream' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${previous_asset_id}" \
+              > "${previous}"
+            changed="$(./scripts/nightly-build-needed.sh "${GITHUB_SHA}" "${previous}")"
+          else
+            changed="$(./scripts/nightly-build-needed.sh "${GITHUB_SHA}")"
+          fi
+          if [[ "${changed}" == "false" ]]; then
+            printf 'Commit `%s` already has a nightly for configuration `%s`; skipping the build and release.\n' \
+              "${GITHUB_SHA}" "${config}" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          {
+            printf 'changed=%s\n' "${changed}"
+            printf 'config=%s\n' "${config}"
+            printf 'manifest_asset=%s\n' "${manifest_asset}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Prepare host runner
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -76,6 +134,7 @@ jobs:
           command -v gh
 
       - name: Login to GitHub Container Registry
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
         with:
           registry: ghcr.io
@@ -83,6 +142,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull immutable Thorch builder image
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         run: |
           set -euo pipefail
           if ! make docker-image-pull; then
@@ -97,57 +157,26 @@ jobs:
           }
 
       - name: Build and validate in Thorch builder
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         run: |
           set -euo pipefail
           make docker-nightly
           sudo chown -R "$(id -u):$(id -g)" output vendor build 2>/dev/null || true
 
-      - name: Compare build inputs with the previous nightly
-        id: changes
+      - name: Create build manifest
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        id: manifest
         run: |
           set -euo pipefail
           asset_dir="${THORCH_OUTPUT_DIR}/nightly"
           manifest="${asset_dir}/thorch-nightly.build-manifest"
-          config="$(
-            printf '%s\n' \
-              "${GITHUB_REF}" \
-              "${ROCKNIX_REF}" \
-              "${ROCKNIX_KERNEL_SOURCE}" \
-              "${ROCKNIX_KERNEL_RELEASE}" \
-              "${THORCH_IMAGE_SIZE}" \
-              "${THORCH_ROOT_FSTYPE}" |
-              sha256sum |
-              cut -c1-16
-          )"
-          manifest_asset="thorch-nightly-${config}.build-manifest"
+          manifest_asset="${{ steps.changes.outputs.manifest_asset }}"
 
           mkdir -p "${asset_dir}"
           ./scripts/create-nightly-build-manifest.sh "${manifest}"
           cp "${manifest}" "${asset_dir}/${manifest_asset}"
 
-          previous_asset_id="$(
-            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-              --jq "[.[] | select(.prerelease) | .assets[] | select(.name == \"${manifest_asset}\")][0].id // empty"
-          )"
-          changed=true
-          if [[ -n "${previous_asset_id}" ]]; then
-            previous="${asset_dir}/previous.build-manifest"
-            gh api \
-              -H 'Accept: application/octet-stream' \
-              "repos/${GITHUB_REPOSITORY}/releases/assets/${previous_asset_id}" \
-              > "${previous}"
-            if cmp -s "${previous}" "${manifest}"; then
-              changed=false
-              printf 'No publishable changes since the previous matching nightly.\n' \
-                >> "${GITHUB_STEP_SUMMARY}"
-            fi
-          fi
-
-          {
-            printf 'changed=%s\n' "${changed}"
-            printf 'manifest=%s\n' "${asset_dir}/${manifest_asset}"
-            printf 'config=%s\n' "${config}"
-          } >> "${GITHUB_OUTPUT}"
+          printf 'path=%s\n' "${asset_dir}/${manifest_asset}" >> "${GITHUB_OUTPUT}"
 
       - name: Prepare metadata
         if: ${{ steps.changes.outputs.changed == 'true' }}
@@ -216,7 +245,7 @@ jobs:
           notes="${{ steps.package.outputs.notes }}"
           asset="${{ steps.package.outputs.asset }}"
           checksum="${{ steps.package.outputs.checksum }}"
-          manifest="${{ steps.changes.outputs.manifest }}"
+          manifest="${{ steps.manifest.outputs.path }}"
 
           if gh release view "${tag}" >/dev/null 2>&1; then
             git tag --force "${tag}" "${GITHUB_SHA}"

@@ -289,7 +289,7 @@ describes their purpose without duplicating mutable source or kernel refs.
 - `ROCKNIX_REPO`: ROCKNIX distribution repository URL.
 - `ROCKNIX_KERNEL_SOURCE`: ROCKNIX image release stream, `nightly` by default; can be `stable`.
 - `ROCKNIX_KERNEL_RELEASE`: release tag/date to import; the project default is
-  pinned in `config/thorch.conf`. Scheduled rolling builds may override it.
+  pinned in `config/thorch.conf`. Scheduled builds use that committed pin.
 - `ROCKNIX_KERNEL_PLATFORM`: ROCKNIX platform name, default `SM8550`.
 - `ROCKNIX_KERNEL_IMAGE_URL`: explicit ROCKNIX `.img` or `.img.gz` URL.
 - `ROCKNIX_KERNEL_SHA256_URL`: explicit checksum URL for the ROCKNIX image.

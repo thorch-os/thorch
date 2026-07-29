@@ -113,7 +113,7 @@ the Makefile reads the pinned `ROCKNIX_REF` from `config/thorch.conf`; pass a
 different full commit only when deliberately updating the hardware baseline.
 
 Sync matching ROCKNIX runtime artifacts and build the Thorch kernel. By default
-this downloads the latest official ROCKNIX SM8550 nightly, verifies its
+this downloads the pinned official ROCKNIX SM8550 nightly, verifies its
 `.sha256`, extracts the boot-image template and FEX runtime artifacts, writes
 them to `vendor/rocknix-kernel` and `vendor/rocknix-runtime`, then source-builds
 a ROCKNIX-derived Thor kernel with BinderFS support. The requested source and

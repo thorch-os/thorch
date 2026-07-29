@@ -85,24 +85,36 @@ from the nightly workflow instead of using the local convenience tag.
 `.github/workflows/nightly.yml` runs daily at `13:37 UTC` and can also be run
 manually from the Actions tab. Manual runs can override:
 
-- `rocknix_ref`: defaults to `next`.
-- `rocknix_kernel_release`: defaults to `latest`.
 - `image_size`: defaults to `auto`.
 - `root_fstype`: `btrfs` or `ext4`, defaulting to `btrfs`.
 - `publish_release`: defaults to enabled.
 
-Scheduled runs use the workflow defaults: ROCKNIX `next`, the latest nightly
-SM8550 image, an auto-sized compressed Btrfs root, and prerelease publication.
-Manual runs can select ext4 when an uncompressed compatibility image is needed.
+Scheduled and manual runs load `ROCKNIX_REF`, `ROCKNIX_KERNEL_SOURCE`, and
+`ROCKNIX_KERNEL_RELEASE` from the versioned defaults in `config/thorch.conf`.
+The workflow requires a full source commit SHA and a dated nightly release tag;
+it rejects rolling values such as `next` and `latest`. Advance those pins in a
+reviewed commit after validating the new combination. Manual runs can select
+ext4 when an uncompressed compatibility image is needed.
 
-After validation, the workflow creates a semantic build manifest containing the
-Thorch commit, immutable builder digest, requested build settings, resolved
-ROCKNIX source and kernel provenance, verified Arch Linux ARM rootfs hash, and
-the complete installed package/version set. It compares that file with the
-most recent prerelease built with the same requested configuration.
-If they match, the workflow succeeds without compressing or publishing another
-copy of the same build. A changed source, upstream image, rootfs, builder,
-setting, or installed package version produces a new prerelease.
+The current kernel-image pin is `nightly-20260728`, whose SM8550 asset was
+validated by successful Thorch nightly run
+[`30375469331`](https://github.com/thorch-os/thorch/actions/runs/30375469331).
+That run recorded the source image SHA-256 as
+`a8c2994b0a4cf243c7cfead04539f13b4e9688c5f1628fec310914afb1b27577`.
+
+Before preparing the host or starting Docker, the workflow downloads the most
+recent build manifest for the requested configuration. If that manifest already
+records the current Thorch commit, the job succeeds without building,
+compressing, or publishing. A new Thorch commit (or a configuration with no
+previous manifest) permits one validated build and prerelease.
+
+Arch Linux ARM remains rolling at build time: a build triggered by a new Thorch
+commit picks up the then-current rootfs and packages. Arch package, rootfs, or
+other external movement cannot trigger a release by itself because the commit
+gate runs before those inputs are downloaded. After validation, the workflow
+records the Thorch commit, immutable builder digest, requested settings,
+resolved ROCKNIX source and kernel provenance, verified Arch Linux ARM rootfs
+hash, and complete installed package/version set in the release manifest.
 
 Each workflow ref and requested build configuration has a stable 16-character
 key. Published nightlies combine that key with the UTC date:
@@ -111,13 +123,12 @@ key. Published nightlies combine that key with the UTC date:
 nightly-<YYYYMMDD>-<configuration>
 ```
 
-The key covers the workflow ref, ROCKNIX source and kernel requests, image size,
-and root filesystem type. Different branches, ext4 compatibility images, and
-other manual configurations therefore publish to separate releases. Nightly
-workflow runs are also serialized across refs so mutable release updates cannot
-race.
+The key covers the workflow ref, committed ROCKNIX source and kernel pins,
+image size, and root filesystem type. Different branches and ext4 compatibility
+images therefore publish to separate releases. Nightly workflow runs are also
+serialized across refs so mutable release updates cannot race.
 
-If another changed build for the same configuration is published on the same
+If another Thorch commit for the same configuration is published on the same
 UTC date, the workflow moves only that configuration's date tag to the newer
 commit and replaces its release assets together.
 
@@ -125,8 +136,8 @@ Release assets include:
 
 - `thorch-arch-aarch64-nightly-<YYYYMMDD>-<configuration>.img.zst`
 - matching `.sha256`
-- `thorch-nightly-<configuration>.build-manifest`, used to suppress unchanged
-  publications
+- `thorch-nightly-<configuration>.build-manifest`, used to identify the Thorch
+  commit already published for that configuration
 
 The release notes include the source commit, requested ROCKNIX refs, selected
 root filesystem, immutable builder digest, and kernel provenance copied from

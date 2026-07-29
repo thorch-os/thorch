@@ -4,10 +4,12 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workflow="${root}/.github/workflows/nightly.yml"
 docs="${root}/docs/nightly-actions.md"
+config="${root}/config/thorch.conf"
 makefile="${root}/Makefile"
 mount_script="${root}/scripts/sync-rocknix-kernel.sh"
 mount_test="${root}/tests/thorch-rocknix-mount-integration.bash"
 manifest_script="${root}/scripts/create-nightly-build-manifest.sh"
+build_gate="${root}/scripts/nightly-build-needed.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -53,6 +55,33 @@ grep -q 'make docker-image-pull' "${workflow}" ||
 grep -q 'make docker-nightly' "${workflow}" ||
   fail "nightly workflow does not use the Docker nightly target"
 
+grep -q 'source config/thorch.conf' "${workflow}" ||
+  fail "nightly workflow does not load the committed ROCKNIX pins"
+
+grep -q 'ROCKNIX_REF must be a full committed SHA' "${workflow}" ||
+  fail "nightly workflow does not reject a rolling ROCKNIX source ref"
+
+grep -q 'ROCKNIX_KERNEL_RELEASE must be a dated nightly tag' "${workflow}" ||
+  fail "nightly workflow does not reject a rolling ROCKNIX kernel release"
+
+! grep -q 'rocknix_ref:' "${workflow}" ||
+  fail "nightly workflow still exposes an uncommitted ROCKNIX source override"
+
+! grep -q 'rocknix_kernel_release:' "${workflow}" ||
+  fail "nightly workflow still exposes an uncommitted ROCKNIX release override"
+
+rocknix_ref_default="$(
+  sed -n 's/^ROCKNIX_REF=.*:-\([^}]*\)}.*$/\1/p' "${config}"
+)"
+[[ "${rocknix_ref_default}" =~ ^[0-9a-f]{40}$ ]] ||
+  fail "default ROCKNIX source is not pinned to a full commit SHA"
+
+rocknix_release_default="$(
+  sed -n 's/^ROCKNIX_KERNEL_RELEASE=.*:-\([^}]*\)}.*$/\1/p' "${config}"
+)"
+[[ "${rocknix_release_default}" =~ ^nightly-[0-9]{8}$ ]] ||
+  fail "default ROCKNIX kernel image is not pinned to a dated nightly tag"
+
 grep -q 'run --privileged' "${makefile}" ||
   fail "Docker wrapper does not use a privileged builder container"
 
@@ -71,11 +100,25 @@ grep -q 'group: thorch-nightly-publisher' "${workflow}" ||
 [[ -x "${manifest_script}" ]] ||
   fail "nightly build manifest generator is missing or not executable"
 
+[[ -x "${build_gate}" ]] ||
+  fail "nightly Thorch commit gate is missing or not executable"
+
 grep -q 'create-nightly-build-manifest.sh' "${workflow}" ||
   fail "nightly workflow does not create a semantic build manifest"
 
-grep -q 'cmp -s "${previous}" "${manifest}"' "${workflow}" ||
-  fail "nightly workflow does not compare against the previous matching build"
+grep -q './scripts/nightly-build-needed.sh "${GITHUB_SHA}" "${previous}"' "${workflow}" ||
+  fail "nightly workflow does not compare the Thorch commit before building"
+
+grep -q 'skipping the build and release' "${workflow}" ||
+  fail "nightly workflow does not report an already-published Thorch commit"
+
+! grep -q 'cmp -s "${previous}" "${manifest}"' "${workflow}" ||
+  fail "nightly workflow still lets external build-input changes trigger a release"
+
+preflight_line="$(grep -n -m1 'name: Check for an unpublished Thorch commit' "${workflow}" | cut -d: -f1)"
+build_line="$(grep -n -m1 'make docker-nightly' "${workflow}" | cut -d: -f1)"
+[[ -n "${preflight_line}" && -n "${build_line}" && "${preflight_line}" -lt "${build_line}" ]] ||
+  fail "nightly workflow does not check the Thorch commit before building"
 
 grep -q '"${GITHUB_REF}"' "${workflow}" ||
   fail "nightly release namespace does not isolate workflow refs"
@@ -99,7 +142,7 @@ grep -q 'git push --force origin "refs/tags/${tag}"' "${workflow}" ||
   fail "same-day nightly tag updates are not pushed"
 
 grep -q "steps.changes.outputs.changed == 'true'" "${workflow}" ||
-  fail "nightly workflow does not gate publication on changed build inputs"
+  fail "nightly workflow does not gate build and publication on a new Thorch commit"
 
 grep -q 'releases/assets/${previous_asset_id}' "${workflow}" ||
   fail "nightly workflow does not download the previous build manifest"
