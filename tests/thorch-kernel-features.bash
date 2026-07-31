@@ -8,7 +8,8 @@ driver_patch="${root}/packages/linux-thorch/patches/0300-mmc-add-qcom-downstream
 cleanup_patch="${root}/packages/linux-thorch/patches/0301-mmc-sdhci-msm-downstream-drop-sdhci_pltfm_free.patch"
 clock_patch="${root}/packages/linux-thorch/patches/0302-Revert-clk-qcom-gcc-sm8550-Use-floor-ops-for-SDCC-RCGs.patch"
 haptics_trace_patch="${root}/packages/linux-thorch/patches/0222-input-qcom-haptics-update-assign-str.patch"
-dts_patch="${root}/packages/linux-thorch/dts-patches/0007-arm64-dts-qcom-qcs8550-ayn-thor-enable-sdr104.patch"
+retired_sdr104_patch="${root}/packages/linux-thorch/dts-patches/0007-arm64-dts-qcom-qcs8550-ayn-thor-enable-sdr104.patch"
+gamepad_axis_patch="${root}/packages/linux-thorch/dts-patches/0007-arm64-dts-qcom-qcs8550-ayn-thor-set-gamepad-axis-range.patch"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -45,7 +46,7 @@ grep -q 'kernel patch or DTS inputs changed; rerun without --no-fetch' "${build_
 grep -q 'patch_input_digest="$(kernel_input_digest)"' "${build_script}" ||
   fail "kernel builder does not fingerprint its patch and DTS inputs"
 
-for removed_patch in "${driver_patch}" "${cleanup_patch}" "${clock_patch}" "${dts_patch}"; do
+for removed_patch in "${driver_patch}" "${cleanup_patch}" "${clock_patch}" "${retired_sdr104_patch}"; do
   [[ ! -e "${removed_patch}" ]] ||
     fail "retired SDR104 patch is still present: $(basename "${removed_patch}")"
 done
@@ -63,6 +64,10 @@ grep -Fq 'final ROCKNIX AYN DTS does not retain the 37.5 MHz SD clock cap' "${bu
   fail "kernel builder does not fail when the board clock cap is absent"
 grep -Fq 'final ROCKNIX AYN DTS does not mask unsupported UHS capabilities' "${build_script}" ||
   fail "kernel builder does not fail when the UHS capability mask is absent"
+grep -Fq 'axis-range = <1024>;' "${gamepad_axis_patch}" ||
+  fail "Thor DTS does not override the rsinput stick range to 1024 counts"
+grep -Fq 'final ROCKNIX Thor DTS does not advertise the calibrated 1024-count stick range' "${build_script}" ||
+  fail "kernel builder does not fail when the Thor stick range override is absent"
 grep -q "printf 'THORCH_SD_DRIVER=upstream" "${build_script}" ||
   fail "kernel provenance does not identify the upstream SD driver"
 grep -q "printf 'THORCH_SD_MAX_CLOCK_HZ=37500000" "${build_script}" ||

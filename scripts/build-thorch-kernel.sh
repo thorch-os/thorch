@@ -368,6 +368,12 @@ grep -Fq 'max-sd-hs-hz = <37500000>;' "${thor_ayn_dts}" ||
 grep -Fq 'sdhci-caps-mask = <0x3 0x0>;' "${thor_ayn_dts}" ||
   die "final ROCKNIX AYN DTS does not mask unsupported UHS capabilities"
 
+thor_board_dts="${source_abs}/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts"
+[[ -f "${thor_board_dts}" ]] ||
+  die "missing final ROCKNIX Thor DTS: ${thor_board_dts}"
+grep -Fq 'axis-range = <1024>;' "${thor_board_dts}" ||
+  die "final ROCKNIX Thor DTS does not advertise the calibrated 1024-count stick range"
+
 if [[ "${skip_kernel_patches}" -eq 0 ]]; then
   printf '%s\n' "${patch_input_digest}" > "${patch_marker}"
 fi

@@ -1,0 +1,28 @@
+From: Thorch contributors
+Subject: [PATCH] arm64: dts: qcom: qcs8550-ayn-thor: set gamepad axis range
+
+The Thor sticks reach approximately 1024 counts, while the shared rsinput
+driver defaults to a range of 0x580 (1408).  Advertising the larger range
+causes userspace to see only about 73 percent deflection, which can leave
+games below their run threshold.
+
+Use the rsinput driver's board-specific axis-range property for Thor.  Keep
+the shared default unchanged for other AYN devices that use the same driver.
+---
+ arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
+--- a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
++++ b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
+@@ -157,6 +157,10 @@ multi-ledl4 {
+ 	};
+ };
+ 
++&gamepad {
++	axis-range = <1024>;
++};
++
+ &display_panel {
+ 	compatible = "chipone,icna3520";
+ 
