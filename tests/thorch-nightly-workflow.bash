@@ -156,6 +156,8 @@ grep -q 'GitHub-hosted Ubuntu' "${docs}" ||
 [[ -x "${mount_test}" ]] || fail "partitioned-image mount integration test is missing or not executable"
 grep -q -- '--mount-probe-image' "${mount_test}" ||
   fail "partitioned-image integration test does not exercise the production mount path"
+grep -q 'expected_image_sha256=""' "${mount_script}" ||
+  fail "mount probe does not ignore the pinned release-image checksum"
 grep -q 'mount -v -o ro' "${mount_script}" ||
   fail "ROCKNIX partition mount still suppresses mount diagnostics"
 grep -q 'ROCKNIX block topology' "${mount_script}" ||

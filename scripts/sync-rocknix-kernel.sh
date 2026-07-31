@@ -138,6 +138,8 @@ if [[ -n "${mount_probe_image}" ]]; then
   [[ -f "${mount_probe_image}" ]] || die "mount probe image is not a regular file: ${mount_probe_image}"
   image_url="file://${mount_probe_image}"
   sha256_url=""
+  # The probe uses a locally generated fixture, not the pinned release image.
+  expected_image_sha256=""
   allow_unverified=1
 fi
 if [[ -n "${expected_image_sha256}" && ! "${expected_image_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
