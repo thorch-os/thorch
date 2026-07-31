@@ -2,7 +2,7 @@
 
 pkgname=thorch-fex-bin
 pkgver=2607
-pkgrel=3
+pkgrel=6
 pkgdesc='FEX-2607 binary runtime imported from the pinned ROCKNIX nightly for Thorch on AArch64'
 arch=(aarch64)
 url='https://github.com/FEX-Emu/FEX'

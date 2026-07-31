@@ -21,11 +21,16 @@ cat >"${tmp}/bin/failing-supervisor" <<'EOF'
 #!/usr/bin/env bash
 exit 42
 EOF
+cat >"${tmp}/bin/pgrep" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
 cat >"${tmp}/home/.local/bin/thorch-start-steam-arm64" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
 chmod 755 "${tmp}/bin/setsid" "${tmp}/bin/failing-supervisor" \
+  "${tmp}/bin/pgrep" \
   "${tmp}/home/.local/bin/thorch-start-steam-arm64"
 
 set +e

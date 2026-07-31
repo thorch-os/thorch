@@ -80,11 +80,11 @@ rgb_status_output() {
 }
 
 rgb_mode() {
-  rgb_status_output | awk '/^mode: / { print $2; found = 1; exit } END { if (!found) exit 1 }'
+  rgb_status_output | awk '/^mode: / && !found { print $2; found = 1 } END { if (!found) exit 1 }'
 }
 
 rgb_static_values() {
-  rgb_status_output | awk '/^static: / { print $2, $3, $4; found = 1; exit } END { if (!found) exit 1 }'
+  rgb_status_output | awk '/^static: / && !found { print $2, $3, $4; found = 1 } END { if (!found) exit 1 }'
 }
 
 print_rgb_status() {

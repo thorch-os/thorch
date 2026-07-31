@@ -119,6 +119,7 @@ HOME="${x11_home}" \
   XDG_CONFIG_HOME="${x11_home}/.config" \
   XDG_STATE_HOME="${x11_home}/.local/state" \
   XDG_RUNTIME_DIR="${tmp}/runtime" \
+  WAYLAND_DISPLAY= \
   PATH="${tmp}/bin:${PATH}" \
   THORCH_TEST_TOUCH_LOG="${x11_home}/touch.log" \
   THORCH_TEST_XRANDR_LOG="${x11_home}/xrandr.log" \

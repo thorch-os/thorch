@@ -2,9 +2,9 @@
 
 pkgname=thorch-gamescope
 _pkgname=gamescope
-pkgver=3.16.23
-pkgrel=2
-_commit=f8b33d38c5acc35825c7966b208222770c4a623e
+pkgver=3.16.24.r14
+pkgrel=1
+_commit=428688779e481681ddf6e2ea346987889527a0b7
 pkgdesc='SteamOS session compositing window manager with ROCKNIX handheld patches'
 arch=(aarch64)
 url='https://github.com/ValveSoftware/gamescope'
@@ -71,8 +71,7 @@ source=(
   'git+https://github.com/Joshua-Ashton/reshade.git'
   'git+https://github.com/KhronosGroup/SPIRV-Headers.git'
   'git+https://github.com/Joshua-Ashton/vkroots.git'
-  'git+https://github.com/Joshua-Ashton/wlroots.git'
-  'wlroots-5261.patch'
+  'wlroots::git+https://gitlab.freedesktop.org/wlroots/wlroots.git#commit=88a869855742281c98c22cab9641b317b8d065ef'
 )
 b2sums=(
   'SKIP'
@@ -83,7 +82,6 @@ b2sums=(
   'SKIP'
   'SKIP'
   'SKIP'
-  'a46eed11d1f4174f011e8aa58b3d333c81750ceb4846d462ec7cee98e268a1c00fa9699b656abfeec872b025aeb95f87e19267ce1d4722a5521233270a8fa604'
 )
 
 prepare() {
@@ -97,16 +95,14 @@ prepare() {
   done
   git -c protocol.file.allow=always submodule update
 
-  # Fix https://github.com/ValveSoftware/gamescope/issues/2110
-  patch -Np1 -d subprojects/wlroots -i "${srcdir}/wlroots-5261.patch"
-
   # ROCKNIX handheld gamescope patch set.
   local rocknix_gamescope_patches="${THORCH_ROCKNIX_DIR:?THORCH_ROCKNIX_DIR is required}/packages/apps/gamescope/patches"
   local rocknix_patch
   for rocknix_patch in \
     "${rocknix_gamescope_patches}/0001-WaylandBackend-wire-up-wl_touch-implementation.patch" \
     "${rocknix_gamescope_patches}/0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch" \
-    "${rocknix_gamescope_patches}/0005-feature-add-rotation-shader-for-rotating-output.patch"; do
+    "${rocknix_gamescope_patches}/0005-feature-add-rotation-shader-for-rotating-output.patch" \
+    "${rocknix_gamescope_patches}/0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch"; do
     [[ -f "${rocknix_patch}" ]] || { printf 'missing ROCKNIX gamescope patch: %s\n' "${rocknix_patch}" >&2; exit 1; }
     patch -Np1 -i "${rocknix_patch}"
   done
@@ -115,6 +111,7 @@ prepare() {
 build() {
   arch-meson "${_pkgname}" build \
     -Dforce_fallback_for=glm,stb,libdisplay-info,libliftoff,vkroots,wlroots \
+    -Denable_tests=false \
     -Dpipewire=enabled
   meson compile -C build
 }

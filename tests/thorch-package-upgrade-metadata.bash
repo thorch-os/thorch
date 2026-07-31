@@ -102,9 +102,9 @@ mesa_metadata="$(
   bash -c 'source "$1"; declare -p provides conflicts replaces' \
     _ "${mesa_pkgbuild}"
 )"
-grep -Eq 'provides=.*mesa=26\.1\.5' <<< "${mesa_metadata}" || \
+grep -Eq 'provides=.*mesa=26\.1\.6' <<< "${mesa_metadata}" || \
   fail "thorch-mesa does not provide versioned mesa"
-grep -Eq 'provides=.*vulkan-freedreno=26\.1\.5' <<< "${mesa_metadata}" || \
+grep -Eq 'provides=.*vulkan-freedreno=26\.1\.6' <<< "${mesa_metadata}" || \
   fail "thorch-mesa does not provide versioned vulkan-freedreno"
 grep -Eq 'conflicts=.*mesa.*vulkan-freedreno' <<< "${mesa_metadata}" || \
   fail "thorch-mesa does not conflict with the stock graphics packages"

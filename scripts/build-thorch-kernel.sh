@@ -205,7 +205,7 @@ template_abs="$(path_abs "${template}")"
 if [[ -n "${tarball_url}" ]]; then
   require_cmd curl depmod git gzip install make pahole patch python3 rsync sha256sum tar xz "${cross_compile}gcc"
 else
-  require_cmd depmod git gzip install make pahole patch python3 rsync "${cross_compile}gcc"
+  require_cmd depmod git gzip install make pahole patch python3 rsync sha256sum "${cross_compile}gcc"
 fi
 
 [[ -f "${config_abs}" ]] || die "missing base kernel config: ${config_abs}"
@@ -307,28 +307,45 @@ apply_patch_dir() {
   done < <(find "${patch_abs}" -maxdepth 1 -type f -name '*.patch' | LC_ALL=C sort)
 }
 
+kernel_input_digest() {
+  local input_dir input_abs input_file
+
+  {
+    printf 'source-ref=%s\n' "${source_ref}"
+    for input_dir in "${patch_dirs[@]}" "${dts_patch_dirs[@]}"; do
+      [[ -n "${input_dir}" ]] || continue
+      input_abs="$(path_abs "${input_dir}")"
+      printf 'patch-dir=%s\n' "${input_abs}"
+      [[ -d "${input_abs}" ]] || continue
+      while IFS= read -r input_file; do
+        printf 'patch-file=%s\n' "${input_file}"
+        sha256sum "${input_file}"
+      done < <(find "${input_abs}" -maxdepth 1 -type f -name '*.patch' | LC_ALL=C sort)
+    done
+
+    printf 'dts-dir=%s\n' "${dts_abs}"
+    while IFS= read -r input_file; do
+      printf 'dts-file=%s\n' "${input_file}"
+      sha256sum "${input_file}"
+    done < <(find "${dts_abs}" -type f | LC_ALL=C sort)
+  } | sha256sum | awk '{print $1}'
+}
+
 patch_marker="${source_abs}/.thorch-rocknix-patches-applied"
+patch_input_digest="$(kernel_input_digest)"
 if [[ "${skip_kernel_patches}" -eq 1 ]]; then
   log "skipping kernel patch application for existing source checkout"
 elif [[ "${fetch}" -eq 0 && -f "${patch_marker}" ]]; then
+  stored_patch_input_digest="$(cat "${patch_marker}")"
+  [[ "${stored_patch_input_digest}" == "${patch_input_digest}" ]] ||
+    die "kernel patch or DTS inputs changed; rerun without --no-fetch to reconstruct a clean source tree"
   log "using existing ROCKNIX-patched kernel source tree"
-  log "ensuring requested local kernel patches are applied"
-  for patch_dir in "${patch_dirs[@]}"; do
-    [[ -n "${patch_dir}" ]] || continue
-    case "${patch_dir}" in
-      vendor/*|*/vendor/*)
-        continue
-        ;;
-    esac
-    apply_patch_dir "${patch_dir}"
-  done
 else
   log "applying ROCKNIX kernel patches"
   for patch_dir in "${patch_dirs[@]}"; do
     [[ -n "${patch_dir}" ]] || continue
     apply_patch_dir "${patch_dir}"
   done
-  : > "${patch_marker}"
 fi
 
 log "copying ROCKNIX SM8550 DTS overlays"
@@ -339,6 +356,9 @@ for patch_dir in "${dts_patch_dirs[@]}"; do
   [[ -n "${patch_dir}" ]] || continue
   apply_patch_dir "${patch_dir}"
 done
+if [[ "${skip_kernel_patches}" -eq 0 ]]; then
+  printf '%s\n' "${patch_input_digest}" > "${patch_marker}"
+fi
 
 if [[ "${reuse_build_dir}" -eq 1 ]]; then
   log "reusing kernel build directory at ${build_abs}"
@@ -418,7 +438,6 @@ required_kernel_features=(
   SCHED_CLASS_EXT
   KALLSYMS_ALL
   UNICODE
-  MMC_SDHCI_MSM_DOWNSTREAM
   CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
 )
 for symbol in "${required_kernel_features[@]}"; do
@@ -478,7 +497,7 @@ done
 provenance="${dest_abs}/PROVENANCE"
 provenance_tmp="$(mktemp)"
 if [[ -f "${provenance}" ]]; then
-  grep -Ev '^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_|SCHED_EXT_|STEAMOS_|THORCH_SDR104_)' "${provenance}" > "${provenance_tmp}" || true
+  grep -Ev '^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_|SCHED_EXT_|STEAMOS_|THORCH_SD(R104)?_)' "${provenance}" > "${provenance_tmp}" || true
 else
   : > "${provenance_tmp}"
 fi
@@ -498,7 +517,8 @@ mv -f "${provenance_tmp}" "${provenance}"
   printf 'WAYDROID_KERNEL_BINDERFS=enabled\n'
   printf 'SCHED_EXT_LAVD_KERNEL=enabled\n'
   printf 'STEAMOS_CASEFOLD_KERNEL=enabled\n'
-  printf 'THORCH_SDR104_DRIVER=downstream\n'
+  printf 'THORCH_SD_DRIVER=upstream\n'
+  printf 'THORCH_SD_MAX_CLOCK_HZ=37500000\n'
   date -u '+THORCH_KERNEL_BUILT_AT=%Y-%m-%dT%H:%M:%SZ'
 } >> "${provenance}"
 chmod 0644 "${provenance}"

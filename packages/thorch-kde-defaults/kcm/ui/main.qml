@@ -21,6 +21,7 @@ KCM.SimpleKCM {
     property string pendingAction: ""
     property string pendingActionSection: ""
 
+    property string scheduler: "lavd"
     property string cpuBoost: "1"
     property string cpuGovernor: "performance"
     property string gpuGovernor: "simple_ondemand"
@@ -32,6 +33,7 @@ KCM.SimpleKCM {
     property int rgbStaticG: 128
     property int rgbStaticB: 255
 
+    property string pendingScheduler: "lavd"
     property string pendingCpuBoost: "1"
     property string pendingCpuGovernor: "performance"
     property string pendingGpuGovernor: "simple_ondemand"
@@ -46,6 +48,7 @@ KCM.SimpleKCM {
     readonly property string controlCommand: "thorch-hardwarectl"
     readonly property string statusCommand: controlCommand + " status-json"
     readonly property string normalizedFanProfile: fanProfile === "auto" ? "moderate" : fanProfile
+    readonly property bool schedulerDirty: pendingScheduler !== scheduler
     readonly property bool cpuDirty: pendingCpuBoost !== cpuBoost
     readonly property bool governorsDirty: pendingCpuGovernor !== cpuGovernor || pendingGpuGovernor !== gpuGovernor
     readonly property bool coolingDirty: pendingFanProfile !== normalizedFanProfile || pendingFanSensorMode !== fanSensorMode
@@ -63,6 +66,7 @@ KCM.SimpleKCM {
     function parseStatus(stdout) {
         const payload = JSON.parse(stdout);
 
+        scheduler = payload.scheduler;
         cpuBoost = payload.cpu_boost_enabled ? "1" : "0";
         cpuGovernor = payload.cpu_governor;
         gpuGovernor = payload.gpu_governor;
@@ -74,6 +78,9 @@ KCM.SimpleKCM {
         rgbStaticG = payload.rgb_static_g;
         rgbStaticB = payload.rgb_static_b;
 
+        if (!preservePendingOnRefresh || appliedSectionOnRefresh === "scheduler") {
+            pendingScheduler = scheduler;
+        }
         if (!preservePendingOnRefresh || appliedSectionOnRefresh === "cpu") {
             pendingCpuBoost = cpuBoost;
         }
@@ -118,6 +125,10 @@ KCM.SimpleKCM {
         runAction(controlCommand + " set cpu-boost " + (pendingCpuBoost === "1" ? "on" : "off"), qsTr("CPU boost"), "cpu");
     }
 
+    function saveScheduler() {
+        runAction(controlCommand + " set scheduler " + pendingScheduler, qsTr("game scheduler"), "scheduler");
+    }
+
     function saveGovernors() {
         runAction(controlCommand + " set governors " + pendingCpuGovernor + " " + pendingGpuGovernor, qsTr("governors"), "governors");
     }
@@ -132,6 +143,10 @@ KCM.SimpleKCM {
 
     function revertCpu() {
         pendingCpuBoost = cpuBoost;
+    }
+
+    function revertScheduler() {
+        pendingScheduler = scheduler;
     }
 
     function revertGovernors() {
@@ -231,7 +246,53 @@ KCM.SimpleKCM {
 
         Components.SectionBlock {
             title: qsTr("Performance")
-            description: qsTr("Choose CPU boost and default CPU/GPU governors for game performance.")
+            description: qsTr("Choose the game scheduler, CPU boost, and default CPU/GPU governors.")
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                font.bold: true
+                text: qsTr("Game scheduler")
+            }
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: width >= Kirigami.Units.gridUnit * 20 ? 2 : 1
+                columnSpacing: Kirigami.Units.smallSpacing
+                rowSpacing: Kirigami.Units.smallSpacing
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingScheduler
+                    description: qsTr("Smoother frame pacing")
+                    optionValue: "lavd"
+                    text: qsTr("LAVD")
+                    onClicked: page.pendingScheduler = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingScheduler
+                    description: qsTr("Kernel default")
+                    optionValue: "regular"
+                    text: qsTr("Regular")
+                    onClicked: page.pendingScheduler = optionValue
+                }
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+
+                QQC2.Button {
+                    enabled: page.schedulerDirty && !page.actionRunning
+                    text: qsTr("Revert")
+                    onClicked: page.revertScheduler()
+                }
+
+                QQC2.Button {
+                    enabled: page.schedulerDirty && !page.actionRunning
+                    icon.name: "dialog-ok-apply"
+                    text: qsTr("Save")
+                    onClicked: page.saveScheduler()
+                }
+            }
 
             RowLayout {
                 Layout.fillWidth: true

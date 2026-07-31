@@ -76,7 +76,7 @@ include patch because FEX-2607 now filters the standard include path upstream.
 
 ## Mesa
 
-`thorch-mesa` builds the upstream Mesa 26.1.5 release tarball and records its
+`thorch-mesa` builds the upstream Mesa 26.1.6 release tarball and records its
 upstream SHA-256 in the PKGBUILD. Its SM8550-focused package structure and
 driver selection are adapted from `shuuri-labs/pocknix-os`.
 

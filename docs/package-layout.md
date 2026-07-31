@@ -21,7 +21,8 @@ separate zero/off table entry.
 USB debug gadget, boot diagnostics, Thor joystick RGB control, Rust power/input
 daemons, ROCKNIX-derived SM8550 PWM fan profiles, dual-panel
 backlight helpers, gamepad/input udev rules, Plasma Mobile action-drawer
-overrides, quick settings for USB/SSH/RGB toggles, and ALSA UCM snippets. The
+overrides, quick settings for USB/SSH/RGB toggles, LAVD scheduler support,
+and ALSA UCM snippets. The
 boot hardware-default service adapts ROCKNIX's SM8550 GMU workaround by
 disabling CPU0 cpuidle state1, with a documented config override for controlled
 testing. The action-drawer override is stateful: package install/upgrade runs a
@@ -44,7 +45,7 @@ build replaces Arch's stock `linux-firmware*` packages with this package in a
 normal dependency-checked transaction, including the Adreno firmware imported
 from the ROCKNIX `/SYSTEM` kernel overlay.
 
-`thorch-mesa` builds Mesa 26.1.5 from the upstream release tarball with an
+`thorch-mesa` builds Mesa 26.1.6 from the upstream release tarball with an
 SM8550-focused driver set: Freedreno OpenGL, Turnip Vulkan, Zink, and softpipe.
 It uses the ROCKNIX SM8550 CPU flags and provides/replaces Arch's `mesa` and
 `vulkan-freedreno` packages, so the native driver is versioned independently of
@@ -55,7 +56,9 @@ adapted from the corresponding `shuuri-labs/pocknix-os` package.
 KWin display and touch seeds, virtual keyboard settings, audio user units,
 touch calibration service, the F24 desktop escape helper, OLED Plasma theme and
 color scheme, desktop/mobile session switchers, Bluetooth support, Firefox, and
-the core KDE desktop applications. Plasma Mobile is installed for testing and
+the core KDE desktop applications. Its Thorch Hardware settings panel switches
+between LAVD and the regular kernel scheduler, and the image includes Bazaar
+with Flathub's signed remote statically configured. Plasma Mobile is installed for testing and
 SteamOS-mode handoff, but the image builder selects Plasma Desktop by default unless
 `THORCH_DEFAULT_SESSION` is changed. Session changes go through
 `thorch-sessionctl`, which writes generated autologin state to the
@@ -95,7 +98,9 @@ package provides and replaces the old `thorch-fex` name for upgrades.
 handheld gamescope patch set consumed from the synced `vendor/rocknix-sm8550`
 tree. It keeps only the Arch-specific wlroots workaround locally. It provides
 and conflicts with `gamescope`, so installers and launchers can continue
-invoking the standard `gamescope` command.
+invoking the standard `gamescope` command. Thorch intentionally does not grant
+gamescope `CAP_SYS_NICE`: Valve's capability-gated self-nice path therefore
+stays inactive and gamescope runs at the launching user's normal priority.
 
 `thorch-rocknix-quirks` packages ROCKNIX-derived SM8550 handheld quirk metadata
 for Thorch. It exports Arch-safe profile hints for touchscreen, audio path,

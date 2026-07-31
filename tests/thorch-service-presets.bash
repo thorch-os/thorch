@@ -54,6 +54,8 @@ for unit in \
 done
 grep -q '^configure_network_policy()' "${bsp_install}" ||
   fail "BSP upgrade migration does not maintain the NetworkManager-only policy"
+[[ "$(grep -c '^  configure_lavd_default$' "${bsp_install}")" -eq 1 ]] ||
+  fail "BSP upgrades can reset the user's LAVD/regular scheduler selection"
 grep -q '%wheel ALL=(ALL:ALL) ALL' "${bsp_sudoers}" ||
   fail "BSP does not own the wheel sudo policy"
 grep -q 'etc/sudoers.d/20-thorch-wheel' "${bsp_pkgbuild}" ||

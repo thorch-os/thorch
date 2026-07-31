@@ -9,6 +9,7 @@ cleanup_patch="${root}/packages/linux-thorch/patches/0301-mmc-sdhci-msm-downstre
 clock_patch="${root}/packages/linux-thorch/patches/0302-Revert-clk-qcom-gcc-sm8550-Use-floor-ops-for-SDCC-RCGs.patch"
 haptics_trace_patch="${root}/packages/linux-thorch/patches/0222-input-qcom-haptics-update-assign-str.patch"
 dts_patch="${root}/packages/linux-thorch/dts-patches/0007-arm64-dts-qcom-qcs8550-ayn-thor-enable-sdr104.patch"
+rocknix_ayn_dts="${root}/vendor/rocknix-sm8550/linux/dts/qcom/qcs8550-ayn-common.dtsi"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -17,7 +18,6 @@ fail() {
 
 for symbol in \
   UNICODE \
-  MMC_SDHCI_MSM_DOWNSTREAM \
   DEBUG_INFO_BTF \
   SCHED_CLASS_EXT \
   FTRACE \
@@ -41,20 +41,28 @@ grep -q 'require_cmd .*pahole' "${build_script}" ||
   fail "kernel builder does not require pahole for BTF generation"
 grep -q 'DYNAMIC_FTRACE_WITH_DIRECT_CALLS' "${build_script}" ||
   fail "kernel builder does not validate arm64 BPF trampoline support"
+grep -q 'kernel patch or DTS inputs changed; rerun without --no-fetch' "${build_script}" ||
+  fail "incremental kernel builds do not reject stale removed patches"
+grep -q 'patch_input_digest="$(kernel_input_digest)"' "${build_script}" ||
+  fail "kernel builder does not fingerprint its patch and DTS inputs"
 
-grep -q 'config MMC_SDHCI_MSM_DOWNSTREAM' "${driver_patch}" ||
-  fail "downstream SDHCI driver patch is missing its Kconfig symbol"
-grep -q 'sdhci-msm-downstream.c' "${driver_patch}" ||
-  fail "downstream SDHCI implementation is missing"
-grep -q 'sdhci_pltfm_free' "${cleanup_patch}" ||
-  fail "7.x downstream SDHCI cleanup patch is missing"
-grep -q 'clk_rcg2_shared_ops' "${clock_patch}" ||
-  fail "SDCC shared-clock operations patch is missing"
+for removed_patch in "${driver_patch}" "${cleanup_patch}" "${clock_patch}" "${dts_patch}"; do
+  [[ ! -e "${removed_patch}" ]] ||
+    fail "retired SDR104 patch is still present: $(basename "${removed_patch}")"
+done
+! grep -q 'CONFIG_MMC_SDHCI_MSM_DOWNSTREAM' "${fragment}" ||
+  fail "kernel fragment still enables the downstream SDHCI driver"
+! grep -q 'MMC_SDHCI_MSM_DOWNSTREAM' "${build_script}" ||
+  fail "kernel builder still requires the downstream SDHCI driver"
 grep -q '__assign_str(id_name);' "${haptics_trace_patch}" ||
   fail "FTRACE-enabled Qualcomm haptics tracepoint fix is missing"
-grep -q 'qcs8550-ayn-thor-sd.dtsi' "${dts_patch}" ||
-  fail "Thor does not opt into the SDR104 node"
-grep -q 'qcom,sdhci-msm-v5-downstream' "${dts_patch}" ||
-  fail "Thor SDR104 node does not select the downstream driver"
+grep -q 'max-sd-hs-hz = <37500000>;' "${rocknix_ayn_dts}" ||
+  fail "ROCKNIX AYN SD node does not retain the 37.5 MHz board cap"
+grep -q 'sdhci-caps-mask = <0x3 0x0>;' "${rocknix_ayn_dts}" ||
+  fail "ROCKNIX AYN SD node does not mask the unsupported UHS capabilities"
+grep -q "printf 'THORCH_SD_DRIVER=upstream" "${build_script}" ||
+  fail "kernel provenance does not identify the upstream SD driver"
+grep -q "printf 'THORCH_SD_MAX_CLOCK_HZ=37500000" "${build_script}" ||
+  fail "kernel provenance does not record the 37.5 MHz board cap"
 
-printf 'thorch LAVD, SteamOS casefold, and SDR104 kernel checks passed\n'
+printf 'thorch LAVD, SteamOS casefold, and upstream SD kernel checks passed\n'

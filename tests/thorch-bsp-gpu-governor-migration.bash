@@ -5,6 +5,12 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 install_script="${root}/packages/thorch-bsp/thorch-bsp.install"
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
+mkdir -p "${work}/bin"
+cat >"${work}/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod 0755 "${work}/bin/systemctl"
 
 fail() {
   printf 'FAIL: %s\n' "$1"
@@ -14,7 +20,8 @@ fail() {
 run_upgrade() {
   local installed_version="$1"
 
-  THORCH_INSTALL_ROOT="${work}/root" \
+  PATH="${work}/bin:${PATH}" \
+    THORCH_INSTALL_ROOT="${work}/root" \
     "${BASH}" -s -- "${install_script}" "${installed_version}" <<'EOF'
 source "$1"
 
