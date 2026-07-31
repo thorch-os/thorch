@@ -73,10 +73,10 @@ fi
 grep -qx 'status-json' "${log}" || fail "hardware settings UI did not query status-json"
 grep -Fq 'set scheduler ' "${kcm_qml}" ||
   fail "hardware settings UI does not expose scheduler selection"
-! rg -q 'quicksetting\.scheduler' "${root}/packages" ||
+! grep -R -q 'quicksetting\.scheduler' "${root}/packages" ||
   fail "scheduler control still ships as a Plasma quick setting"
 
-if rg -n '(Error|ReferenceError|TypeError|is not installed|Cannot assign)' "${stderr_log}" >/dev/null 2>&1; then
+if grep -E -n '(Error|ReferenceError|TypeError|is not installed|Cannot assign)' "${stderr_log}" >/dev/null 2>&1; then
   cat "${stderr_log}" >&2
   fail "hardware settings UI reported QML errors"
 fi

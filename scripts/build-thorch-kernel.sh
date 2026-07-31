@@ -356,6 +356,18 @@ for patch_dir in "${dts_patch_dirs[@]}"; do
   [[ -n "${patch_dir}" ]] || continue
   apply_patch_dir "${patch_dir}"
 done
+
+# Keep Thor on ROCKNIX's conservative upstream SDHCI path. Validate the final
+# copied-and-patched DTS so a future nightly cannot silently reintroduce the
+# unstable UHS modes or remove the board clock cap.
+thor_ayn_dts="${source_abs}/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi"
+[[ -f "${thor_ayn_dts}" ]] ||
+  die "missing final ROCKNIX AYN DTS: ${thor_ayn_dts}"
+grep -Fq 'max-sd-hs-hz = <37500000>;' "${thor_ayn_dts}" ||
+  die "final ROCKNIX AYN DTS does not retain the 37.5 MHz SD clock cap"
+grep -Fq 'sdhci-caps-mask = <0x3 0x0>;' "${thor_ayn_dts}" ||
+  die "final ROCKNIX AYN DTS does not mask unsupported UHS capabilities"
+
 if [[ "${skip_kernel_patches}" -eq 0 ]]; then
   printf '%s\n' "${patch_input_digest}" > "${patch_marker}"
 fi

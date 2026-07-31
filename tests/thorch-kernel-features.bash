@@ -9,7 +9,6 @@ cleanup_patch="${root}/packages/linux-thorch/patches/0301-mmc-sdhci-msm-downstre
 clock_patch="${root}/packages/linux-thorch/patches/0302-Revert-clk-qcom-gcc-sm8550-Use-floor-ops-for-SDCC-RCGs.patch"
 haptics_trace_patch="${root}/packages/linux-thorch/patches/0222-input-qcom-haptics-update-assign-str.patch"
 dts_patch="${root}/packages/linux-thorch/dts-patches/0007-arm64-dts-qcom-qcs8550-ayn-thor-enable-sdr104.patch"
-rocknix_ayn_dts="${root}/vendor/rocknix-sm8550/linux/dts/qcom/qcs8550-ayn-common.dtsi"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -56,10 +55,14 @@ done
   fail "kernel builder still requires the downstream SDHCI driver"
 grep -q '__assign_str(id_name);' "${haptics_trace_patch}" ||
   fail "FTRACE-enabled Qualcomm haptics tracepoint fix is missing"
-grep -q 'max-sd-hs-hz = <37500000>;' "${rocknix_ayn_dts}" ||
-  fail "ROCKNIX AYN SD node does not retain the 37.5 MHz board cap"
-grep -q 'sdhci-caps-mask = <0x3 0x0>;' "${rocknix_ayn_dts}" ||
-  fail "ROCKNIX AYN SD node does not mask the unsupported UHS capabilities"
+grep -Fq 'max-sd-hs-hz = <37500000>;' "${build_script}" ||
+  fail "kernel builder does not enforce the 37.5 MHz board cap"
+grep -Fq 'sdhci-caps-mask = <0x3 0x0>;' "${build_script}" ||
+  fail "kernel builder does not enforce the unsupported UHS capability mask"
+grep -Fq 'final ROCKNIX AYN DTS does not retain the 37.5 MHz SD clock cap' "${build_script}" ||
+  fail "kernel builder does not fail when the board clock cap is absent"
+grep -Fq 'final ROCKNIX AYN DTS does not mask unsupported UHS capabilities' "${build_script}" ||
+  fail "kernel builder does not fail when the UHS capability mask is absent"
 grep -q "printf 'THORCH_SD_DRIVER=upstream" "${build_script}" ||
   fail "kernel provenance does not identify the upstream SD driver"
 grep -q "printf 'THORCH_SD_MAX_CLOCK_HZ=37500000" "${build_script}" ||
