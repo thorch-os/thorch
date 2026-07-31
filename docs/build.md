@@ -34,9 +34,9 @@ The ROCKNIX kernel sync requires `curl`, `jq`, `losetup`, `mount`,
 Then sync the ROCKNIX image-derived runtime inputs and build the Thorch kernel.
 This is a required clean-build input; `make sync` only downloads public source
 overlays and firmware, not the ABL boot-image template or FEX runtime. By
-default, the kernel sync downloads the pinned ROCKNIX SM8550 nightly declared
-in `config/thorch.conf`, verifies its `.sha256`, extracts `/KERNEL` and
-`/SYSTEM`, normalizes the result
+default, the kernel sync downloads the pinned official ROCKNIX SM8550 nightly
+declared in `config/thorch.conf`, verifies its checksum, extracts `/KERNEL` and
+`/SYSTEM`, and normalizes the result
 into `vendor/rocknix-kernel` and `vendor/rocknix-runtime`, then source-builds a
 Thorch Thor kernel from ROCKNIX's Linux recipe with BinderFS enabled:
 
@@ -79,14 +79,18 @@ runs `scripts/build-thorch-kernel.sh` unless `THORCH_KERNEL_SOURCE_BUILD=0` or
 upstream image, set one of:
 
 ```bash
-ROCKNIX_KERNEL_SOURCE=stable ROCKNIX_KERNEL_RELEASE=latest make kernel
-ROCKNIX_KERNEL_RELEASE=<release-tag> make kernel
-ROCKNIX_KERNEL_IMAGE_URL=https://.../ROCKNIX-SM8550.aarch64-YYYYMMDD.img.gz make kernel
+ROCKNIX_KERNEL_RELEASE=nightly-20260730 make kernel
+ROCKNIX_KERNEL_RELEASE=nightly-20260720 ROCKNIX_KERNEL_IMAGE_SHA256=<matching-sha256> make kernel
+ROCKNIX_KERNEL_IMAGE_SHA256= ROCKNIX_KERNEL_SOURCE=stable ROCKNIX_KERNEL_RELEASE=latest make kernel
+ROCKNIX_KERNEL_IMAGE_URL=https://.../ROCKNIX-SM8550.aarch64-YYYYMMDD.img.gz ROCKNIX_KERNEL_IMAGE_SHA256=<matching-sha256> make kernel
 ```
 
-`ROCKNIX_KERNEL_SOURCE` defaults to `nightly`; use `stable` when importing from
-the latest stable ROCKNIX release stream. If an upstream image has no matching
-`.sha256` asset, the sync refuses the import unless you provide
+`ROCKNIX_KERNEL_SOURCE` defaults to `nightly`, and the project config pins a
+specific nightly tag for reproducibility. Set `ROCKNIX_KERNEL_RELEASE=latest`
+to follow the moving nightly head, or use `stable` for the stable release
+stream; also update `ROCKNIX_KERNEL_IMAGE_SHA256`, or set it explicitly empty to
+rely only on the selected release's checksum asset. If an upstream image has no
+matching `.sha256` asset, the sync refuses the import unless you provide
 `ROCKNIX_KERNEL_SHA256_URL` or explicitly set `ROCKNIX_KERNEL_ALLOW_UNVERIFIED=1`
 for a local experiment.
 
@@ -292,6 +296,7 @@ describes their purpose without duplicating mutable source or kernel refs.
   pinned in `config/thorch.conf`. Scheduled builds use that committed pin.
 - `ROCKNIX_KERNEL_PLATFORM`: ROCKNIX platform name, default `SM8550`.
 - `ROCKNIX_KERNEL_IMAGE_URL`: explicit ROCKNIX `.img` or `.img.gz` URL.
+- `ROCKNIX_KERNEL_IMAGE_SHA256`: exact pinned image checksum.
 - `ROCKNIX_KERNEL_SHA256_URL`: explicit checksum URL for the ROCKNIX image.
 - `ROCKNIX_KERNEL_CACHE_DIR`: download/decompression cache, default `build/cache/rocknix`.
 - `THORCH_USER`: default image user, default `thorch`.

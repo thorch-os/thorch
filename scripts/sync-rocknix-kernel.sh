@@ -24,6 +24,7 @@ Options:
                               fallback is latest, but project config may pin it.
   --platform <name>           ROCKNIX platform. Default: SM8550.
   --url <image-url>           Use an explicit .img.gz or .img URL.
+  --sha256 <sha>              Require this exact image SHA-256.
   --sha256-url <url>          Use an explicit sha256 URL.
   --allow-unverified          Continue if no sha256 can be fetched. Unsafe.
   --cache-dir <dir>           Download/decompress cache. Default: build/cache/rocknix.
@@ -44,6 +45,7 @@ source_channel="${ROCKNIX_KERNEL_SOURCE:-nightly}"
 release="${ROCKNIX_KERNEL_RELEASE:-latest}"
 platform="${ROCKNIX_KERNEL_PLATFORM:-SM8550}"
 image_url="${ROCKNIX_KERNEL_IMAGE_URL:-}"
+expected_image_sha256="${ROCKNIX_KERNEL_IMAGE_SHA256:-}"
 sha256_url="${ROCKNIX_KERNEL_SHA256_URL:-}"
 cache_dir="${ROCKNIX_KERNEL_CACHE_DIR:-${THORCH_BUILD_DIR}/cache/rocknix}"
 dest="${THORCH_ROCKNIX_KERNEL_DIR}"
@@ -73,6 +75,11 @@ while [[ "$#" -gt 0 ]]; do
     --url)
       image_url="${2:-}"
       [[ -n "${image_url}" ]] || die "--url requires a value"
+      shift 2
+      ;;
+    --sha256)
+      expected_image_sha256="${2:-}"
+      [[ -n "${expected_image_sha256}" ]] || die "--sha256 requires a value"
       shift 2
       ;;
     --sha256-url)
@@ -133,6 +140,10 @@ if [[ -n "${mount_probe_image}" ]]; then
   sha256_url=""
   allow_unverified=1
 fi
+if [[ -n "${expected_image_sha256}" && ! "${expected_image_sha256}" =~ ^[[:xdigit:]]{64}$ ]]; then
+  die "ROCKNIX image SHA-256 must be exactly 64 hexadecimal characters"
+fi
+expected_image_sha256="${expected_image_sha256,,}"
 
 root="$(repo_root)"
 boot_tool="${root}/packages/thorch-bsp/payload/usr/lib/thorch/boot_image.py"
@@ -241,6 +252,13 @@ if [[ -n "${sha256_url}" ]]; then
     [[ "${allow_unverified}" == 1 ]] || die "sha256 asset was not available: ${sha256_url}"
     warn "sha256 asset was not available: ${sha256_url}; continuing unverified because --allow-unverified was set"
   fi
+fi
+if [[ -n "${expected_image_sha256}" ]]; then
+  if [[ -z "${image_sha256}" ]]; then
+    image_sha256="$(sha256sum "${downloaded}" | awk '{print $1}')"
+  fi
+  [[ "${image_sha256,,}" == "${expected_image_sha256}" ]] || \
+    die "ROCKNIX image checksum ${image_sha256} does not match pinned checksum ${expected_image_sha256}"
 fi
 if [[ -z "${image_sha256}" ]]; then
   [[ "${allow_unverified}" == 1 ]] || die "ROCKNIX image has no sha256 verification; pass --sha256-url or --allow-unverified"
@@ -417,17 +435,12 @@ normalize_immutable_rocknix_image() {
     usr/lib/kernel-overlays/base/lib/firmware/qcom/a740_sqe.fw \
     usr/lib/kernel-overlays/base/lib/firmware/qcom/gmu_gen70200.bin \
     usr/lib/kernel-overlays/base/lib/firmware/qcom/sm8550/a740_zap.mbn \
-    usr/lib/libvulkan_freedreno.so \
-    usr/lib/libdisplay-info.so.0.2.0 \
-    usr/lib/libdisplay-info.so.2 \
     'usr/lib/libfmt.so.11*' \
     usr/bin/FEX* \
     usr/lib/fex-emu \
     'usr/lib/binfmt.d/FEX-*.conf' \
     usr/config/fex-emu \
-    usr/share/fex-emu \
-    usr/share/fex-emu/libvulkan_freedreno.so \
-    'usr/share/vulkan/icd.d/freedreno_icd*.json' >/dev/null
+    usr/share/fex-emu >/dev/null
   modules_src="${work_tree}/system/usr/lib/kernel-overlays/base/lib/modules"
   [[ -d "${modules_src}" ]] || die "ROCKNIX SYSTEM did not contain kernel modules"
   install -d "${work_tree}/usr/lib"
@@ -443,18 +456,6 @@ normalize_immutable_rocknix_image() {
     qcom/sm8550/a740_zap.mbn; do
     [[ -f "${work_tree}/usr/lib/firmware/${firmware}" ]] || die "ROCKNIX SYSTEM did not contain firmware ${firmware}"
   done
-
-  [[ -f "${work_tree}/system/usr/lib/libvulkan_freedreno.so" ]] || die "ROCKNIX SYSTEM did not contain libvulkan_freedreno.so"
-  install -Dm755 "${work_tree}/system/usr/lib/libvulkan_freedreno.so" \
-    "${work_tree}/usr/lib/libvulkan_freedreno.so"
-  install -Dm755 "${work_tree}/system/usr/lib/libdisplay-info.so.0.2.0" \
-    "${work_tree}/usr/lib/libdisplay-info.so.0.2.0"
-  ln -sfn libdisplay-info.so.0.2.0 "${work_tree}/usr/lib/libdisplay-info.so.2"
-  install -Dm755 "${work_tree}/system/usr/share/fex-emu/libvulkan_freedreno.so" \
-    "${work_tree}/usr/share/fex-emu/libvulkan_freedreno.so"
-  freedreno_icd="$(find "${work_tree}/system/usr/share/vulkan/icd.d" -maxdepth 1 -type f -name 'freedreno_icd*.json' | sort | head -n1)"
-  [[ -n "${freedreno_icd}" ]] || die "ROCKNIX SYSTEM did not contain a Freedreno Vulkan ICD"
-  install -Dm644 "${freedreno_icd}" "${work_tree}/usr/share/vulkan/icd.d/freedreno_icd.json"
 
   printf '%s\n' "${work_tree}"
 }
@@ -488,14 +489,14 @@ log "importing ROCKNIX runtime artifacts from ${image_name}"
 runtime_provenance="${runtime_dest_abs}/PROVENANCE"
 if [[ -f "${runtime_provenance}" ]]; then
   runtime_provenance_tmp="$(mktemp)"
-  grep -Ev '^SOURCE_(ROOT_DIR|RUNTIME_ROOT|FEX|FEX_ROOTFS_FETCHER|FEX_HOST_THUNKS|FEX_GUEST_THUNKS)=' "${runtime_provenance}" > "${runtime_provenance_tmp}" || true
+  grep -Ev '^SOURCE_(ROOT_DIR|RUNTIME_ROOT|FEX|FEX_ROOTFS_FETCHER|FEX_HOST_THUNKS|FEX_GUEST_THUNKS|FEX_VULKAN_FREEDRENO)=' "${runtime_provenance}" > "${runtime_provenance_tmp}" || true
   mv -f "${runtime_provenance_tmp}" "${runtime_provenance}"
   chmod 0644 "${runtime_provenance}"
 fi
 
 provenance="${dest_abs}/PROVENANCE"
 provenance_tmp="$(mktemp)"
-grep -Ev '^SOURCE_(BOOT|ROOT)_DIR=|^SOURCE_(IMAGE|DTB|MODULES|VULKAN_FREEDRENO|DISPLAY_INFO|FEX_VULKAN_FREEDRENO|FREEDRENO_ICD)=|^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_)' "${provenance}" > "${provenance_tmp}" || true
+grep -Ev '^SOURCE_(BOOT|ROOT)_DIR=|^SOURCE_(IMAGE|DTB|MODULES|FIRMWARE_ROOT)=|^SOURCE_ROCKNIX_BOOT_PAYLOAD=|^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_)' "${provenance}" > "${provenance_tmp}" || true
 mv -f "${provenance_tmp}" "${provenance}"
 {
   printf 'ROCKNIX_KERNEL_SOURCE=%s\n' "${source_channel}"
@@ -505,7 +506,6 @@ mv -f "${provenance_tmp}" "${provenance}"
   printf 'SOURCE_ROCKNIX_BOOT_PAYLOAD=/KERNEL\n'
   printf 'SOURCE_ROCKNIX_SYSTEM_PAYLOAD=/SYSTEM\n'
   printf 'SOURCE_ROCKNIX_FIRMWARE_FILES=/usr/lib/firmware/qcom/a740_sqe.fw /usr/lib/firmware/qcom/gmu_gen70200.bin /usr/lib/firmware/qcom/sm8550/a740_zap.mbn\n'
-  printf 'SOURCE_ROCKNIX_RUNTIME_FILES=/usr/lib/libvulkan_freedreno.so /usr/lib/libdisplay-info.so.0.2.0 /usr/share/fex-emu/libvulkan_freedreno.so /usr/share/vulkan/icd.d/freedreno_icd.json\n'
   [[ -z "${image_sha256}" ]] || printf 'SOURCE_ROCKNIX_IMAGE_SHA256=%s\n' "${image_sha256}"
 } >> "${dest_abs}/PROVENANCE"
 

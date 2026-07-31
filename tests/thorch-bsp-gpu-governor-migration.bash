@@ -5,6 +5,12 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 install_script="${root}/packages/thorch-bsp/thorch-bsp.install"
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
+mkdir -p "${work}/bin"
+cat >"${work}/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod 0755 "${work}/bin/systemctl"
 
 fail() {
   printf 'FAIL: %s\n' "$1"
@@ -14,7 +20,8 @@ fail() {
 run_upgrade() {
   local installed_version="$1"
 
-  THORCH_INSTALL_ROOT="${work}/root" \
+  PATH="${work}/bin:${PATH}" \
+    THORCH_INSTALL_ROOT="${work}/root" \
     "${BASH}" -s -- "${install_script}" "${installed_version}" <<'EOF'
 source "$1"
 
@@ -22,7 +29,7 @@ source "$1"
     case "$1:$2" in
     1-27:1-32|1-30:1-32|1-31:1-32) printf '%s\n' -1 ;;
     1-32:1-32) printf '%s\n' 0 ;;
-    1-33:1-32) printf '%s\n' 1 ;;
+    1-34:1-32) printf '%s\n' 1 ;;
     *) return 1 ;;
     esac
   }
@@ -87,7 +94,7 @@ cp "${config}" "${expected}"
 run_upgrade '1-32'
 cmp "${expected}" "${config}" >/dev/null ||
   fail 'the migration changed a GPU governor set after the 1-32 upgrade'
-run_upgrade '1-33'
+run_upgrade '1-34'
 cmp "${expected}" "${config}" >/dev/null ||
   fail 'the migration ran for a newer package version'
 

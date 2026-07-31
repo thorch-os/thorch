@@ -38,8 +38,11 @@ copying or removing files.
 ## Builds and local repositories
 
 Each package is built from a fresh clone of the updated Arch Linux ARM base
-root. `makepkg --syncdeps` resolves dependencies from the PKGBUILD and the local
-Thorch repository, so one package build cannot leak dependencies into another.
+root. The builder generates `.SRCINFO`, installs exactly its aarch64 runtime,
+build, and check dependencies as chroot root from Arch and the local Thorch
+repository, then runs `makepkg` as an unprivileged builder. This avoids relying
+on setuid `sudo` under qemu-user while ensuring one package build cannot leak
+dependencies into another.
 
 Cached artifacts are reused only when their declared-input fingerprint and
 artifact digest still match. Rebuilding the same package name, version, and

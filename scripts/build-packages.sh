@@ -4,6 +4,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${script_dir}/lib/common.sh"
+# shellcheck source=lib/package-repo.sh
+source "${script_dir}/lib/package-repo.sh"
 load_thorch_config
 
 usage() {
@@ -139,7 +141,7 @@ else
   assert_path_beneath "${root}" "${build_dir}" THORCH_BUILD_DIR
 fi
 base_root="${build_dir}/pkg-base-root"
-base_root_schema=2
+base_root_schema=3
 base_root_schema_file="${base_root}/.thorch-package-base-schema"
 build_root="${build_dir}/pkg-root"
 cache_dir="${build_dir}/cache"
@@ -182,6 +184,12 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
   exit 0
 fi
 selected_packages=("${packages[@]}")
+declare -A expected_package_versions=()
+for pkg in "${selected_packages[@]}"; do
+  expected_package_versions["${pkg}"]="$(
+    python3 "${manifest_cli}" --repo "${root}" version "${pkg}"
+  )"
+done
 
 pkginfo_value() {
   local pkgfile="$1" key="$2"
@@ -189,7 +197,9 @@ pkginfo_value() {
 }
 
 latest_repo_package_for() {
-  local pkg="$1" file pkgname pkgver current current_version cmp
+  local pkg="$1" file pkgname pkgver current current_version expected_version
+
+  expected_version="${expected_package_versions[${pkg}]:-}"
 
   shopt -s nullglob
   for file in "${repo_dir}"/*.pkg.tar.*; do
@@ -204,8 +214,10 @@ latest_repo_package_for() {
       current_version="${pkgver}"
       continue
     fi
-    cmp="$(vercmp "${pkgver}" "${current_version}")"
-    if (( cmp > 0 )) || { (( cmp == 0 )) && [[ "${file}" -nt "${current}" ]]; }; then
+    if package_version_preferred \
+        "${pkgver}" "${current_version}" "${expected_version}" ||
+        { [[ "${pkgver}" == "${current_version}" ]] &&
+          [[ "${file}" -nt "${current}" ]]; }; then
       current="${file}"
       current_version="${pkgver}"
     fi
@@ -351,15 +363,24 @@ record_artifact_binding() {
 
 fresh_repo_package_for() {
   local pkg="$1" pkgfile binding_file current_fingerprint
+  local artifact_version expected_version
 
   pkgfile="$(latest_repo_package_for "${pkg}")" || return 1
+  artifact_version="$(pkginfo_value "${pkgfile}" pkgver)"
+  expected_version="${expected_package_versions[${pkg}]}"
+  if [[ "${artifact_version}" != "${expected_version}" ]]; then
+    log "rebuilding ${pkg}; cached ${artifact_version} does not match PKGBUILD ${expected_version}"
+    return 1
+  fi
   binding_file="$(binding_file_for "${pkgfile}")"
   current_fingerprint="$(input_fingerprint_for "${pkg}")"
 
   if [[ ! -e "${binding_file}" && ! -L "${binding_file}" ]]; then
     [[ "${trust_existing}" -eq 1 ]] || return 1
-    python3 "${script_dir}/check-package-repo.py" "${repo_dir}" \
-      --retained-root "${retained_repo_root}" --candidate "${pkgfile}" >/dev/null
+    if ! python3 "${script_dir}/check-package-repo.py" "${repo_dir}" \
+      --retained-root "${retained_repo_root}" --candidate "${pkgfile}" >/dev/null; then
+      return 1
+    fi
     log "recording input/artifact binding for existing ${pkg}; ${pkgfile##*/} is trusted"
     record_artifact_binding "${pkg}" "${pkgfile}" "${current_fingerprint}"
     printf '%s\n' "${pkgfile}"
@@ -471,10 +492,12 @@ if [[ " ${packages[*]} " == *" linux-thorch "* ]] &&
   needs_rocknix_sync=1
 fi
 if [[ " ${packages[*]} " == *" thorch-firmware-rocknix "* ]] &&
-  { [[ ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/usr/lib/libvulkan_freedreno.so" ]] || ! rocknix_kernel_firmware_ready; }; then
+  ! rocknix_kernel_firmware_ready; then
   needs_rocknix_sync=1
 fi
-if [[ " ${packages[*]} " == *" thorch-fex-bin "* && ! -x "${root}/${THORCH_ROCKNIX_RUNTIME_DIR}/usr/bin/FEX" ]]; then
+if [[ " ${packages[*]} " == *" thorch-fex-bin "* ]] &&
+  { [[ ! -x "${root}/${THORCH_ROCKNIX_RUNTIME_DIR}/usr/bin/FEX" ]] ||
+    [[ ! -f "${root}/${THORCH_ROCKNIX_RUNTIME_DIR}/usr/share/fex-emu/libvulkan_freedreno.so" ]]; }; then
   needs_rocknix_sync=1
 fi
 if [[ "${needs_rocknix_sync}" -eq 1 ]]; then
@@ -554,7 +577,7 @@ remove_repo_artifact() {
 prune_stale_repo_packages() {
   local -A best_file=()
   local -A best_version=()
-  local file pkgname pkgver current cmp
+  local file pkgname pkgver current expected_version
 
   shopt -s nullglob
   for file in "${repo_dir}"/*.pkg.tar.*; do
@@ -570,8 +593,11 @@ prune_stale_repo_packages() {
       continue
     fi
 
-    cmp="$(vercmp "${pkgver}" "${best_version[${pkgname}]}")"
-    if (( cmp > 0 )) || { (( cmp == 0 )) && [[ "${file}" -nt "${current}" ]]; }; then
+    expected_version="${expected_package_versions[${pkgname}]:-}"
+    if package_version_preferred \
+        "${pkgver}" "${best_version[${pkgname}]}" "${expected_version}" ||
+        { [[ "${pkgver}" == "${best_version[${pkgname}]}" ]] &&
+          [[ "${file}" -nt "${current}" ]]; }; then
       remove_repo_artifact "${current}"
       best_file["${pkgname}"]="${file}"
       best_version["${pkgname}"]="${pkgver}"
@@ -580,6 +606,19 @@ prune_stale_repo_packages() {
     fi
   done
   shopt -u nullglob
+}
+
+validate_selected_repo_versions() {
+  local pkg pkgfile artifact_version expected_version
+
+  for pkg in "${selected_packages[@]}"; do
+    pkgfile="$(latest_repo_package_for "${pkg}")" ||
+      die "${pkg}: package is missing after repository update"
+    artifact_version="$(pkginfo_value "${pkgfile}" pkgver)"
+    expected_version="${expected_package_versions[${pkg}]}"
+    [[ "${artifact_version}" == "${expected_version}" ]] ||
+      die "${pkg}: repository has ${artifact_version}, expected ${expected_version}"
+  done
 }
 
 update_local_repo() {
@@ -694,7 +733,7 @@ reset_package_root() {
 log "preparing pristine aarch64 package base root"
 run_base_chroot "pacman-key --init >/dev/null 2>&1 || true"
 run_base_chroot "pacman-key --populate archlinuxarm >/dev/null 2>&1 || true"
-run_base_chroot "pacman -Syu --noconfirm --needed base-devel python sudo"
+run_base_chroot "pacman -Syu --noconfirm --needed base-devel python"
 # Package roots never boot. Remove firmware that the Thorch replacement package
 # conflicts with so makepkg can install it as a dependency without an
 # interactive pacman replacement prompt.
@@ -704,7 +743,6 @@ remove_chroot_packages_if_installed \
 run_base_chroot "gpgconf --kill all >/dev/null 2>&1 || pkill gpg-agent >/dev/null 2>&1 || true"
 run_base_chroot "id builder >/dev/null 2>&1 || useradd -m builder"
 run_base_chroot "install -d -o builder -g builder /nix /home/builder"
-run_base_chroot "install -d -m 0750 /etc/sudoers.d && printf '%s\\n' 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman' > /etc/sudoers.d/thorch-builder && chmod 0440 /etc/sudoers.d/thorch-builder"
 
 retained_repo="$("${script_dir}/archive-package-repo.sh" "${repo_dir}")"
 [[ -z "${retained_repo}" ]] || log "retained local repository bytes at ${retained_repo}"
@@ -723,13 +761,24 @@ for pkg in "${packages[@]}"; do
   run_chroot "cd /thorch-work/${pkg} && su builder -c '${package_env} makepkg --printsrcinfo > .SRCINFO'"
   run_chroot "test -s /thorch-work/${pkg}/.SRCINFO && grep -Eq '^[[:space:]]*pkgname = ${pkg}$' /thorch-work/${pkg}/.SRCINFO" || \
     die "makepkg generated invalid .SRCINFO for ${pkg}"
-  run_chroot "cd /thorch-work/${pkg} && su builder -c '${package_env} makepkg --syncdeps --noconfirm --cleanbuild'"
+  mapfile -t package_dependencies < <(
+    python3 "${manifest_cli}" --repo "${root}" dependencies \
+      --srcinfo "${work_dir}/${pkg}/.SRCINFO" --arch aarch64
+  )
+  if (( ${#package_dependencies[@]} > 0 )); then
+    run_chroot "pacman -S --noconfirm --needed -- ${package_dependencies[*]}"
+  fi
+  run_chroot "cd /thorch-work/${pkg} && su builder -c '${package_env} makepkg --noconfirm --cleanbuild'"
   current_inputs_sha256="$(input_fingerprint_for "${pkg}")"
   [[ "${current_inputs_sha256}" == "${package_inputs_sha256}" ]] || \
     die "declared inputs changed while building ${pkg}; discard the artifact and retry"
   built_files=0
   shopt -s nullglob
   for pkgfile in "${pkgdest}"/*.pkg.tar.*; do
+    artifact_version="$(pkginfo_value "${pkgfile}" pkgver)"
+    expected_version="${expected_package_versions[${pkg}]}"
+    [[ "${artifact_version}" == "${expected_version}" ]] || \
+      die "${pkg}: built artifact ${artifact_version} does not match PKGBUILD ${expected_version}"
     python3 "${script_dir}/check-package-repo.py" "${repo_dir}" \
       --retained-root "${retained_repo_root}" --candidate "${pkgfile}" >/dev/null
     destination="${repo_dir}/${pkgfile##*/}"
@@ -745,6 +794,7 @@ done
 
 log "validating local package repository"
 validate_local_repo --require "${selected_packages[@]}"
+validate_selected_repo_versions
 retained_repo="$("${script_dir}/archive-package-repo.sh" "${repo_dir}")"
 [[ -z "${retained_repo}" ]] || log "retained local repository bytes at ${retained_repo}"
 log "packages available in ${repo_dir}"

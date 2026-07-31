@@ -35,6 +35,19 @@ cat > "${tmp}/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'systemctl %s\n' "$*" >> "${THORCH_TEST_LOG:?}"
+state="${THORCH_TEST_SYSTEMCTL_STATE:?}"
+service="${!#}"
+case "${1:-}" in
+  is-enabled)
+    [[ -e "${state}/${service}" ]]
+    ;;
+  enable)
+    : > "${state}/${service}"
+    ;;
+  disable)
+    rm -f -- "${state}/${service}"
+    ;;
+esac
 EOF
 
 cat > "${tmp}/rgb" <<'EOF'
@@ -51,6 +64,8 @@ EOF
 
 chmod 755 "${tmp}/hw-defaults" "${tmp}/systemctl" "${tmp}/rgb" "${tmp}/fancontrol"
 log="${tmp}/actions.log"
+mkdir -p "${tmp}/systemctl-state"
+: > "${tmp}/systemctl-state/thorch-lavd.service"
 
 run_ctl() {
   THORCH_HARDWARE_CONFIG="${tmp}/hardware.conf" \
@@ -59,10 +74,21 @@ run_ctl() {
   THORCH_HARDWARE_RGB="${tmp}/rgb" \
   THORCH_HARDWARE_FANCONTROL="${tmp}/fancontrol" \
   THORCH_HARDWARE_SKIP_PKEXEC=1 \
+  THORCH_TEST_SYSTEMCTL_STATE="${tmp}/systemctl-state" \
   THORCH_TEST_LOG="${log}" \
     "${script}" "$@"
 }
 
+run_ctl set scheduler regular
+[[ ! -e "${tmp}/systemctl-state/thorch-lavd.service" ]] || fail "regular scheduler did not disable LAVD"
+grep -qx 'systemctl disable --now thorch-lavd.service' "${log}" || fail "regular scheduler did not stop and disable LAVD"
+
+: > "${log}"
+run_ctl set scheduler lavd
+[[ -e "${tmp}/systemctl-state/thorch-lavd.service" ]] || fail "LAVD scheduler did not enable its service"
+grep -qx 'systemctl enable --now thorch-lavd.service' "${log}" || fail "LAVD scheduler did not start and enable its service"
+
+: > "${log}"
 run_ctl set cpu-boost off
 grep -qx 'THORCH_CPU_BOOST=0' "${tmp}/hardware.conf" || fail "cpu boost was not updated"
 grep -qx 'hw-defaults apply boost=0 idle=0 cpu=performance gpu=performance' "${log}" || fail "cpu boost did not apply hardware defaults with saved config"
@@ -104,6 +130,7 @@ grep -qx 'THORCH_RGB_STATIC_B=3' "${tmp}/hardware.conf" || fail "static blue was
 grep -qx 'rgb set 1 2 3' "${log}" || fail "rgb static apply did not run"
 
 status_output="$(run_ctl status)"
+grep -q '^scheduler: lavd$' <<< "${status_output}" || fail "status did not report scheduler selection"
 grep -q '^cpu_boost: 0$' <<< "${status_output}" || fail "status did not report cpu boost"
 grep -q '^disable_cpu0_idle_state1: 0$' <<< "${status_output}" || fail "status did not report CPU0 idle workaround"
 grep -q '^cpu_governor: powersave$' <<< "${status_output}" || fail "status did not report cpu governor"
@@ -117,6 +144,7 @@ import json
 import sys
 
 data = json.loads(sys.argv[1])
+assert data["scheduler"] == "lavd"
 assert data["cpu_boost_enabled"] is False
 assert data["disable_cpu0_idle_state1"] == "0"
 assert data["cpu_governor"] == "powersave"
@@ -134,5 +162,13 @@ default_config="${tmp}/default-hardware.conf"
 default_status="$(THORCH_HARDWARE_CONFIG="${default_config}" "${script}" status)"
 grep -q '^gpu_governor: simple_ondemand$' <<< "${default_status}" ||
   fail "hardware control default GPU governor was not simple_ondemand"
+
+override_status="$(
+  THORCH_HARDWARE_CONFIG="${default_config}" \
+  THORCH_HARDWARE_SCHEDULER=regular \
+    "${script}" status
+)"
+grep -q '^scheduler: regular$' <<< "${override_status}" ||
+  fail "hardware control scheduler override was ignored"
 
 printf 'ok\n'

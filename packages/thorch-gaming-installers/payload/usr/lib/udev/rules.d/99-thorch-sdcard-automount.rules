@@ -1,0 +1,4 @@
+# The Thor microSD slot needs SteamOS UID/GID idmapping that a normal desktop
+# mount cannot provide. Keep the volume visible to UDisks/KDE, but suppress
+# desktop automounting and give its lifecycle to the bound systemd service.
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", KERNEL=="mmcblk[0-9]p[0-9]", ENV{ID_FS_TYPE}=="ext4", ENV{UDISKS_AUTO}="0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="thorch-sdcard@%k.service"

@@ -15,6 +15,14 @@ PACKAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9@._+-]*$")
 INPUT_RE = re.compile(
     r"^(?:[A-Z][A-Z0-9_]*)(?:/[A-Za-z0-9@%_.,+:/=-]+)*$"
 )
+VERSION_ASSIGNMENT_RE = re.compile(
+    r"(?m)^(epoch|pkgver|pkgrel)=([^\s#]+)\s*(?:#.*)?$"
+)
+VERSION_FUNCTION_RE = re.compile(
+    r"(?m)^[ \t]*(?:(?:function[ \t]+)?(epoch|pkgver|pkgrel)[ \t]*"
+    r"(?:\([ \t]*\))?)[ \t]*\{"
+)
+STATIC_VERSION_RE = re.compile(r"^[A-Za-z0-9._+~-]+$")
 PROFILE_NAMES = {"build", "image", "release"}
 BUILD_INPUT_VARIABLES = {
     "THORCH_FIRMWARE_DIR",
@@ -61,6 +69,22 @@ def dependency_values(fields: Dict[str, List[str]]) -> List[str]:
         ):
             values.extend(dependency_name(value) for value in entries)
     return values
+
+
+def dependency_values_for_arch(
+    fields: Dict[str, List[str]], arch: str
+) -> List[str]:
+    values: List[str] = []
+    for field in DEPENDENCY_FIELDS:
+        for key in (field, f"{field}_{arch}"):
+            for value in fields.get(key, []):
+                name = dependency_name(value)
+                if not PACKAGE_NAME_RE.fullmatch(name):
+                    raise ManifestError(
+                        f"invalid {key} package name in .SRCINFO: {name!r}"
+                    )
+                values.append(name)
+    return sorted(set(values))
 
 
 def validate_dependency_order(
@@ -149,6 +173,36 @@ def pkgbuild_name(path: Path) -> str:
     if not match:
         raise ManifestError(f"{path}: pkgname must be one static package name")
     return match.group(1)
+
+
+def pkgbuild_version(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ManifestError(f"unable to read {path}: {exc}") from exc
+    dynamic = sorted(set(VERSION_FUNCTION_RE.findall(text)))
+    if dynamic:
+        raise ManifestError(
+            f"{path}: dynamic version functions are unsupported: {', '.join(dynamic)}"
+        )
+    values: Dict[str, str] = {}
+    for key, raw_value in VERSION_ASSIGNMENT_RE.findall(text):
+        if key in values:
+            raise ManifestError(f"{path}: {key} must be assigned exactly once")
+        value = raw_value.strip("'\"")
+        if not STATIC_VERSION_RE.fullmatch(value):
+            raise ManifestError(f"{path}: {key} must be a static version value")
+        values[key] = value
+    missing = {"pkgver", "pkgrel"} - set(values)
+    if missing:
+        raise ManifestError(
+            f"{path}: missing static {', '.join(sorted(missing))}"
+        )
+    epoch = values.get("epoch", "0")
+    if not epoch.isdigit():
+        raise ManifestError(f"{path}: epoch must be a non-negative integer")
+    prefix = "" if epoch == "0" else f"{epoch}:"
+    return f"{prefix}{values['pkgver']}-{values['pkgrel']}"
 
 
 def validate_manifest(data: Dict[str, Any], repo: Path, check_tree: bool = True) -> List[Dict[str, Any]]:
@@ -292,6 +346,16 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     )
     dependencies.add_argument("--srcinfo-dir", type=Path, required=True)
 
+    list_dependencies = subparsers.add_parser(
+        "dependencies",
+        help="print runtime, build, and check dependencies from one .SRCINFO",
+    )
+    list_dependencies.add_argument("--srcinfo", type=Path, required=True)
+    list_dependencies.add_argument("--arch", default="aarch64")
+    list_dependencies.add_argument(
+        "--format", choices=("lines", "space", "csv"), default="lines"
+    )
+
     profile = subparsers.add_parser("profile", help="print a profile in build order")
     profile.add_argument("name", choices=sorted(PROFILE_NAMES))
     profile.add_argument("--format", choices=("lines", "space", "csv"), default="lines")
@@ -305,6 +369,11 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
 
     inputs = subparsers.add_parser("inputs", help="print build inputs for one package")
     inputs.add_argument("package")
+
+    version = subparsers.add_parser(
+        "version", help="print the static Arch package version from its PKGBUILD"
+    )
+    version.add_argument("package")
 
     return parser.parse_args(argv)
 
@@ -333,7 +402,10 @@ def main(argv: List[str]) -> int:
             print(f"package dependency order valid: {len(records)} packages")
             return 0
 
-        if args.command == "profile":
+        if args.command == "dependencies":
+            fields = parse_srcinfo(args.srcinfo.resolve())
+            values = dependency_values_for_arch(fields, args.arch)
+        elif args.command == "profile":
             values = [record["name"] for record in records if args.name in record["profiles"]]
         elif args.command == "select":
             requested = [item.strip() for item in args.packages.split(",")]
@@ -358,10 +430,18 @@ def main(argv: List[str]) -> int:
                 raise ManifestError(f"unknown package: {args.package}")
             record = by_name[package]
             values = [record["path"], *record["build_inputs"]]
+        elif args.command == "version":
+            package = aliases.get(args.package, args.package)
+            if package not in by_name:
+                raise ManifestError(f"unknown package: {args.package}")
+            record = by_name[package]
+            values = [pkgbuild_version(repo / record["path"] / "PKGBUILD")]
         else:
             raise AssertionError(args.command)
 
-        print(format_values(values, getattr(args, "format", "lines")))
+        output = format_values(values, getattr(args, "format", "lines"))
+        if output:
+            print(output)
         return 0
     except ManifestError as exc:
         print(f"package-manifest: {exc}", file=sys.stderr)

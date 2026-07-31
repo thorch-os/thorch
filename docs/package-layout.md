@@ -21,7 +21,8 @@ separate zero/off table entry.
 USB debug gadget, boot diagnostics, Thor joystick RGB control, Rust power/input
 daemons, ROCKNIX-derived SM8550 PWM fan profiles, dual-panel
 backlight helpers, gamepad/input udev rules, Plasma Mobile action-drawer
-overrides, quick settings for USB/SSH/RGB toggles, and ALSA UCM snippets. The
+overrides, quick settings for USB/SSH/RGB toggles, LAVD scheduler support,
+and ALSA UCM snippets. The
 boot hardware-default service adapts ROCKNIX's SM8550 GMU workaround by
 disabling CPU0 cpuidle state1, with a documented config override for controlled
 testing. The action-drawer override is stateful: package install/upgrade runs a
@@ -38,22 +39,26 @@ GMU, and ZAP firmware remain on the real root filesystem, matching ROCKNIX and
 keeping those blobs unavailable during initramfs execution. The full firmware
 tree remains installed in the root filesystem.
 
-`thorch-firmware-rocknix` packages the synced public ROCKNIX firmware tree into
-`/usr/lib/firmware`. It also installs the matching ROCKNIX `/SYSTEM`
-Turnip/Freedreno runtime imported with the kernel image: the native aarch64 host
-driver and its matching `libdisplay-info.so.2` compatibility library under
-`/usr/lib/thorch/freedreno`, the ROCKNIX FEX-side Freedreno helper, and a
-uniquely named host Vulkan ICD. The private driver has an `$ORIGIN` runpath, so
-neither compatibility library overwrites Arch's system `libdisplay-info`. The
-package declares the stock `linux-firmware*` packages it provides, conflicts
-with, and replaces, so a normal pacman transaction can transfer ownership
-without `-Rdd` or `--overwrite`.
+`thorch-firmware-rocknix` packages the synced public ROCKNIX firmware tree and
+the required image-derived Adreno blobs into `/usr/lib/firmware`. The image
+build replaces Arch's stock `linux-firmware*` packages with this package in a
+normal dependency-checked transaction, including the Adreno firmware imported
+from the ROCKNIX `/SYSTEM` kernel overlay.
+
+`thorch-mesa` builds Mesa 26.1.6 from the upstream release tarball with an
+SM8550-focused driver set: Freedreno OpenGL, Turnip Vulkan, Zink, and softpipe.
+It uses the ROCKNIX SM8550 CPU flags and provides/replaces Arch's `mesa` and
+`vulkan-freedreno` packages, so the native driver is versioned independently of
+the older Mesa payload embedded in the pinned ROCKNIX nightly. The recipe is
+adapted from the corresponding `shuuri-labs/pocknix-os` package.
 
 `thorch-kde-defaults` installs the Plasma Desktop dependencies, SDDM defaults,
 KWin display and touch seeds, virtual keyboard settings, audio user units,
 touch calibration service, the F24 desktop escape helper, OLED Plasma theme and
 color scheme, desktop/mobile session switchers, Bluetooth support, Firefox, and
-the core KDE desktop applications. Plasma Mobile is installed for testing and
+the core KDE desktop applications. Its Thorch Hardware settings panel switches
+between LAVD and the regular kernel scheduler, and the image includes Bazaar
+with Flathub's signed remote statically configured. Plasma Mobile is installed for testing and
 SteamOS-mode handoff, but the image builder selects Plasma Desktop by default unless
 `THORCH_DEFAULT_SESSION` is changed. Session changes go through
 `thorch-sessionctl`, which writes generated autologin state to the
@@ -82,7 +87,8 @@ removable device or the expected two-partition Thorch SD layout unless
 type, supports explicit ext4/Btrfs selection, and preserves the cache tmpfs
 configuration.
 
-`thorch-fex-bin` repackages the matching ROCKNIX `/SYSTEM` FEX runtime. It
+`thorch-fex-bin` repackages FEX-2607 and its x86_64 Freedreno guest driver from
+the matching pinned ROCKNIX nightly `/SYSTEM` runtime. It
 installs FEX, Vulkan/OpenGL, audio, DRM, and Wayland thunks, binfmt
 registrations, a `libfmt.so.11` compatibility library for the imported binaries,
 and the base rootfs configuration used by standalone FEX applications. The
@@ -92,7 +98,9 @@ package provides and replaces the old `thorch-fex` name for upgrades.
 handheld gamescope patch set consumed from the synced `vendor/rocknix-sm8550`
 tree. It keeps only the Arch-specific wlroots workaround locally. It provides
 and conflicts with `gamescope`, so installers and launchers can continue
-invoking the standard `gamescope` command.
+invoking the standard `gamescope` command. Thorch intentionally does not grant
+gamescope `CAP_SYS_NICE`: Valve's capability-gated self-nice path therefore
+stays inactive and gamescope runs at the launching user's normal priority.
 
 `thorch-rocknix-quirks` packages ROCKNIX-derived SM8550 handheld quirk metadata
 for Thorch. It exports Arch-safe profile hints for touchscreen, audio path,
@@ -113,21 +121,28 @@ Steam client or Proton payloads. During opt-in setup it downloads the pinned,
 checksum-verified ARM64 releases of Proton-CachyOS and GE-Proton that ROCKNIX
 uses, installs them atomically under Steam's community compatibility-tool
 directory, and leaves Steam's Valve Proton 11 ARM payload unregistered. The
-launcher keeps the user Steam
-symlinks fresh, includes every installed native Steam helper location in
-`PATH`, seeds per-app FEX configs with DRM, Vulkan, GL, asound, and Wayland host
-libraries, and temporarily disables global FEX binfmt handling while native ARM
-Steam is running. This prevents Steam from routing its own mixed-architecture
-helpers through the standalone system registration; the previous state is
-restored when Steam exits. The packaged FEX thunk database also covers
-pressure-vessel's library override aliases so containerized games can use the
-DRM, Vulkan, GL, asound, and Wayland host-library forwarding paths. The FEX Arch
-rootfs remains an x86_64 guest rootfs; when the ROCKNIX FEX-side
+launcher keeps the user Steam symlinks fresh, includes every installed native
+Steam helper location in `PATH`, seeds
+per-app FEX configs with DRM, Vulkan, GL, asound, and Wayland host libraries,
+and temporarily disables global FEX binfmt handling while native ARM Steam is
+running. This prevents Steam from routing its own mixed-architecture helpers
+through the standalone system registration; the previous state is restored when
+Steam exits. The packaged FEX thunk database also covers pressure-vessel's
+library override aliases so containerized games can use the DRM, Vulkan, GL,
+asound, and Wayland host-library forwarding paths. The FEX Arch rootfs remains
+an x86_64 guest rootfs; when the ROCKNIX FEX-side
 `libvulkan_freedreno.so` is available, the installer copies that x86_64 guest
 driver into the rootfs just like ROCKNIX. It still refuses to copy the aarch64
 host driver over the guest library. Vulkan acceleration is provided by FEX's
-Vulkan thunk, which forwards guest Vulkan calls to the patched native aarch64
-host driver.
+Vulkan thunk, which forwards guest Vulkan calls to the `thorch-mesa` Turnip host
+driver.
+
+The same package owns ext4 cards in the Thor microSD slot through a
+device-bound systemd service. Its udev rule sets `UDISKS_AUTO=0` only for those
+partitions so KDE and UDisks remain available for other removable media without
+racing the SteamOS-compatible mount. The helper preserves executable games,
+ext4 casefolding, and SteamOS UID/GID 1000 through an idmapped mount while
+enforcing `nosuid,nodev`; it then registers the resulting path with Steam.
 
 `thorch-waydroid-installer` provides the opt-in first-boot Waydroid setup
 command and app-menu installer entry. It does not redistribute Waydroid or

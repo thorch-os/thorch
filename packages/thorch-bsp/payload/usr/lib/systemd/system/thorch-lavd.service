@@ -1,0 +1,17 @@
+[Unit]
+Description=Thorch LAVD sched_ext scheduler
+Documentation=https://github.com/sched-ext/scx
+After=basic.target
+ConditionPathExists=/sys/kernel/sched_ext
+ConditionPathExists=/sys/kernel/btf/vmlinux
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/thorch-lavd-mode run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

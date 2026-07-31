@@ -1,9 +1,9 @@
 # Maintainer: Thorch contributors
 
 pkgname=thorch-mangohud
-pkgver=0.8.3_rocknix
-pkgrel=7
-_commit=330c42a5956e005a4d102473f5782bb0e3d94b6f
+pkgver=0.8.4_rocknix
+pkgrel=1
+_commit=992103e4fb744897826de04ea00a2f71e7018214
 _imgui_ver=1.91.6
 _implot_ver=0.16
 _spdlog_ver=1.14.1

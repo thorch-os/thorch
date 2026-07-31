@@ -9,6 +9,7 @@ bsp_pkgbuild="${root}/packages/thorch-bsp/PKGBUILD"
 bsp_sudoers="${root}/packages/thorch-bsp/payload/etc/sudoers.d/20-thorch-wheel"
 bsp_mkinitcpio="${root}/packages/thorch-bsp/payload/etc/mkinitcpio.conf.d/90-thorch.conf"
 gaming_pkgbuild="${root}/packages/thorch-gaming-installers/PKGBUILD"
+gaming_preset="${root}/packages/thorch-gaming-installers/payload/usr/lib/systemd/system-preset/81-thorch-gaming.preset"
 desktop_preset="${root}/packages/thorch-kde-defaults/payload/usr/lib/systemd/system-preset/80-thorch-desktop.preset"
 user_preset="${root}/packages/thorch-kde-defaults/payload/usr/lib/systemd/user-preset/80-thorch-desktop.preset"
 input_preset="${root}/packages/thorch-inputplumber/payload/usr/lib/systemd/system-preset/80-thorch-input.preset"
@@ -25,7 +26,9 @@ for specification in \
   "${bsp_preset}:thorch-fancontrol.service" \
   "${bsp_preset}:thorch-hw-defaults.service" \
   "${bsp_preset}:thorch-inputd.service" \
+  "${bsp_preset}:thorch-lavd.service" \
   "${bsp_preset}:thorch-rgb.service" \
+  "${gaming_preset}:udisks2.service" \
   "${desktop_preset}:NetworkManager.service" \
   "${desktop_preset}:sddm.service" \
   "${desktop_preset}:thorch-session-recovery.service" \
@@ -51,6 +54,8 @@ for unit in \
 done
 grep -q '^configure_network_policy()' "${bsp_install}" ||
   fail "BSP upgrade migration does not maintain the NetworkManager-only policy"
+[[ "$(grep -c '^  configure_lavd_default$' "${bsp_install}")" -eq 1 ]] ||
+  fail "BSP upgrades can reset the user's LAVD/regular scheduler selection"
 grep -q '%wheel ALL=(ALL:ALL) ALL' "${bsp_sudoers}" ||
   fail "BSP does not own the wheel sudo policy"
 grep -q 'etc/sudoers.d/20-thorch-wheel' "${bsp_pkgbuild}" ||

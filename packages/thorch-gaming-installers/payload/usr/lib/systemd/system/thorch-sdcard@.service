@@ -1,0 +1,18 @@
+[Unit]
+Description=SteamOS-compatible microSD mount for %I
+BindsTo=dev-%i.device
+After=dev-%i.device
+ConditionPathExists=/dev/%I
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/hwsupport/thorch-sdcard-mount add %I
+# ExecStopPost also runs when insertion is interrupted or ExecStart fails.
+ExecStopPost=-/usr/lib/hwsupport/thorch-sdcard-mount remove %I
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=90
+TimeoutStopSec=90

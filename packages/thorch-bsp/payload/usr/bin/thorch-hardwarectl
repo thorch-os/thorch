@@ -26,6 +26,7 @@ usage:
   thorch-hardwarectl status
   thorch-hardwarectl status-json
   thorch-hardwarectl migrate
+  thorch-hardwarectl set scheduler lavd|regular
   thorch-hardwarectl set cpu-boost on|off
   thorch-hardwarectl set cpu-governor performance|schedutil|ondemand|powersave|auto
   thorch-hardwarectl set gpu-governor performance|simple_ondemand|powersave|userspace|auto
@@ -210,6 +211,21 @@ run_systemctl() {
   "${systemctl_cmd}" "$@"
 }
 
+current_scheduler() {
+  case "${THORCH_HARDWARE_SCHEDULER:-}" in
+    lavd|regular)
+      printf '%s\n' "${THORCH_HARDWARE_SCHEDULER}"
+      return 0
+      ;;
+  esac
+
+  if run_systemctl is-enabled --quiet thorch-lavd.service >/dev/null 2>&1; then
+    printf 'lavd\n'
+  else
+    printf 'regular\n'
+  fi
+}
+
 require_root_for_set() {
   [[ "${EUID}" -eq 0 ]] && return 0
   [[ "${THORCH_HARDWARE_SKIP_PKEXEC:-0}" == "1" ]] && return 0
@@ -256,7 +272,10 @@ apply_rgb_mode() {
 }
 
 print_status() {
+  local scheduler
   load_config
+  scheduler="$(current_scheduler)"
+  printf 'scheduler: %s\n' "${scheduler}"
   printf 'cpu_boost: %s\n' "${cpu_boost}"
   printf 'disable_cpu0_idle_state1: %s\n' "${disable_cpu0_idle_state1}"
   printf 'cpu_governor: %s\n' "${cpu_governor}"
@@ -269,8 +288,10 @@ print_status() {
 }
 
 print_status_json() {
+  local scheduler
   load_config
-  python - "${cpu_boost}" "${disable_cpu0_idle_state1}" "${cpu_governor}" "${gpu_governor}" "${fan_profile}" "${fan_sensor_mode}" "${rgb_mode}" "${rgb_brightness}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}" <<'PY'
+  scheduler="$(current_scheduler)"
+  python - "${cpu_boost}" "${disable_cpu0_idle_state1}" "${cpu_governor}" "${gpu_governor}" "${fan_profile}" "${fan_sensor_mode}" "${rgb_mode}" "${rgb_brightness}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}" "${scheduler}" <<'PY'
 import json
 import sys
 
@@ -280,6 +301,7 @@ b = int(sys.argv[11])
 fan_profile = sys.argv[5]
 
 print(json.dumps({
+    "scheduler": sys.argv[12],
     "cpu_boost": sys.argv[1],
     "cpu_boost_enabled": sys.argv[1] == "1",
     "disable_cpu0_idle_state1": sys.argv[2],
@@ -298,6 +320,20 @@ print(json.dumps({
     "rgb_static_hex": f"#{r:02X}{g:02X}{b:02X}",
 }, separators=(",", ":")))
 PY
+}
+
+set_scheduler() {
+  case "$1" in
+    lavd)
+      run_systemctl enable --now thorch-lavd.service
+      ;;
+    regular)
+      run_systemctl disable --now thorch-lavd.service
+      ;;
+    *)
+      die "scheduler must be lavd or regular"
+      ;;
+  esac
 }
 
 set_cpu_boost() {
@@ -432,6 +468,15 @@ select_cpu_boost_menu() {
   "${0}" set cpu-boost "${value}"
 }
 
+select_scheduler_menu() {
+  local scheduler value
+  scheduler="$(current_scheduler)"
+  value="$("${kdialog_cmd}" --title "Thorch Hardware" --radiolist "Game scheduler" \
+    lavd "LAVD smooth frame pacing" "$([[ "${scheduler}" == "lavd" ]] && echo on || echo off)" \
+    regular "Regular Linux scheduler" "$([[ "${scheduler}" == "regular" ]] && echo on || echo off)")" || return 0
+  "${0}" set scheduler "${value}"
+}
+
 select_cpu_governor_menu() {
   local value
   load_config
@@ -494,6 +539,7 @@ menu() {
     load_config
     local choice
     choice="$("${kdialog_cmd}" --title "Thorch Hardware" --menu "Choose a hardware setting" \
+      scheduler "Game scheduler: $(current_scheduler)" \
       cpu "CPU boost: $([[ "${cpu_boost}" == "1" ]] && printf 'enabled' || printf 'disabled')" \
       cpugov "CPU governor: ${cpu_governor}" \
       gpugov "GPU governor: ${gpu_governor}" \
@@ -502,6 +548,7 @@ menu() {
       rgb "RGB mode: ${rgb_mode}" \
       color "RGB static color: ${rgb_static_r},${rgb_static_g},${rgb_static_b}")" || break
     case "${choice}" in
+      scheduler) select_scheduler_menu ;;
       cpu) select_cpu_boost_menu ;;
       cpugov) select_cpu_governor_menu ;;
       gpugov) select_gpu_governor_menu ;;
@@ -535,6 +582,10 @@ case "${cmd}" in
     require_root_for_set set "$@"
     subcmd="${1:-}"
     case "${subcmd}" in
+      scheduler)
+        [[ "$#" -eq 2 ]] || usage
+        set_scheduler "$2"
+        ;;
       cpu-boost)
         [[ "$#" -eq 2 ]] || usage
         set_cpu_boost "$2"

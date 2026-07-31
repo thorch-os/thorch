@@ -29,6 +29,12 @@
       "build_inputs": ["THORCH_FIRMWARE_DIR", "THORCH_ROCKNIX_KERNEL_DIR"]
     },
     {
+      "name": "thorch-mesa",
+      "path": "packages/thorch-mesa",
+      "profiles": ["build", "image", "release"],
+      "build_inputs": []
+    },
+    {
       "name": "kwin",
       "path": "packages/kwin",
       "profiles": ["build", "image", "release"],

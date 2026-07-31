@@ -62,4 +62,73 @@ THORCH_STEAM_SYSTEM_DIR="${system_steam}" \
 grep -Fqx "library=${steam_root}" "${tmp}/.steam/registry.vdf" ||
   fail "repair did not seed a missing Steam registry"
 
+download_home="${tmp}/download-home"
+download_steam_root="${download_home}/.local/share/Steam"
+fake_bin="${tmp}/fake-bin"
+wget_log="${tmp}/wget.log"
+curl_log="${tmp}/curl.log"
+mkdir -p "${download_steam_root}/steamrtarm64" "${fake_bin}"
+cat > "${fake_bin}/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$@" > "${THORCH_TEST_CURL_LOG}"
+printf '%s' 'https://repo.steampowered.com/steamrt3c/images/3c.0.test/steam-runtime-steamrt-arm64.tar.xz'
+EOF
+cat > "${fake_bin}/wget" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$@" > "${THORCH_TEST_WGET_LOG}"
+output=""
+while [[ "$#" -gt 0 ]]; do
+  if [[ "$1" == "-O" ]]; then
+    output="$2"
+    break
+  fi
+  shift
+done
+[[ -n "${output}" ]]
+fixture="$(mktemp -d)"
+mkdir -p "${fixture}/steam-runtime-steamrt-arm64/fake/files/lib/aarch64-linux-gnu"
+/usr/bin/tar -cJf "${output}" -C "${fixture}" steam-runtime-steamrt-arm64
+rm -rf "${fixture}"
+EOF
+chmod 0755 "${fake_bin}/curl" "${fake_bin}/wget"
+printf 'stale partial download\n' > \
+  "${download_steam_root}/steam-runtime-steamrt-arm64.tar.xz"
+
+PATH="${fake_bin}:${PATH}" \
+HOME="${download_home}" \
+STEAM_STORAGE_ROOT="${download_home}" \
+THORCH_STEAM_SKIP_ICON=1 \
+THORCH_TEST_CURL_LOG="${curl_log}" \
+THORCH_TEST_WGET_LOG="${wget_log}" \
+  "${script}"
+
+grep -Fqx -- '--head' "${curl_log}" ||
+  fail "Steam runtime alias was not resolved with a HEAD request"
+grep -Fqx \
+  'https://repo.steampowered.com/steamrt3c/images/3c.0.test/steam-runtime-steamrt-arm64.tar.xz' \
+  "${wget_log}" ||
+  fail "Steam runtime download did not use the resolved exact-build URL"
+if grep -Fqx \
+    'https://repo.steampowered.com/steamrt3c/images/latest-public-beta/steam-runtime-steamrt-arm64.tar.xz' \
+    "${wget_log}"; then
+  fail "Steam runtime download attempted GET against Valve's moving alias"
+fi
+if grep -Fxq -- '-c' "${wget_log}"; then
+  fail "Steam runtime download still attempts a CDN-incompatible Range resume"
+fi
+grep -Fqx "${download_steam_root}/steam-runtime-steamrt-arm64.tar.xz.part" \
+  "${wget_log}" ||
+  fail "Steam runtime download is not staged atomically"
+[[ -d "${download_steam_root}/steam-runtime-steamrt-arm64" ]] ||
+  fail "Steam runtime fixture was not extracted"
+[[ ! -e "${download_steam_root}/steam-runtime-steamrt-arm64.tar.xz" ]] ||
+  fail "completed Steam runtime archive was not removed"
+grep -Fq 'wget -c "${wget_retry[@]}" -O "${steam_root}/linuxarm64.zip"' \
+  "${script}" ||
+  fail "Steam client archive lost supported resume behavior"
+
 printf 'thorch Steam ARM64 runtime link tests passed\n'

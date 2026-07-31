@@ -22,9 +22,9 @@ the recovery and staging path.
 
 - Arch Linux ARM aarch64 root filesystem.
 - Local packages for the ROCKNIX-derived Thor kernel artifacts,
-  firmware/runtime artifacts, board support, KDE defaults, internal install,
-  FEX runtime, ROCKNIX-patched Gamescope, InputPlumber maps, ROCKNIX SM8550
-  quirks, MangoHud, and firstboot-driven Steam/gaming setup.
+  firmware/runtime artifacts, Mesa/Turnip, board support, KDE defaults,
+  internal install, FEX runtime, ROCKNIX-patched Gamescope, InputPlumber maps,
+  ROCKNIX SM8550 quirks, MangoHud, and firstboot-driven Steam/gaming setup.
 - Plasma Desktop Wayland as the default session while Thor touch is being
   stabilized.
 - Plasma Mobile Wayland is optional, and SteamOS-mode helpers can temporarily

@@ -11,14 +11,15 @@ usage() {
 usage: scripts/build-thorch-kernel.sh [options]
 
 Builds a Thorch-owned Thor kernel from ROCKNIX's public kernel recipe, applies
-the Waydroid/BinderFS kernel config fragment, installs the matching modules into
+the Thorch kernel feature fragment, installs the matching modules into
 vendor/rocknix-kernel, and repacks that directory's Android /KERNEL template
 with the new kernel and all SM8550 DTB payloads.
 
 This script expects scripts/sync-rocknix-kernel.sh or make kernel to have already
-imported a ROCKNIX kernel/runtime tree. The imported tree supplies firmware,
-runtime graphics/FEX files, and the Android boot-image template that Thor's ABL
-accepts; the source-built kernel and modules replace the imported kernel bits.
+imported the ROCKNIX image inputs. The kernel tree supplies firmware and the
+Android boot-image template that Thor's ABL accepts; the separate runtime tree
+supplies FEX and its guest driver. The source-built kernel and modules replace
+the imported kernel bits.
 
 Options:
   --repo <url>              Kernel git repository.
@@ -202,9 +203,9 @@ template="${template:-${dest_abs}/boot/KERNEL}"
 template_abs="$(path_abs "${template}")"
 
 if [[ -n "${tarball_url}" ]]; then
-  require_cmd curl depmod git gzip install make patch python3 rsync sha256sum tar xz "${cross_compile}gcc"
+  require_cmd curl depmod git gzip install make pahole patch python3 rsync sha256sum tar xz "${cross_compile}gcc"
 else
-  require_cmd depmod git gzip install make patch python3 rsync "${cross_compile}gcc"
+  require_cmd depmod git gzip install make pahole patch python3 rsync sha256sum "${cross_compile}gcc"
 fi
 
 [[ -f "${config_abs}" ]] || die "missing base kernel config: ${config_abs}"
@@ -306,28 +307,45 @@ apply_patch_dir() {
   done < <(find "${patch_abs}" -maxdepth 1 -type f -name '*.patch' | LC_ALL=C sort)
 }
 
+kernel_input_digest() {
+  local input_dir input_abs input_file
+
+  {
+    printf 'source-ref=%s\n' "${source_ref}"
+    for input_dir in "${patch_dirs[@]}" "${dts_patch_dirs[@]}"; do
+      [[ -n "${input_dir}" ]] || continue
+      input_abs="$(path_abs "${input_dir}")"
+      printf 'patch-dir=%s\n' "${input_abs}"
+      [[ -d "${input_abs}" ]] || continue
+      while IFS= read -r input_file; do
+        printf 'patch-file=%s\n' "${input_file}"
+        sha256sum "${input_file}"
+      done < <(find "${input_abs}" -maxdepth 1 -type f -name '*.patch' | LC_ALL=C sort)
+    done
+
+    printf 'dts-dir=%s\n' "${dts_abs}"
+    while IFS= read -r input_file; do
+      printf 'dts-file=%s\n' "${input_file}"
+      sha256sum "${input_file}"
+    done < <(find "${dts_abs}" -type f | LC_ALL=C sort)
+  } | sha256sum | awk '{print $1}'
+}
+
 patch_marker="${source_abs}/.thorch-rocknix-patches-applied"
+patch_input_digest="$(kernel_input_digest)"
 if [[ "${skip_kernel_patches}" -eq 1 ]]; then
   log "skipping kernel patch application for existing source checkout"
 elif [[ "${fetch}" -eq 0 && -f "${patch_marker}" ]]; then
+  stored_patch_input_digest="$(cat "${patch_marker}")"
+  [[ "${stored_patch_input_digest}" == "${patch_input_digest}" ]] ||
+    die "kernel patch or DTS inputs changed; rerun without --no-fetch to reconstruct a clean source tree"
   log "using existing ROCKNIX-patched kernel source tree"
-  log "ensuring requested local kernel patches are applied"
-  for patch_dir in "${patch_dirs[@]}"; do
-    [[ -n "${patch_dir}" ]] || continue
-    case "${patch_dir}" in
-      vendor/*|*/vendor/*)
-        continue
-        ;;
-    esac
-    apply_patch_dir "${patch_dir}"
-  done
 else
   log "applying ROCKNIX kernel patches"
   for patch_dir in "${patch_dirs[@]}"; do
     [[ -n "${patch_dir}" ]] || continue
     apply_patch_dir "${patch_dir}"
   done
-  : > "${patch_marker}"
 fi
 
 log "copying ROCKNIX SM8550 DTS overlays"
@@ -338,6 +356,21 @@ for patch_dir in "${dts_patch_dirs[@]}"; do
   [[ -n "${patch_dir}" ]] || continue
   apply_patch_dir "${patch_dir}"
 done
+
+# Keep Thor on ROCKNIX's conservative upstream SDHCI path. Validate the final
+# copied-and-patched DTS so a future nightly cannot silently reintroduce the
+# unstable UHS modes or remove the board clock cap.
+thor_ayn_dts="${source_abs}/arch/arm64/boot/dts/qcom/qcs8550-ayn-common.dtsi"
+[[ -f "${thor_ayn_dts}" ]] ||
+  die "missing final ROCKNIX AYN DTS: ${thor_ayn_dts}"
+grep -Fq 'max-sd-hs-hz = <37500000>;' "${thor_ayn_dts}" ||
+  die "final ROCKNIX AYN DTS does not retain the 37.5 MHz SD clock cap"
+grep -Fq 'sdhci-caps-mask = <0x3 0x0>;' "${thor_ayn_dts}" ||
+  die "final ROCKNIX AYN DTS does not mask unsupported UHS capabilities"
+
+if [[ "${skip_kernel_patches}" -eq 0 ]]; then
+  printf '%s\n' "${patch_input_digest}" > "${patch_marker}"
+fi
 
 if [[ "${reuse_build_dir}" -eq 1 ]]; then
   log "reusing kernel build directory at ${build_abs}"
@@ -388,7 +421,7 @@ apply_config_line() {
   esac
 }
 
-log "applying Thorch Waydroid/BinderFS kernel config"
+log "applying Thorch kernel feature config"
 while IFS= read -r line || [[ -n "${line}" ]]; do
   apply_config_line "${line}"
 done < "${fragment_abs}"
@@ -408,6 +441,21 @@ make_args=(
 
 log "resolving kernel config"
 make "${make_args[@]}" olddefconfig
+
+required_kernel_features=(
+  FUNCTION_TRACER
+  DYNAMIC_FTRACE
+  DYNAMIC_FTRACE_WITH_DIRECT_CALLS
+  DEBUG_INFO_BTF
+  SCHED_CLASS_EXT
+  KALLSYMS_ALL
+  UNICODE
+  CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
+)
+for symbol in "${required_kernel_features[@]}"; do
+  grep -q "^CONFIG_${symbol}=y$" "${build_abs}/.config" || \
+    die "kernel config: CONFIG_${symbol} did not resolve to y"
+done
 
 mapfile -t dtb_targets < <(
   find "${dts_abs}/qcom" -maxdepth 1 -name 'qcs8550-*.dts' \
@@ -461,7 +509,7 @@ done
 provenance="${dest_abs}/PROVENANCE"
 provenance_tmp="$(mktemp)"
 if [[ -f "${provenance}" ]]; then
-  grep -Ev '^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_)' "${provenance}" > "${provenance_tmp}" || true
+  grep -Ev '^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_|SCHED_EXT_|STEAMOS_|THORCH_SD(R104)?_)' "${provenance}" > "${provenance_tmp}" || true
 else
   : > "${provenance_tmp}"
 fi
@@ -479,8 +527,12 @@ mv -f "${provenance_tmp}" "${provenance}"
   printf 'THORCH_KERNEL_DTS_PATCH_DIRS=%s\n' "${dts_patch_dirs[*]}"
   printf 'SOURCE_THORCH_KERNEL_BOOT_TEMPLATE=%s\n' "${template_abs}"
   printf 'WAYDROID_KERNEL_BINDERFS=enabled\n'
+  printf 'SCHED_EXT_LAVD_KERNEL=enabled\n'
+  printf 'STEAMOS_CASEFOLD_KERNEL=enabled\n'
+  printf 'THORCH_SD_DRIVER=upstream\n'
+  printf 'THORCH_SD_MAX_CLOCK_HZ=37500000\n'
   date -u '+THORCH_KERNEL_BUILT_AT=%Y-%m-%dT%H:%M:%SZ'
 } >> "${provenance}"
 chmod 0644 "${provenance}"
 
-log "Thorch source-built BinderFS kernel ready in ${dest_abs} (${kernver})"
+log "Thorch source-built feature kernel ready in ${dest_abs} (${kernver})"
