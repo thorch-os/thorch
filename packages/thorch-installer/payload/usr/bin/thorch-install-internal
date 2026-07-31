@@ -30,6 +30,7 @@ require_value() {
 
 boot_device=""
 root_device=""
+created_boot_device=""
 target=/mnt/thorch-internal
 create_from_userdata=0
 userdata_keep_gib=""
@@ -140,10 +141,29 @@ is_removable_root() {
 }
 
 reject_android_partition() {
-  local dev="$1" text
+  local dev="$1" allow_system="${2:-0}" text android_names
+  android_names='abl|boot_[ab]|vendor|system|super|metadata|userdata|dtbo|vbmeta|persist|modem|bluetooth|dsp|xbl|tz|hyp|keymaster|recovery'
+  if [[ "${allow_system}" -eq 1 ]]; then
+    android_names='abl|boot_[ab]|vendor|super|metadata|userdata|dtbo|vbmeta|persist|modem|bluetooth|dsp|xbl|tz|hyp|keymaster|recovery'
+  fi
   text="$(lsblk -no NAME,LABEL,PARTLABEL "${dev}" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
-  if grep -Eq '(^|[[:space:]])(abl|boot_[ab]|vendor|system|super|metadata|userdata|dtbo|vbmeta|persist|modem|bluetooth|dsp|xbl|tz|hyp|keymaster|recovery)([[:space:]]|$)' <<<"${text}"; then
+  if grep -Eq "(^|[[:space:]])(${android_names})([[:space:]]|$)" <<<"${text}"; then
     fail "${dev} looks like an Android partition: ${text}"
+  fi
+}
+
+reject_android_boot_partition() {
+  local dev="$1"
+
+  # qcom-abl requires newly allocated ROCKNIX boot partitions to use the GPT
+  # name "system". Allow that one otherwise-Android name only for a partition
+  # created in this invocation or an established FAT filesystem labelled
+  # ROCKNIX. All other Android names remain forbidden.
+  if [[ "${dev}" == "${created_boot_device}" ]] ||
+    [[ "$(partition_fstype "${dev}")" == "vfat" && "$(partition_label "${dev}")" == "ROCKNIX" ]]; then
+    reject_android_partition "${dev}" 1
+  else
+    reject_android_partition "${dev}"
   fi
 }
 
@@ -306,7 +326,10 @@ userdata_bounds() {
   ud_end="${ud_end_b%B}"
   ud_node="$(partition_node "${disk}" "${ud_num}")"
   ud_start_mib=$(( (ud_start + 1048575) / 1048576 ))
-  ud_end_mib=$(( ud_end / 1048576 ))
+  ud_end_bytes=$(( ud_end + 1 ))
+  # Parted reports the inclusive last byte. Round the first free byte up so a
+  # new optimally aligned partition never overlaps the tail of userdata.
+  ud_after_mib=$(( (ud_end_bytes + 1048575) / 1048576 ))
 }
 
 disk_end_mib() {
@@ -352,20 +375,23 @@ create_target_in_free_space_after_userdata() {
   before_nums="$(partition_numbers "${disk}")"
   parted -a optimal -s "${disk}" mkpart primary "${root_fstype}" "${boot_end_mib}MiB" 100%
   root_num="$(new_partition_number_since "${disk}" "${before_nums}")"
-  parted -s "${disk}" name "${root_num}" STORAGE
+  # Keep the internal root GPT name distinct from ROCKNIX's external STORAGE
+  # partition so ABL external-boot selection cannot confuse the two roots.
+  parted -s "${disk}" name "${root_num}" THORCH_ROOT
   partprobe_wait "${disk}"
 
   boot_device="$(partition_node "${disk}" "${boot_num}")"
   root_device="$(partition_node "${disk}" "${root_num}")"
   [[ -b "${boot_device}" && -b "${root_device}" ]] || fail "new Thorch partitions did not appear"
+  created_boot_device="${boot_device}"
 }
 
 create_target_by_reusing_resized_userdata() {
-  local disk="$1" ud_num ud_node ud_start_mib ud_end_mib disk_mib free_mib
+  local disk="$1" ud_num ud_node ud_start_mib ud_end_bytes ud_after_mib disk_mib free_mib
   userdata_bounds "${disk}"
   require_unmounted "${ud_node}"
   disk_mib="$(disk_end_mib "${disk}")"
-  free_mib=$(( disk_mib - ud_end_mib ))
+  free_mib=$(( disk_mib - ud_after_mib ))
   (( free_mib >= 10240 )) || return 1
 
   cat <<EOF
@@ -381,19 +407,19 @@ Thorch will create an internal Linux target without changing Android userdata:
 EOF
 
   confirm_or_fail "CREATE THORCH" "Type CREATE THORCH to continue: "
-  delete_partitions_after_userdata "${disk}" "$(( ud_end_mib * 1048576 ))"
-  create_target_in_free_space_after_userdata "${disk}" "${ud_end_mib}" "${disk_mib}"
+  delete_partitions_after_userdata "${disk}" "${ud_end_bytes}"
+  create_target_in_free_space_after_userdata "${disk}" "${ud_after_mib}" "${disk_mib}"
 }
 
 create_target_by_shrinking_userdata() {
-  local disk="$1" confirm ud_num ud_node ud_start_mib ud_end_mib
+  local disk="$1" confirm ud_num ud_node ud_start_mib ud_end_bytes ud_after_mib
   local orig_gib min_gib reserve_gib max_gib keep_gib new_ud_end_mib disk_mib before_nums
 
   userdata_bounds "${disk}"
   require_unmounted "${ud_node}"
   disk_mib="$(disk_end_mib "${disk}")"
 
-  if (( disk_mib - ud_end_mib >= 10240 )); then
+  if (( disk_mib - ud_after_mib >= 10240 )); then
     create_target_by_reusing_resized_userdata "${disk}"
     return 0
   fi
@@ -420,7 +446,7 @@ EOF
     [[ "${confirm}" == "SHRINK USERDATA" ]] || exit 0
   fi
 
-  orig_gib=$(( (ud_end_mib - ud_start_mib) / 1024 ))
+  orig_gib=$(( (ud_after_mib - ud_start_mib) / 1024 ))
   min_gib=1
   reserve_gib=8
   max_gib=$(( orig_gib - reserve_gib ))
@@ -493,13 +519,14 @@ find_thorch_internal_target() {
     partlabel="$(partition_partlabel "${name}")"
 
     if [[ ( "${fstype}" == "vfat" || -z "${fstype}" ) && ( "${label}" == "ROCKNIX" || "${partlabel}" == "ROCKNIX" ) ]]; then
-      reject_android_partition "${name}"
+      reject_android_boot_partition "${name}"
       require_unmounted "${name}"
       boot_candidates+=("${name}")
     fi
 
     if supported_root_fstype "${fstype}" &&
-      [[ "${label}" == "THORCH_ROOT" || "${label}" == "armbi_root" || "${partlabel}" == "STORAGE" ]]; then
+      [[ "${label}" == "THORCH_ROOT" || "${label}" == "armbi_root" ||
+        "${partlabel}" == "THORCH_ROOT" || "${partlabel}" == "STORAGE" ]]; then
       reject_android_partition "${name}"
       require_unmounted "${name}"
       root_candidates+=("${name}")
@@ -677,7 +704,7 @@ fi
 [[ -b "${root_device}" ]] || fail "root device is not a block device: ${root_device}"
 [[ "${boot_device}" != "${root_device}" ]] || fail "boot and root devices must differ"
 
-reject_android_partition "${boot_device}"
+reject_android_boot_partition "${boot_device}"
 reject_android_partition "${root_device}"
 require_unmounted "${boot_device}"
 require_unmounted "${root_device}"

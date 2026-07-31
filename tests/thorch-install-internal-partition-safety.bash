@@ -154,6 +154,91 @@ test_btrfs_internal_target_detection() (
   [[ "${root_device}" == "/dev/nvme0n1p11" ]] || fail "btrfs THORCH_ROOT was not selected"
 )
 
+test_installer_created_system_boot_is_allowed() (
+  load_installer_functions
+
+  created_boot_device=/dev/sda18
+  lsblk() {
+    if [[ "$*" == "-no NAME,LABEL,PARTLABEL /dev/sda18" ]]; then
+      printf 'sda18  system\n'
+      return 0
+    fi
+    return 1
+  }
+
+  reject_android_boot_partition /dev/sda18
+)
+
+test_existing_rocknix_system_boot_is_allowed() (
+  load_installer_functions
+
+  blkid() {
+    if [[ "$*" == "-s LABEL -o value /dev/sda18" ]]; then
+      printf 'ROCKNIX\n'
+      return 0
+    fi
+    return 2
+  }
+  lsblk() {
+    case "$*" in
+      "-no FSTYPE /dev/sda18") printf 'vfat\n' ;;
+      "-no NAME,LABEL,PARTLABEL /dev/sda18") printf 'sda18 ROCKNIX system\n' ;;
+      *) return 1 ;;
+    esac
+  }
+
+  reject_android_boot_partition /dev/sda18
+)
+
+test_untrusted_android_system_is_rejected() {
+  set +e
+  (
+    load_installer_functions
+
+    lsblk() {
+      case "$*" in
+        "-no FSTYPE /dev/sda18") printf 'ext4\n' ;;
+        "-no NAME,LABEL,PARTLABEL /dev/sda18") printf 'sda18  system\n' ;;
+        *) return 1 ;;
+      esac
+    }
+
+    reject_android_boot_partition /dev/sda18
+  ) >/dev/null 2>&1
+  local rc=$?
+  set -e
+  [[ ${rc} -ne 0 ]] || fail "an untrusted Android system partition was accepted as a boot target"
+}
+
+test_unaligned_userdata_end_uses_next_free_mib() (
+  load_installer_functions
+
+  local boot_start="" cleanup_start=""
+  assume_yes=1
+
+  findmnt() { return 1; }
+  blockdev() { printf '68719476736\n'; }
+  parted() {
+    if [[ "$*" == "-m -s /dev/nvme0n1 unit B print" ]]; then
+      printf 'BYT;\n/dev/nvme0n1:68719476736B:gpt:512:512:gpt:mock:;\n1:1048576B:9534177279B:9533128704B:ext4:userdata:;\n'
+      return 0
+    fi
+    return 1
+  }
+  delete_partitions_after_userdata() {
+    cleanup_start="$2"
+  }
+  create_target_in_free_space_after_userdata() {
+    boot_start="$2"
+  }
+
+  create_target_by_reusing_resized_userdata /dev/nvme0n1 >/dev/null
+  [[ "${cleanup_start}" == "9534177280" ]] ||
+    fail "stale partition cleanup did not use the exact first free byte: ${cleanup_start}"
+  [[ "${boot_start}" == "9093" ]] ||
+    fail "boot partition did not start at the first free whole MiB: ${boot_start}"
+)
+
 test_reuse_confirmation_precedes_deletion() {
   local log="${tmp}/reuse-mutating-commands.log"
   set +e
@@ -266,6 +351,11 @@ grep -q -- '--one-file-system' "${script}" ||
   fail "internal installer root copy can cross into mounted tmpfs contents"
 grep -q 'name "${boot_num}" system' "${script}" ||
   fail "internal installer does not use the ROCKNIX system partition name"
+grep -q 'name "${root_num}" THORCH_ROOT' "${script}" ||
+  fail "internal installer does not give its root a distinct GPT name"
+if grep -q 'name "${root_num}" STORAGE' "${script}"; then
+  fail "internal installer root still collides with the ROCKNIX external STORAGE name"
+fi
 grep -q 'set "${boot_num}" msftdata on' "${script}" ||
   fail "internal installer does not use the ROCKNIX Basic Data partition type"
 grep -q 'set "${boot_num}" legacy_boot on' "${script}" ||
@@ -277,6 +367,10 @@ fi
 test_blank_rocknix_partlabel_detection
 test_partition_start_byte_conversion_for_adjacency
 test_btrfs_internal_target_detection
+test_installer_created_system_boot_is_allowed
+test_existing_rocknix_system_boot_is_allowed
+test_untrusted_android_system_is_rejected
+test_unaligned_userdata_end_uses_next_free_mib
 test_reuse_confirmation_precedes_deletion
 test_shrink_confirmation_precedes_userdata_wipe
 test_cache_tmpfs_fstab_filter

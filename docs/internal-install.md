@@ -25,7 +25,8 @@ that mode, the installer handles three internal-storage states:
   Thorch shrinks/wipes `userdata` once, then creates ROCKNIX boot and Thorch
   root partitions after it.
 - **Existing ROCKNIX/Thorch layout:** a ROCKNIX boot partition and a
-  THORCH_ROOT/armbi_root/STORAGE root partition are detected and reused.
+  THORCH_ROOT/armbi_root root filesystem or legacy `STORAGE` root partition is
+  detected and reused.
   Blank-but-labelled ROCKNIX boot partitions are accepted because the installer
   formats the selected boot partition anyway.
 - **Already-resized but incomplete layout:** if `userdata` is already smaller
@@ -81,8 +82,18 @@ path.
 The internal Linux boot filesystem is formatted with the ROCKNIX-compatible
 label `ROCKNIX`. Newly allocated boot partitions also match the imported
 qcom-abl metadata: Microsoft Basic Data, partition name `system`, and the GPT
-legacy-boot attribute. The top-level `/KERNEL` remains the Android boot image
-that ABL loads.
+legacy-boot attribute. The selected `system` partition is exempted from the
+Android-name safety check only when the installer just created it or it is
+already a FAT filesystem labelled `ROCKNIX`.
+
+Newly allocated internal root partitions use the distinct GPT name
+`THORCH_ROOT`, while their filesystem is also labelled `THORCH_ROOT`. The
+installer continues to recognize legacy roots named `STORAGE`, but no longer
+creates that name because ROCKNIX external media uses `STORAGE` and the
+duplicate can confuse ABL's external-boot selection. Internal `/KERNEL` and
+`fstab` select the root by filesystem UUID, so this GPT-name distinction does
+not change normal internal booting. The top-level `/KERNEL` remains the Android
+boot image that ABL loads.
 
 On some devices ABL may still load the internal `/KERNEL` before the SD card's
 `/KERNEL`. Thorch handles that in the initramfs: when `thorch-sd-prefer` finds
