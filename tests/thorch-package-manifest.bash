@@ -18,6 +18,10 @@ python3 "${cli}" --repo "${root}" validate >/dev/null
   fail "manifest CLI did not derive the current static package version"
 [[ "$(python3 "${cli}" --repo "${root}" version thorch-fex)" == "2607-6" ]] ||
   fail "manifest CLI did not resolve aliases while deriving package versions"
+aliases="$(python3 "${cli}" --repo "${root}" aliases --format space)"
+[[ " ${aliases} " == *" kwin "* ]] || fail "KWin rename alias is not exposed for pruning"
+[[ " ${aliases} " == *" plasma-keyboard "* ]] ||
+  fail "keyboard rename alias is not exposed for pruning"
 
 build_packages=()
 while IFS= read -r package; do
@@ -166,6 +170,10 @@ package_version_preferred "2-1" "1-1" "" ||
   fail "ordinary package pruning did not retain the newest version"
 grep -Fq 'validate_selected_repo_versions' "${builder}" ||
   fail "final repository validation does not check selected package versions"
+grep -Fq 'retired_package_aliases["${package_alias}"]=1' "${builder}" ||
+  fail "package builder does not load manifest aliases for repository pruning"
+grep -Fq 'retiring superseded package artifact' "${builder}" ||
+  fail "package builder does not retire renamed package artifacts"
 rm -rf "${srcinfo_fixture}"
 
 bad_manifest="$(mktemp)"

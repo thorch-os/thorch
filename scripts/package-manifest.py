@@ -356,6 +356,11 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         "--format", choices=("lines", "space", "csv"), default="lines"
     )
 
+    aliases = subparsers.add_parser(
+        "aliases", help="print superseded package names from the alias map"
+    )
+    aliases.add_argument("--format", choices=("lines", "space", "csv"), default="lines")
+
     profile = subparsers.add_parser("profile", help="print a profile in build order")
     profile.add_argument("name", choices=sorted(PROFILE_NAMES))
     profile.add_argument("--format", choices=("lines", "space", "csv"), default="lines")
@@ -402,7 +407,9 @@ def main(argv: List[str]) -> int:
             print(f"package dependency order valid: {len(records)} packages")
             return 0
 
-        if args.command == "dependencies":
+        if args.command == "aliases":
+            values = sorted(aliases)
+        elif args.command == "dependencies":
             fields = parse_srcinfo(args.srcinfo.resolve())
             values = dependency_values_for_arch(fields, args.arch)
         elif args.command == "profile":

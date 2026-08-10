@@ -6,8 +6,8 @@ config="${root}/config/thorch.conf"
 builder="${root}/scripts/build-packages.sh"
 makefile="${root}/Makefile"
 build_docs="${root}/docs/build.md"
-kwin_pkgbuild="${root}/packages/kwin/PKGBUILD"
-keyboard_pkgbuild="${root}/packages/plasma-keyboard/PKGBUILD"
+kwin_pkgbuild="${root}/packages/thorch-kwin/PKGBUILD"
+keyboard_pkgbuild="${root}/packages/thorch-plasma-keyboard/PKGBUILD"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2

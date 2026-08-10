@@ -18,6 +18,11 @@ Add every new `packages/*/PKGBUILD` directory to the manifest. Internal
 dependencies must be declared by the consumer and their providers must appear
 earlier in the manifest.
 
+When renaming a package, keep the old name in the manifest's `aliases` map.
+Selections continue to resolve the old name, and the package builder archives
+the existing repository cohort before retiring cached artifacts under that
+superseded identity.
+
 ## Inputs and versions
 
 The package directory is always an input. `build_inputs` lists external trees

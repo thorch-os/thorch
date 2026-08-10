@@ -9,6 +9,17 @@ or direct replacement of individual package files are unsupported because the
 kernel, modules, initramfs, boot payload, firmware, and userspace packages may
 need to change together.
 
+Thorch's patched compositor and on-screen keyboard use the distinct package
+names `thorch-kwin` and `thorch-plasma-keyboard`. They provide, conflict with,
+and replace the corresponding stock package names, so repository upgrades keep
+the Thorch variants installed instead of treating a newer stock Plasma build as
+an upgrade of the same package.
+
+Systems where the stock packages are already installed can be restored with
+`scripts/repair-thorch-keyboard.sh`. Run it as the affected desktop user; it
+builds the matching Thorch packages locally and installs both in one pacman
+transaction.
+
 ## Boot transaction
 
 The `thorch-bsp` package installs libalpm hooks that:

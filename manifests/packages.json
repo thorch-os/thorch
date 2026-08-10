@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
   "aliases": {
+    "kwin": "thorch-kwin",
+    "plasma-keyboard": "thorch-plasma-keyboard",
     "thorch-fex": "thorch-fex-bin"
   },
   "packages": [
@@ -35,14 +37,14 @@
       "build_inputs": []
     },
     {
-      "name": "kwin",
-      "path": "packages/kwin",
+      "name": "thorch-kwin",
+      "path": "packages/thorch-kwin",
       "profiles": ["build", "image", "release"],
       "build_inputs": []
     },
     {
-      "name": "plasma-keyboard",
-      "path": "packages/plasma-keyboard",
+      "name": "thorch-plasma-keyboard",
+      "path": "packages/thorch-plasma-keyboard",
       "profiles": ["build", "image", "release"],
       "build_inputs": []
     },

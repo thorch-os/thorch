@@ -1,8 +1,9 @@
 # Maintainer: Thorch contributors
 
-pkgname=plasma-keyboard
+pkgname=thorch-plasma-keyboard
+_pkgname=plasma-keyboard
 pkgver=6.7.3
-pkgrel=17
+pkgrel=18
 pkgdesc='Thorch-tuned Plasma on-screen keyboard'
 arch=(aarch64)
 url='https://invent.kde.org/plasma/plasma-keyboard'
@@ -10,7 +11,10 @@ license=(GPL-2.0-or-later GPL-3.0-only)
 depends=(glibc kcmutils kconfig kcoreaddons kcrash ki18n kirigami kirigami-addons kitemmodels libplasma libstdc++ libxkbcommon qt6-base qt6-declarative qt6-virtualkeyboard wayland)
 makedepends=(extra-cmake-modules qt6-wayland wayland-protocols)
 groups=(plasma)
-source=("https://download.kde.org/stable/plasma/${pkgver}/${pkgname}-${pkgver}.tar.xz"
+provides=("${_pkgname}=${pkgver}")
+conflicts=("${_pkgname}")
+replaces=("${_pkgname}")
+source=("https://download.kde.org/stable/plasma/${pkgver}/${_pkgname}-${pkgver}.tar.xz"
         0001-target-thorch-bottom-display.patch
         0002-forward-sticky-modifier-chords.patch
         0003-add-thorch-keyboard-settings-and-style.patch
@@ -36,7 +40,7 @@ sha256sums=('c371d98c4588db6672a93aa13b53d178f2dc383bdb580c8bed65d1849be7c97e'
             'SKIP')
 
 prepare() {
-  cd "${pkgname}-${pkgver}"
+  cd "${_pkgname}-${pkgver}"
   patch -Np1 -i "${srcdir}/0001-target-thorch-bottom-display.patch"
   patch -Np1 -i "${srcdir}/0002-forward-sticky-modifier-chords.patch"
   patch -Np1 -i "${srcdir}/0003-add-thorch-keyboard-settings-and-style.patch"
@@ -51,7 +55,7 @@ prepare() {
 }
 
 build() {
-  cmake -B build -S "${pkgname}-${pkgver}" \
+  cmake -B build -S "${_pkgname}-${pkgver}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=ON
   cmake --build build
@@ -64,7 +68,7 @@ check() {
 
   install -d "${test_layouts}"
   install -d -m 0700 "${runtime_dir}"
-  cp -a "${pkgname}-${pkgver}/src/layouts/." "${test_layouts}/"
+  cp -a "${_pkgname}-${pkgver}/src/layouts/." "${test_layouts}/"
   install -m644 "${startdir}"/layouts/*.qml "${test_layouts}/fallback/"
 
   XDG_RUNTIME_DIR="${runtime_dir}" \

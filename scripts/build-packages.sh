@@ -83,6 +83,11 @@ fi
 root="$(repo_root)"
 manifest_cli="${script_dir}/package-manifest.py"
 python3 "${manifest_cli}" --repo "${root}" validate >/dev/null
+declare -A retired_package_aliases=()
+while IFS= read -r package_alias; do
+  [[ -n "${package_alias}" ]] || continue
+  retired_package_aliases["${package_alias}"]=1
+done < <(python3 "${manifest_cli}" --repo "${root}" aliases)
 
 canonical_path() {
   python3 - "$1" <<'PY'
@@ -585,6 +590,12 @@ prune_stale_repo_packages() {
     pkgname="$(pkginfo_value "${file}" pkgname)"
     pkgver="$(pkginfo_value "${file}" pkgver)"
     [[ -n "${pkgname}" && -n "${pkgver}" ]] || die "unable to read package metadata from ${file}"
+
+    if [[ -n "${retired_package_aliases[${pkgname}]:-}" ]]; then
+      log "retiring superseded package artifact ${file##*/}"
+      remove_repo_artifact "${file}"
+      continue
+    fi
 
     current="${best_file[${pkgname}]:-}"
     if [[ -z "${current}" ]]; then
