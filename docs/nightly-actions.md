@@ -96,11 +96,10 @@ it rejects rolling values such as `next` and `latest`. Advance those pins in a
 reviewed commit after validating the new combination. Manual runs can select
 ext4 when an uncompressed compatibility image is needed.
 
-The current kernel-image pin is `nightly-20260728`, whose SM8550 asset was
-validated by successful Thorch nightly run
-[`30375469331`](https://github.com/thorch-os/thorch/actions/runs/30375469331).
-That run recorded the source image SHA-256 as
-`a8c2994b0a4cf243c7cfead04539f13b4e9688c5f1628fec310914afb1b27577`.
+The current kernel-image pin is `nightly-20260913`, whose SM8550 asset SHA-256
+is `7ac313236503db35e80f1848ad582f3b7beb338a786270d73da0faae4a59c17e`. Verify
+the new pin combination with a successful Thorch nightly run before treating it
+as release-equivalent.
 
 Before preparing the host or starting Docker, the workflow downloads the most
 recent build manifest for the requested configuration. If that manifest already

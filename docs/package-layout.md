@@ -87,7 +87,7 @@ removable device or the expected two-partition Thorch SD layout unless
 type, supports explicit ext4/Btrfs selection, and preserves the cache tmpfs
 configuration.
 
-`thorch-fex-bin` repackages FEX-2607 and its x86_64 Freedreno guest driver from
+`thorch-fex-bin` repackages FEX-2608 and its x86_64 Freedreno guest driver from
 the matching pinned ROCKNIX nightly `/SYSTEM` runtime. It
 installs FEX, Vulkan/OpenGL, audio, DRM, and Wayland thunks, binfmt
 registrations, a `libfmt.so.11` compatibility library for the imported binaries,

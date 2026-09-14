@@ -74,6 +74,7 @@ sparse_paths=(
   projects/ROCKNIX/devices/SM8550/linux
   projects/ROCKNIX/devices/SM8550/patches
   projects/ROCKNIX/packages/linux
+  packages/linux/patches/default
   projects/ROCKNIX/packages/apps/gamescope/patches
   projects/ROCKNIX/packages/apps/mangohud/config
   projects/ROCKNIX/packages/apps/mangohud/patches/SM8550
@@ -118,6 +119,7 @@ sync_optional_dir "${src}/filesystem/usr/share/inputplumber" "${dest_abs}/inputp
 sync_optional_dir "${src}/linux" "${dest_abs}/linux"
 sync_optional_dir "${src}/patches" "${dest_abs}/patches"
 sync_required_dir "${rocknix_root}/packages/linux" "${dest_abs}/packages/linux"
+sync_required_dir "packages/linux/patches/default" "${dest_abs}/packages/linux/patches/default"
 sync_required_dir "${rocknix_root}/packages/apps/gamescope/patches" "${dest_abs}/packages/apps/gamescope/patches"
 sync_required_dir "${rocknix_root}/packages/apps/mangohud/config" "${dest_abs}/packages/apps/mangohud/config"
 sync_required_dir "${rocknix_root}/packages/apps/mangohud/patches/SM8550" "${dest_abs}/packages/apps/mangohud/patches/SM8550"
@@ -135,7 +137,11 @@ if [[ "${with_firmware}" -eq 1 ]]; then
   fw_src="${src}/filesystem/usr/lib/kernel-overlays/base/lib/firmware"
   rm -rf "${dest_abs}/firmware"
   install -d "${dest_abs}/firmware"
-  rsync -a "${fw_src}/" "${dest_abs}/firmware/"
+  if [[ -d "${fw_src}" ]]; then
+    rsync -a "${fw_src}/" "${dest_abs}/firmware/"
+  else
+    warn "optional firmware path missing, skipped: ${fw_src}"
+  fi
   {
     printf 'ROCKNIX_REPO=%s\n' "${ROCKNIX_REPO}"
     printf 'REQUESTED_REF=%s\n' "${ref}"

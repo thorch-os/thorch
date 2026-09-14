@@ -9,26 +9,26 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   # shellcheck source=../config/thorch.conf
   source "${root}/config/thorch.conf"
 
-  [[ "${ROCKNIX_REF}" == "e7650bd7fc72e610a105e0eb0e04d34316f2be2d" ]]
+  [[ "${ROCKNIX_REF}" == "ad6803eb73c4a71d8dfeadd22d2a022f7df16bdc" ]]
   [[ "${ROCKNIX_KERNEL_SOURCE}" == "nightly" ]]
-  [[ "${ROCKNIX_KERNEL_RELEASE}" == "nightly-20260730" ]]
-  [[ "${ROCKNIX_KERNEL_IMAGE_SHA256}" == "83b894b2fa89304f91d554d5f9268d846c42b0a90ad970b7a6900839c531ff99" ]]
-  [[ "${THORCH_KERNEL_REF}" == "v7.1.2" ]]
-  [[ "${THORCH_KERNEL_TARBALL_SHA256}" == "37198c93727be247c9fb5309bb86cd5e496c61e5322cd8c4eca9476bb0b5883f" ]]
+  [[ "${ROCKNIX_KERNEL_RELEASE}" == "nightly-20260913" ]]
+  [[ "${ROCKNIX_KERNEL_IMAGE_SHA256}" == "7ac313236503db35e80f1848ad582f3b7beb338a786270d73da0faae4a59c17e" ]]
+  [[ "${THORCH_KERNEL_REF}" == "v7.2" ]]
+  [[ "${THORCH_KERNEL_TARBALL_SHA256}" == "f9fef3d14c0df53819026f4be74459835c2a0b0dcbf5b5bbd9ea19f0829402b3" ]]
 )
 
 (
   startdir="${root}/packages/linux-thorch"
   # shellcheck source=../packages/linux-thorch/PKGBUILD
   source "${root}/packages/linux-thorch/PKGBUILD"
-  [[ "${pkgver}" == "7.1.2" ]]
+  [[ "${pkgver}" == "7.2.0" ]]
 )
 
 (
   startdir="${root}/packages/thorch-fex-bin"
   # shellcheck source=../packages/thorch-fex-bin/PKGBUILD
   source "${root}/packages/thorch-fex-bin/PKGBUILD"
-  [[ "${pkgver}" == "2607" ]]
+  [[ "${pkgver}" == "2608" ]]
 )
 
 (
