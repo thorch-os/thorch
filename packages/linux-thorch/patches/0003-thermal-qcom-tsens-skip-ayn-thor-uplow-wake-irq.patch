@@ -1,4 +1,4 @@
-From 2b4adfaf66434bddbde753c3ae7229d8c73a0ea5 Mon Sep 17 00:00:00 2001
+From 224099d21f6ceec234f0a43f1d997f0be1e1f7c0 Mon Sep 17 00:00:00 2001
 From: jaewun <jaewun@users.noreply.github.com>
 Date: Mon, 11 May 2026 01:20:00 +1200
 Subject: [PATCH] thermal: qcom: tsens: skip AYN Thor uplow wake IRQs
@@ -10,47 +10,42 @@ Keep normal TSENS interrupt handling active and keep critical TSENS wake
 enabled. Only skip enable_irq_wake() for the ordinary "uplow" TSENS IRQs on
 ayn,thor.
 
+[Thorch rebase: on Linux 7.2 the wake IRQ is armed in
+ tsens_suspend_common()/tsens_resume_common() using the uplow_irq that
+ tsens_register_irq() only stores now.  Guard both the enable and the
+ symmetric disable so the resume path does not warn on a wake source that
+ was never armed.]
+
 Signed-off-by: jaewun <jaewun@users.noreply.github.com>
 ---
- drivers/thermal/qcom/tsens.c | 15 ++++++++++++++-
- 1 file changed, 14 insertions(+), 1 deletion(-)
+ drivers/thermal/qcom/tsens.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/thermal/qcom/tsens.c b/drivers/thermal/qcom/tsens.c
-index fbdab9d00000..fbdab9d00001 100644
+index 6e3714eca..4e1cce436 100644
 --- a/drivers/thermal/qcom/tsens.c
 +++ b/drivers/thermal/qcom/tsens.c
-@@ -1174,6 +1174,15 @@ static const struct thermal_zone_device_ops tsens_of_ops = {
- 	.set_trips = tsens_set_trips,
- };
- 
-+static bool tsens_irq_wake_enabled(const char *irqname)
-+{
-+	if (!of_machine_is_compatible("ayn,thor"))
-+		return true;
-+
-+	/* Keep critical thermal wake; only passive threshold-window IRQs are noisy. */
-+	return strcmp(irqname, "uplow") != 0;
-+}
-+
- static int tsens_register_irq(struct tsens_priv *priv, char *irqname,
- 			      irq_handler_t thread_fn)
- {
-@@ -1203,11 +1212,15 @@ static int tsens_register_irq(struct tsens_priv *priv, char *irqname,
- 
- 		if (ret)
- 			dev_err(&pdev->dev, "%s: failed to get irq\n",
- 				__func__);
--		else
-+		else if (tsens_irq_wake_enabled(irqname))
- 			enable_irq_wake(irq);
-+		else
-+			dev_info(&pdev->dev,
-+				 "leaving TSENS %s IRQ %d as non-wakeup on AYN Thor\n",
-+				 irqname, irq);
+@@ -1297,7 +1297,9 @@ int tsens_suspend_common(struct tsens_priv *priv)
+ 	if (priv->feat->combo_int)
+ 		enable_irq_wake(priv->combined_irq);
+ 	else {
+-		enable_irq_wake(priv->uplow_irq);
++		/* The uplow threshold IRQ is a noisy non-wakeup source on AYN Thor. */
++		if (!of_machine_is_compatible("ayn,thor"))
++			enable_irq_wake(priv->uplow_irq);
+ 		if (priv->feat->crit_int)
+ 			enable_irq_wake(priv->crit_irq);
  	}
- 
- 	put_device(&pdev->dev);
- 	return ret;
- }
+@@ -1316,7 +1318,9 @@ int tsens_resume_common(struct tsens_priv *priv)
+ 	if (priv->feat->combo_int)
+ 		disable_irq_wake(priv->combined_irq);
+ 	else {
+-		disable_irq_wake(priv->uplow_irq);
++		/* Only woke the uplow IRQ if it was armed as a wake source. */
++		if (!of_machine_is_compatible("ayn,thor"))
++			disable_irq_wake(priv->uplow_irq);
+ 		if (priv->feat->crit_int)
+ 			disable_irq_wake(priv->crit_irq);
+ 	}
 -- 
 2.50.0

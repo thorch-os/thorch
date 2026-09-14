@@ -64,10 +64,10 @@ fi
 pkgbuild="${work}/PKGBUILD"
 cat > "${pkgbuild}" <<'EOF'
 pkgname=linux-thorch
-pkgver=7.1.2
+pkgver=7.2.0
 pkgrel=9
 EOF
-[[ "$(linux_thorch_expected_kernel_release "${pkgbuild}")" == 7.1.2-thorch9 ]] ||
+[[ "$(linux_thorch_expected_kernel_release "${pkgbuild}")" == 7.2.0-thorch9 ]] ||
   fail "linux-thorch expected release was derived incorrectly"
 
 printf 'thorch kernel provenance checks passed\n'

@@ -67,7 +67,7 @@ ROCKNIX `/SYSTEM` payload. Runtime provenance is written to
 `vendor/rocknix-runtime/PROVENANCE` and installed into package license metadata
 with the imported binaries.
 
-The pinned ROCKNIX nightly already carries FEX-2607. Thorch therefore reuses
+The pinned ROCKNIX nightly already carries FEX-2608. Thorch therefore reuses
 that matched runtime and thunk set instead of carrying Pocknix's separate x86
 sysroot build. For comparison, `shuuri-labs/pocknix-os` builds FEX-2607 from
 source with patches 0001, 0002, 0005, and 0006. It drops ROCKNIX's 0004 Nix

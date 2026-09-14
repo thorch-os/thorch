@@ -440,6 +440,7 @@ normalize_immutable_rocknix_image() {
     'usr/lib/libfmt.so.11*' \
     usr/bin/FEX* \
     usr/lib/fex-emu \
+    usr/lib/libvulkan_freedreno.so \
     'usr/lib/binfmt.d/FEX-*.conf' \
     usr/config/fex-emu \
     usr/share/fex-emu >/dev/null

@@ -119,8 +119,30 @@ copy_path usr/share/fex-emu/AppConfig
 copy_path usr/share/fex-emu/GuestThunks
 copy_path usr/share/fex-emu/GuestThunks_32
 copy_path usr/share/fex-emu/ThunksDB.json
-copy_path usr/share/fex-emu/libvulkan_freedreno.so
 copy_path usr/config/fex-emu
+
+freedreno_libvulkan() {
+  local src source_lib
+  src=""
+  for source_lib in \
+    "usr/lib/libvulkan_freedreno.so" \
+    "usr/share/fex-emu/libvulkan_freedreno.so"; do
+    if [[ -f "${runtime_root}/${source_lib}" ]]; then
+      src="${source_lib}"
+      break
+    fi
+  done
+  printf '%s\n' "${src}"
+}
+
+freedreno_rel="$(freedreno_libvulkan)"
+if [[ -n "${freedreno_rel}" ]]; then
+  install -d "${dest_abs}/usr/share/fex-emu"
+  rsync -a "${runtime_root}/${freedreno_rel}" "${dest_abs}/usr/share/fex-emu/libvulkan_freedreno.so"
+  freedreno_source="${runtime_root}/${freedreno_rel}"
+else
+  freedreno_source=""
+fi
 
 for fmt_lib in "${runtime_root}"/usr/lib/libfmt.so.11*; do
   [[ -e "${fmt_lib}" || -L "${fmt_lib}" ]] || continue
@@ -143,7 +165,7 @@ done
   printf 'SOURCE_FEX_ROOTFS_FETCHER=%s\n' "${runtime_root}/usr/bin/FEXRootFSFetcher"
   printf 'SOURCE_FEX_HOST_THUNKS=%s\n' "${runtime_root}/usr/lib/fex-emu/HostThunks"
   printf 'SOURCE_FEX_GUEST_THUNKS=%s\n' "${runtime_root}/usr/share/fex-emu/GuestThunks"
-  printf 'SOURCE_FEX_VULKAN_FREEDRENO=%s\n' "${runtime_root}/usr/share/fex-emu/libvulkan_freedreno.so"
+  printf 'SOURCE_FEX_VULKAN_FREEDRENO=%s\n' "${freedreno_source}"
   date -u '+IMPORTED_AT=%Y-%m-%dT%H:%M:%SZ'
 } > "${dest_abs}/PROVENANCE"
 chmod 0644 "${dest_abs}/PROVENANCE"
