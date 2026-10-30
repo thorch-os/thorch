@@ -1,0 +1,23 @@
+From: Thorch contributors
+Subject: [PATCH] arm64: dts: qcom: match Thor haptics to original Android
+
+AYN Thor Android uses 1300 mV and does not set qcom,use-erm. The Linux
+driver reads use-erm as a boolean, so setting its value to zero would not
+disable ERM mode. Remove the property entirely. Keep period and braking.
+Override the shared haptics node only in the Thor DTS. Other AYN devices
+retain their existing configuration.
+
+--- a/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
++++ b/arch/arm64/boot/dts/qcom/qcs8550-ayn-thor.dts
+@@ -7,6 +7,11 @@
+ 
+ #include "qcs8550-ayn-common.dtsi"
+ 
++&pm8550b_hv_haptics {
++	qcom,vmax-mv = <1300>;
++	/delete-property/ qcom,use-erm;
++};
++
+ / {
+ 	model = "AYN Thor";
+ 	compatible = "ayn,thor", "qcom,qcs8550", "qcom,sm8550";

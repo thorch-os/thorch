@@ -1,0 +1,184 @@
+diff --git a/drivers/input/misc/qcom-hv-haptics.c b/drivers/input/misc/qcom-hv-haptics.c
+index daca114fe..163e56d3d 100644
+--- a/drivers/input/misc/qcom-hv-haptics.c
++++ b/drivers/input/misc/qcom-hv-haptics.c
+@@ -670,6 +670,13 @@ struct haptics_reg_info {
+ };
+ 
+ static struct haptics_chip *global_haptics = NULL;
++static DEFINE_MUTEX(global_haptics_lock);
++static DEFINE_SPINLOCK(global_haptics_request_lock);
++static int global_effect_id, global_play_value;
++static u16 global_gain;
++static bool global_play_pending, global_gain_pending;
++static void global_haptics_work_fn(struct work_struct *work);
++static DECLARE_WORK(global_haptics_work, global_haptics_work_fn);
+ 
+ static inline int get_max_fifo_samples(struct haptics_chip *chip)
+ {
+@@ -1330,7 +1337,7 @@ static int haptics_set_vmax_mv(struct haptics_chip *chip, u32 vmax_mv)
+ 		return rc;
+ 	}
+ 
+-	dev_info(chip->dev, "Set Vmax to %u mV\n", vmax_mv);
++	dev_dbg(chip->dev, "Set Vmax to %u mV\n", vmax_mv);
+ 
+ 	rc = haptics_check_hpwr_status(chip);
+ 	if (rc < 0)
+@@ -2868,8 +2875,8 @@ static int haptics_erase(struct input_dev *dev, int effect_id)
+ 	int rc;
+ 
+ 	dev_dbg(chip->dev, "erase effect, really stop play\n");
+-	mutex_lock(&play->lock);
+ 	cancel_delayed_work_sync(&chip->stop_work);
++	mutex_lock(&play->lock);
+ 	if ((play->pattern_src == FIFO) &&
+ 			atomic_read(&play->fifo_status.is_busy)) {
+ 		if (atomic_read(&play->fifo_status.written_done) == 0) {
+@@ -6079,7 +6086,9 @@ static int haptics_probe(struct platform_device *pdev)
+ 		dev_err(chip->dev, "Creating debugfs failed, rc=%d\n", rc);
+ #endif
+ 
+-	global_haptics = chip;
++	mutex_lock(&global_haptics_lock);
++	WRITE_ONCE(global_haptics, chip);
++	mutex_unlock(&global_haptics_lock);
+ 
+ 	return 0;
+ destroy_ff:
+@@ -6094,8 +6103,13 @@ static void haptics_remove(struct platform_device *pdev)
+ 	if (chip->pbs_node)
+ 		of_node_put(chip->pbs_node);
+ 
++	mutex_lock(&global_haptics_lock);
+ 	if (global_haptics == chip)
+-		global_haptics = NULL;
++		WRITE_ONCE(global_haptics, NULL);
++	mutex_unlock(&global_haptics_lock);
++	cancel_work_sync(&global_haptics_work);
++	cancel_delayed_work_sync(&chip->stop_work);
++	cancel_work_sync(&chip->set_gain_work);
+ 
+ 	unregister_hboost_event_notifier(&chip->hboost_nb);
+ 	class_unregister(&chip->hap_class);
+@@ -6296,57 +6310,84 @@ module_platform_driver(haptics_driver);
+ 
+ //
+ int qcom_spmi_haptics_global_upload(struct ff_effect *effect) {
+-	int ret;
+-
+-	if (!global_haptics)
+-		return -ENODEV;
+-
+-	spin_lock_irq(&global_haptics->input_dev->event_lock);
+-
+-	ret = global_haptics->input_dev->ff->upload(global_haptics->input_dev, effect, NULL);
++	struct input_dev *dev;
++	int ret = -ENODEV;
+ 
+-	spin_unlock_irq(&global_haptics->input_dev->event_lock);
++	mutex_lock(&global_haptics_lock);
++	if (global_haptics) {
++		dev = global_haptics->input_dev;
++		mutex_lock(&dev->ff->mutex);
++		ret = dev->ff->upload(dev, effect, NULL);
++		mutex_unlock(&dev->ff->mutex);
++	}
++	mutex_unlock(&global_haptics_lock);
+ 
+ 	return ret;
+ }
+ 
+ int qcom_spmi_haptics_global_playback(int effect_id, int val) {
+-	int ret;
++	unsigned long flags;
+ 
+-	if (!global_haptics)
++	if (!READ_ONCE(global_haptics))
+ 		return -ENODEV;
+-
+-	spin_lock_irq(&global_haptics->input_dev->event_lock);
+-
+-	if (val != 0)
+-		ret = global_haptics->input_dev->ff->playback(global_haptics->input_dev, effect_id, val);
+-	else
+-		ret = global_haptics->input_dev->ff->erase(global_haptics->input_dev, effect_id);
+-
+-	if (ret)
+-		pr_warn("%s called for %s, error in return (%d)\n", __func__, (val!=0 ? "Playback" : "Erase"), ret);
+-
+-	spin_unlock_irq(&global_haptics->input_dev->event_lock);
+-
+-	return ret;
++	spin_lock_irqsave(&global_haptics_request_lock, flags);
++	global_effect_id = effect_id;
++	global_play_value = val;
++	global_play_pending = true;
++	schedule_work(&global_haptics_work);
++	spin_unlock_irqrestore(&global_haptics_request_lock, flags);
++	return 0;
+ }
+ 
+ int qcom_spmi_haptics_global_set_gain(u16 gain) {
+-	if (!global_haptics)
+-		return -ENODEV;
+-
+-	spin_lock_irq(&global_haptics->input_dev->event_lock);
+-
+-	//max is 0x7fff, and minimum is 0x4000 the same values android uses
+-	gain = clamp(gain, 0x4000, 0x7fff);
+-
+-	global_haptics->input_dev->ff->set_gain(global_haptics->input_dev, gain);
+-
+-	spin_unlock_irq(&global_haptics->input_dev->event_lock);
++	unsigned long flags;
+ 
++	if (!READ_ONCE(global_haptics))
++		return -ENODEV;
++	spin_lock_irqsave(&global_haptics_request_lock, flags);
++	global_gain = clamp(gain, 0x4000, 0x7fff);
++	global_gain_pending = true;
++	schedule_work(&global_haptics_work);
++	spin_unlock_irqrestore(&global_haptics_request_lock, flags);
+ 	return 0;
+ }
+ 
++/* Input playback/gain callbacks may hold event_lock: only this worker sleeps.
++ * Coalesce pending requests to the latest requested motor state.
++ */
++static void global_haptics_work_fn(struct work_struct *work)
++{
++	struct input_dev *dev;
++	unsigned long flags;
++	int id, value, ret = 0;
++	u16 gain;
++	bool play_pending, gain_pending;
++
++	mutex_lock(&global_haptics_lock);
++	spin_lock_irqsave(&global_haptics_request_lock, flags);
++	id = global_effect_id;
++	value = global_play_value;
++	gain = global_gain;
++	play_pending = global_play_pending;
++	gain_pending = global_gain_pending;
++	global_play_pending = global_gain_pending = false;
++	spin_unlock_irqrestore(&global_haptics_request_lock, flags);
++	if (global_haptics) {
++		dev = global_haptics->input_dev;
++		mutex_lock(&dev->ff->mutex);
++		if (gain_pending)
++			dev->ff->set_gain(dev, gain);
++		if (play_pending)
++			ret = value ? dev->ff->playback(dev, id, value) :
++				dev->ff->erase(dev, id);
++		mutex_unlock(&dev->ff->mutex);
++		if (ret)
++			dev_err_ratelimited(global_haptics->dev,
++				"asynchronous rumble request failed: %d\n", ret);
++	}
++	mutex_unlock(&global_haptics_lock);
++}
++
+ EXPORT_SYMBOL_GPL(qcom_spmi_haptics_global_upload);
+ EXPORT_SYMBOL_GPL(qcom_spmi_haptics_global_playback);
+ EXPORT_SYMBOL_GPL(qcom_spmi_haptics_global_set_gain);
